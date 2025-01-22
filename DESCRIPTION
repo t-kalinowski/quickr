@@ -1,0 +1,22 @@
+Package: quickr
+Title: Compiler for R code
+Version: 0.0.0.9000
+Authors@R: 
+    person("Tomasz", "Kalinowski", , "tomasz@posit.co", role = c("aut", "cre"))
+Description: Compile R code.
+License: GPL (>= 3)
+Encoding: UTF-8
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 7.3.2
+Imports: 
+    dotty,
+    glue,
+    S7
+Suggests: 
+    pkgload (>= 1.4.0.9000),
+    testthat (>= 3.0.0),
+    rlang,
+    bench
+Config/testthat/edition: 3
+Remotes: 
+    t-kalinowski/pkgload@load_code-then-compile_dll
