@@ -347,8 +347,8 @@ weights <- dnorm(seq(-1, 1, len = 100))
 
 timings <- bench::mark(
   r = slow_roll_mean(x, weights),
-  quickr = quick_roll_mean(x, weights = weights),
-  rcpp = RcppRoll::roll_mean(x, weights = weights)
+  rcpp = RcppRoll::roll_mean(x, weights = weights),
+  quickr = quick_roll_mean(x, weights = weights)
 )
 timings
 
