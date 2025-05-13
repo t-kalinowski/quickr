@@ -418,7 +418,8 @@ On macOS:
 
   ``` zsh
   sudo xcode-select --install
-  curl -LO https://mac.r-project.org/tools/gfortran-12.2-universal.pkg
+  # curl -LO https://mac.r-project.org/tools/gfortran-12.2-universal.pkg # R 4.4
+  curl -LO https://mac.r-project.org/tools/gfortran-14.2-universal.pkg   # R 4.5
   sudo installer -pkg gfortran-12.2-universal.pkg -target /
   ```
 
