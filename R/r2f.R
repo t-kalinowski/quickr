@@ -146,7 +146,7 @@ num2fortran <- function(x) {
   nsmall <- switch(typeof(x), integer = 0L, double = 1L)
   repeat {
     s <- format.default(x, digits = digits, nsmall = nsmall, scientific = 1L)
-    if (x == str2lang(s))
+    if (x == eval(str2lang(s))) # eval() needed for negative and complex numbers
       break
     add(digits) <- 1L
     if (digits > 22L)
