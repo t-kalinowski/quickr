@@ -635,3 +635,13 @@ test_that("size constraint", {
 
 })
 
+
+test_that("size constraint", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x <- -0.1 + x
+    x
+  }
+
+  expect_quick_identical(fn, 3, -3, 0, -0)
+})

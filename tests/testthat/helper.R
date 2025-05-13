@@ -20,8 +20,7 @@ expect_translation_snapshots <- function(fn, name = deparse(substitute(fn))) {
 expect_quick_identical <- function(fn, ...) {
   qfn := quick(fn)
   args_list <- list(...)
-  if (!is.list(args_list[[1]]))
-    args_list <- list(args_list)
+  args_list <- lapply(args_list, function(x) if(!is.list(x)) list(x) else x)
 
   for (args in args_list)
     expect_identical(do.call(fn, args),
