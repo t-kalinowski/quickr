@@ -499,7 +499,6 @@ r2f_handlers[["atan"]] <-
 r2f_handlers[["sqrt"]] <-
 r2f_handlers[["exp"]] <-
 r2f_handlers[["log"]] <-
-
 r2f_handlers[["floor"]] <-
 r2f_handlers[["ceiling"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
@@ -511,16 +510,12 @@ r2f_handlers[["ceiling"]] <- function(args, scope, ...) {
 r2f_handlers[["log10"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  if(arg@value@mode == "complex") {
-    # stop("log10() for complex numbers not yet implemented.")
-    # need to hoist a temp var, e.g,.:
-    #   _tmp = log(z)
-    #   (log(z)) / log(10)
-    Fortran(glue("(log({arg}) / log(10.0_c_double))"), arg@value)
+  f <- if(arg@value@mode == "complex") {
+    glue("(log({arg}) / log(10.0_c_double))")
   } else {
-    Fortran(glue("log10({arg})"), arg@value)
+    glue("log10({arg})")
   }
-
+  Fortran(f, arg@value)
 }
 
 ## accepts real, integer, or complex
@@ -1056,5 +1051,3 @@ check_call <- function(e, nargs) {
   if (length(e) != (nargs+1L))
     stop("Too many args to: ", as.character(e[[1L]]))
 }
-
-
