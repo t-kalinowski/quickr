@@ -676,7 +676,38 @@ test_that("logical ops", {
     out <- (a_gt_b || b_gt_a) && delta_lt_3
     out
   }
-
   expect_quick_identical(fn, !!!test_args)
+
+  # simpler version of above
+  fn <- function(a, b) {
+    declare({
+      type(a = double(1))
+      type(b = double(1))
+    })
+
+    delta <- abs(a - b)
+    out <- (a != b) & (delta <= 3)
+    out
+  }
+  expect_quick_identical(fn, !!!test_args)
+
+  # even simpler version
+  fn <- function(a, b) {
+    declare(type(a = double(1)), type(b = double(1)))
+    out <- (a != b) && abs(a - b) <= 3
+    out
+  }
+  expect_quick_identical(fn, !!!test_args)
+
+  # vectorized version
+  fn <- function(a, b) {
+    declare(type(a = double(n)), type(b = double(n)))
+    out <- (a != b) & abs(a - b) <= 3
+    out
+  }
+  .[a, b] <- .mapply(c, test_args, NULL)
+  expect_quick_identical(fn, list(a, b))
+})
+
 
 })

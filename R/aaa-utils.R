@@ -226,3 +226,5 @@ defer <- function (expr, env = parent.frame(), after = FALSE) {
   thunk <- as.call(list(function() expr))
   do.call(on.exit, list(thunk, TRUE, after), envir = env)
 }
+
+is_scalar <- function(x) identical(length(x), 1L)

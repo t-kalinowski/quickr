@@ -480,6 +480,15 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
 }
 
 
+r2f_handlers[["abs"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  Fortran(glue("abs({arg})"), arg@value)
+}
+
+
+
+
 # ---- elemental binary infix operators ----
 
 r2f_handlers[["+"]] <- function(args, scope, ...) {
