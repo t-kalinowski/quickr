@@ -676,6 +676,7 @@ test_that("logical ops", {
     out <- (a_gt_b || b_gt_a) && delta_lt_3
     out
   }
+  expect_translation_snapshots(fn)
   expect_quick_identical(fn, !!!test_args)
 
   # simpler version of above
@@ -689,6 +690,7 @@ test_that("logical ops", {
     out <- (a != b) & (delta <= 3)
     out
   }
+  expect_translation_snapshots(fn)
   expect_quick_identical(fn, !!!test_args)
 
   # even simpler version
@@ -697,6 +699,7 @@ test_that("logical ops", {
     out <- (a != b) && abs(a - b) <= 3
     out
   }
+  expect_translation_snapshots(fn)
   expect_quick_identical(fn, !!!test_args)
 
   # vectorized version
@@ -705,6 +708,7 @@ test_that("logical ops", {
     out <- (a != b) & abs(a - b) <= 3
     out
   }
+  expect_translation_snapshots(fn)
   .[a, b] <- .mapply(c, test_args, NULL)
   expect_quick_identical(fn, list(a, b))
 })
@@ -730,7 +734,7 @@ test_that("double unary intrinsics", {
       intr
     )))
 
-    # expect_translation_snapshots(fn)
+    expect_translation_snapshots(fn)
 
     x <- switch(
       intr,
@@ -758,7 +762,7 @@ test_that("integer unary intrinsics", {
          out
        }", intr)))
 
-    # expect_translation_snapshots(fn)
+    expect_translation_snapshots(fn)
 
     x <- as.integer(seq(-5, 5, length.out = 20))
     expect_quick_identical(fn, x)
@@ -779,15 +783,14 @@ test_that("complex unary intrinsics", {
   )
 
   for (intr in complex_intrinsics) {
-    fn <- eval(parse(text = sprintf(
+    fn <- eval(str2lang(sprintf(
       "function(z) {
          declare(type(z = complex(NA)))
          out <- %s(z)
          out
        }", intr)))
 
-    # expect_translation_snapshots(fn)
-
+    expect_translation_snapshots(fn)
     expect_quick_equal(fn, z)
   }
 
