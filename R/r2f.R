@@ -471,11 +471,11 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
 
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
-  .[mask, tsource, fsource] <- lapply(args, scope, ...)
+  .[mask, tsource, fsource] <- lapply(args, r2f, scope, ...)
   # (tsource, fsource, mask)
   mode <- tsource@value@mode
-  dims <- conform(tsource@value, fsource@value)@dims
-  Fortran(glue("merge({tsource}, {fsource}, {mask}"),
+  dims <- conform(mask@value, tsource@value, fsource@value)@dims
+  Fortran(glue("merge({tsource}, {fsource}, {mask})"),
           Variable(mode, dims))
 }
 
