@@ -822,3 +822,18 @@ test_that("ifelse", {
   expect_quick_equal(fn, list(seq(-5, 5, length.out = 20), double(20)))
 
 })
+
+test_that("seq", {
+
+  fn <- function(a, b) {
+    declare(
+      type(a = integer(1)),
+      type(b = integer(1))
+    )
+
+    out <- sum(seq(a, b))
+    out
+  }
+
+  expect_quick_identical(fn, list(-1L, 10L), list(10L, -5L))
+})
