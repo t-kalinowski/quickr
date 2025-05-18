@@ -20,11 +20,27 @@ expect_translation_snapshots <- function(fn, name = deparse(substitute(fn))) {
 expect_quick_identical <- function(fn, ...) {
   qfn := quick(fn)
   args_list <- rlang::list2(...)
-  args_list <- lapply(args_list, function(x) if(!is.list(x)) list(x) else x)
+  args_list <- lapply(args_list, function(x) if (!is.list(x)) list(x) else x)
 
-  for (args in args_list)
-    expect_identical(do.call(fn, args),
-                     do.call(qfn, args))
+  for (args in args_list) {
+    fn_res <- do.call(fn, args)
+    qfn_res <- do.call(qfn, args)
+    expect_identical(fn_res, qfn_res)
+  }
+}
+
+
+expect_quick_equal <- function(fn, ...) {
+  qfn := quick(fn)
+  args_list <- rlang::list2(...)
+  args_list <- lapply(args_list, function(x) if (!is.list(x)) list(x) else x)
+
+  for (args in args_list) {
+    fn_res <- do.call(fn, args)
+    qfn_res <- do.call(qfn, args)
+    expect_equal(fn_res, qfn_res)
+    expect_identical(typeof(fn_res), typeof(qfn_res))
+  }
 }
 
 assign_in_global <- function(...) {

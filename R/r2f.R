@@ -487,6 +487,51 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
 }
 
 
+# ---- pure elemental unary math intrinsics ----
+
+## real and complex intrinsics
+r2f_handlers[["sin"]] <-
+r2f_handlers[["cos"]] <-
+r2f_handlers[["tan"]] <-
+r2f_handlers[["asin"]] <-
+r2f_handlers[["acos"]] <-
+r2f_handlers[["atan"]] <-
+r2f_handlers[["sqrt"]] <-
+r2f_handlers[["exp"]] <-
+r2f_handlers[["log"]] <-
+
+r2f_handlers[["floor"]] <-
+r2f_handlers[["ceiling"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  intrinsic <- last(list(...)$calls)
+  Fortran(glue("{intrinsic}({arg})"), arg@value)
+}
+
+r2f_handlers[["log10"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  if(arg@value@mode == "complex") {
+    # stop("log10() for complex numbers not yet implemented.")
+    # need to hoist a temp var, e.g,.:
+    #   _tmp = log(z)
+    #   (log(z)) / log(10)
+    Fortran(glue("(log({arg}) / log(10.0_c_double))"), arg@value)
+  } else {
+    Fortran(glue("log10({arg})"), arg@value)
+  }
+
+}
+
+## accepts real, integer, or complex
+r2f_handlers[["abs"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  if(arg@value@mode == "complex")
+    arg@value@mode <- "double"
+  Fortran(glue("abs({arg})"), arg@value)
+}
+
 
 
 # ---- elemental binary infix operators ----
