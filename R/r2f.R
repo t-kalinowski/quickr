@@ -533,6 +533,52 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
 }
 
 
+# ---- complex elemental unary intrinsics ----
+
+r2f_handlers[["Re"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  val <- arg@value
+  val@mode <- "double"
+  Fortran(glue("real({arg})"), val)
+}
+
+r2f_handlers[["Im"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  val <- arg@value
+  val@mode <- "double"
+  Fortran(glue("aimag({arg})"), val)
+}
+
+# Modulus (magnitude)
+r2f_handlers[["Mod"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  val <- arg@value
+  val@mode <- "double"
+  Fortran(glue("abs({arg})"), val)
+}
+
+# Argument (phase angle, radians)
+r2f_handlers[["Arg"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  val <- arg@value
+  val@mode <- "double"
+  Fortran(glue("atan2(aimag({arg}), real({arg}))"), val)
+}
+
+# conjg() returns a complex value; R uses Conj()
+r2f_handlers[["Conj"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1]], scope, ...)
+  val <- arg@value
+  val@mode <- "complex"
+  Fortran(glue("conjg({arg})"), val)
+}
+
+
 
 # ---- elemental binary infix operators ----
 

@@ -765,4 +765,30 @@ test_that("integer unary intrinsics", {
   }
 })
 
+test_that("complex unary intrinsics", {
+
+  set.seed(123)
+  x <- seq(-5, 5, length.out = 30)
+  z <- complex(real = x, imaginary = sample(x))
+
+  complex_intrinsics <- c(
+    "sin", "cos", "tan",
+    "asin", "acos", "atan",
+    "sqrt", "exp", "log", "log10",
+    "Re", "Im", "Mod", "Arg", "Conj"
+  )
+
+  for (intr in complex_intrinsics) {
+    fn <- eval(parse(text = sprintf(
+      "function(z) {
+         declare(type(z = complex(NA)))
+         out <- %s(z)
+         out
+       }", intr)))
+
+    # expect_translation_snapshots(fn)
+
+    expect_quick_equal(fn, z)
+  }
+
 })
