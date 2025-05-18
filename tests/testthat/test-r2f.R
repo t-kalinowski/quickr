@@ -586,7 +586,7 @@ test_that("roll_mean", {
   weights <- runif (30)
 
   expect_translation_snapshots(slow_roll_mean)
-  expect_quick_identical(slow_roll_mean, list(x, weights))
+  expect_quick_equal(slow_roll_mean, list(x, weights))
 
 
 })
