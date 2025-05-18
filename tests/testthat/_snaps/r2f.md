@@ -290,7 +290,7 @@
         ! manifest end
       
       
-        out = findloc(a/=0, .true., 1)
+        out = findloc((a/=0), .true., 1)
       end subroutine
       
       @r: function (a)
@@ -1284,8 +1284,8 @@
       
       
       
-      out = [ findloc(lgl1/=0, .false., 1), minloc(int1, 1), minloc(dbl1, 1), findloc(lgl1/=0, .true., 1), maxloc(int1, 1), maxloc(dbl1, &
-      1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
+      out = [ findloc((lgl1/=0), .false., 1), minloc(int1, 1), minloc(dbl1, 1), findloc((lgl1/=0), .true., 1), maxloc(int1, 1), &
+      maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
       end subroutine
     Code
       cat(cwrapper)
@@ -1397,7 +1397,7 @@
       
         out = 0
         n = size(weights)
-        if (normalize/=0) then
+        if ((normalize/=0)) then
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)
