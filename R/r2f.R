@@ -70,8 +70,15 @@ lang2fortran <- r2f <- function(e, scope = NULL, ..., calls = character(), hoist
 
       symbol = {
         s <- as.character(e)
-        if (!is.null(scope[[e]] -> val) && val@mode == "logical")
-          s <- paste0(s, "/=0")
+        # logicals that come in from R are passed as integer types,
+        # so for all fortran ops we cast to logical with /=0
+        if (
+          !is.null(scope[[e]] -> val) &&
+            val@mode == "logical" &&
+            val@is_external
+        ) {
+          s <- paste0("(", s, "/=0)")
+        }
         Fortran(s, value = scope[[e]])
       },
 

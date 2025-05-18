@@ -645,3 +645,38 @@ test_that("size constraint", {
 
   expect_quick_identical(fn, 3, -3, 0, -0)
 })
+
+
+test_that("logical ops", {
+  test_args <- list(
+    list(1, 2),
+    list(2, 1),
+    list(-2, 2),
+    list(-2, -2),
+    list(3, 3),
+    list(4, 1),
+    list(1, 4)
+  )
+
+  fn <- function(a, b) {
+    declare(
+      type(a = double(1)),
+      type(b = double(1))
+    )
+
+    delta <- a - b
+    if (delta < 0) {
+      delta <- (-1) * delta
+    }
+
+    a_gt_b <- a > b
+    b_gt_a <- b > a
+    delta_lt_3 <- delta <= 3
+
+    out <- (a_gt_b || b_gt_a) && delta_lt_3
+    out
+  }
+
+  expect_quick_identical(fn, !!!test_args)
+
+})
