@@ -116,12 +116,15 @@ dump_collected <- function() {
 
   sources <- lapply(sources, str_split_lines)
 
+  src_files_written <- FALSE
   if (!file.exists("src")) dir.create("src")
   cbridges_filepath <- "src/quickr_entrypoints.c"
   if (!file.exists(cbridges_filepath) || !identical(sources$c, readLines(cbridges_filepath))) {
     unlink(sprintf("%s.o", tools::file_path_sans_ext(cbridges_filepath)))
     unlink(pkg_dll_path(pkgname)) # TODO: this might fail on windows - need a fallback.
     writeLines(sources$c, cbridges_filepath)
+    cli::cli_inform(c(i = "Updated {.file {cbridges_filepath}}"))
+    src_files_written <- TRUE
   }
 
   fsubs_filepath <- "src/quickr_sub_routines.f90"
@@ -129,11 +132,21 @@ dump_collected <- function() {
     unlink(sprintf("%s.o", tools::file_path_sans_ext(fsubs_filepath)))
     unlink(pkg_dll_path(pkgname)) # TODO: this might fail on windows - need a fallback.
     writeLines(sources$f90, fsubs_filepath)
+    cli::cli_inform(c(i = "Updated {.file {fsubs_filepath}}"))
+    src_files_written <- TRUE
   }
 
+  if (src_files_written) {
+    for (i in seq_along(sys.calls())) {
+      if (identical(sys.function(i), pkgload::load_all)) {
+        defer(pkgload::load_all(), sys.frame(i), after = TRUE)
+        rlang::return_from(sys.frame(i), value = invisible())
+        break
+      }
+    }
+  }
   invisible()
 }
-
 
 pkg_dll_path <- function (pkgname) {
   file.path("src", paste0(pkgname, .Platform$dynlib.ext))
