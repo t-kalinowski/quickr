@@ -10,7 +10,7 @@ Description: Compiles R functions annotated with type and shape declarations for
     extremely fast performance and robust runtime type checking. Supports
     both just-in-time (JIT) and ahead-of-time (AOT) compilation.
     Compilation is performed by lowering R code to Fortran.
-License: GPL (>= 3)
+License: MIT + file LICENSE
 Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.2
