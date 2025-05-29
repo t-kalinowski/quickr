@@ -2,7 +2,7 @@
 % Please edit documentation in R/quick.R
 \name{quick}
 \alias{quick}
-\title{Quick Function}
+\title{Compile a Quick Function}
 \usage{
 quick(fun, name = NULL)
 }
@@ -15,5 +15,106 @@ quick(fun, name = NULL)
 A quicker R function.
 }
 \description{
-Quick Function
+Compile an R function.
+}
+\details{
+\subsection{\code{declare(type())} syntax:}{
+
+The shape and mode of all function arguments must be declared. Local and
+return variables may optionally also be declared.
+
+\code{declare(type())} also has support for declaring size constraints, or size
+relationships between variables. Here are some examples of declare calls:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{declare(type(x = double(NA))) # x is a 1-d double vector of any length
+declare(type(x = double(10))) # x is a 1-d double vector of length 10
+declare(type(x = double(1)))  # x is a scalar double
+
+declare(type(x = integer(2, 3)))  # x is a 2-d integer matrix with dim (2, 3)
+declare(type(x = integer(NA, 3))) # x is a 2-d integer matrix with dim (<any>, 3)
+
+# x is a 4-d logical matrix with dim (<any>, 24, 24, 3)
+declare(type(x = logical(NA, 24, 24, 3)))
+
+# x and y are 1-d double vectors of any length
+declare(type(x = double(NA)),
+        type(y = double(NA)))
+
+# x and y are 1-d double vectors of the same length
+declare(
+  type(x = double(n)),
+  type(y = double(n)),
+)
+
+# x and y are 1-d double vectors, where length(y) == length(x) + 2
+declare(type(x = double(n)),
+        type(y = double(n+2)))
+}\if{html}{\out{</div>}}
+
+You can provide declarations to \code{declare()} as:
+\itemize{
+\item Multiple arguments to a single \code{declare()} call
+\item Separate \code{declare()} calls
+\item Multiple arguments within a code block (\code{{}}) inside \code{declare()}
+}
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{declare(
+  type(x = double(n)),
+  type(y = double(n)),
+)
+
+declare(type(x = double(n)))
+declare(type(y = double(n)))
+
+declare(\{
+  type(x = double(n))
+  type(y = double(n))
+\})
+}\if{html}{\out{</div>}}
+}
+
+\subsection{Return values}{
+
+The shape and type of a function return value must be known at compile time.
+In most situations, this will be automatically inferred by \code{quick()}. However,
+if the output is dynamic, then you may need to provide a hint.
+For example, returning the result of \code{seq()} will fail because the output shape
+cannot be inferred.
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# Will fail to compile:
+quick_seq <- quick(function(start, end) \{
+  declare(\{
+    type(start = integer(1))
+    type(end = integer(1))
+  \})
+  out <- seq(start, end)
+  out
+\})
+}\if{html}{\out{</div>}}
+
+However, if the output size can be declared as a dynamic expression using other
+values known at runtime, compilation will succeed:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{# Succeeds:
+quick_seq <- quick(function(start, end) \{
+  declare(\{
+    type(start = integer(1))
+    type(end = integer(1))
+    type(out = integer(end - start + 1))
+  \})
+  out <- seq(start, end)
+  out
+\})
+quick_seq(1L, 5L)
+}\if{html}{\out{</div>}}
+}
+}
+\examples{
+add_ab <- quick(function(a, b) {
+  declare(type(a = numeric(n)),
+          type(b = numeric(n)))
+  out <- a + b
+  out
+})
+add_ab(1, 2)
 }

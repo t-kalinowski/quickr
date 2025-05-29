@@ -1,10 +1,114 @@
-#' Quick Function
+#' Compile a Quick Function
+#'
+#' Compile an R function.
 #'
 #' @param fun An R function
 #' @param name Optional string, name to use for the function.
 #'
+#' @details
+#'
+#' ## `declare(type())` syntax:
+#'
+#' The shape and mode of all function arguments must be declared. Local and
+#' return variables may optionally also be declared.
+#'
+#' `declare(type())` also has support for declaring size constraints, or size
+#' relationships between variables. Here are some examples of declare calls:
+#'
+#' ```r
+#' declare(type(x = double(NA))) # x is a 1-d double vector of any length
+#' declare(type(x = double(10))) # x is a 1-d double vector of length 10
+#' declare(type(x = double(1)))  # x is a scalar double
+#'
+#' declare(type(x = integer(2, 3)))  # x is a 2-d integer matrix with dim (2, 3)
+#' declare(type(x = integer(NA, 3))) # x is a 2-d integer matrix with dim (<any>, 3)
+#'
+#' # x is a 4-d logical matrix with dim (<any>, 24, 24, 3)
+#' declare(type(x = logical(NA, 24, 24, 3)))
+#'
+#' # x and y are 1-d double vectors of any length
+#' declare(type(x = double(NA)),
+#'         type(y = double(NA)))
+#'
+#' # x and y are 1-d double vectors of the same length
+#' declare(
+#'   type(x = double(n)),
+#'   type(y = double(n)),
+#' )
+#'
+#' # x and y are 1-d double vectors, where length(y) == length(x) + 2
+#' declare(type(x = double(n)),
+#'         type(y = double(n+2)))
+#' ```
+#'
+#' You can provide declarations to `declare()` as:
+#'
+#' - Multiple arguments to a single `declare()` call
+#' - Separate `declare()` calls
+#' - Multiple arguments within a code block (`{}`) inside `declare()`
+#'
+#' ```r
+#' declare(
+#'   type(x = double(n)),
+#'   type(y = double(n)),
+#' )
+#'
+#' declare(type(x = double(n)))
+#' declare(type(y = double(n)))
+#'
+#' declare({
+#'   type(x = double(n))
+#'   type(y = double(n))
+#' })
+#' ```
+#'
+#' ## Return values
+#'
+#' The shape and type of a function return value must be known at compile time.
+#' In most situations, this will be automatically inferred by `quick()`. However,
+#' if the output is dynamic, then you may need to provide a hint.
+#' For example, returning the result of `seq()` will fail because the output shape
+#' cannot be inferred.
+#'
+#' ```r
+#' # Will fail to compile:
+#' quick_seq <- quick(function(start, end) {
+#'   declare({
+#'     type(start = integer(1))
+#'     type(end = integer(1))
+#'   })
+#'   out <- seq(start, end)
+#'   out
+#' })
+#' ```
+#'
+#' However, if the output size can be declared as a dynamic expression using other
+#' values known at runtime, compilation will succeed:
+#'
+#' ```r
+#' # Succeeds:
+#' quick_seq <- quick(function(start, end) {
+#'   declare({
+#'     type(start = integer(1))
+#'     type(end = integer(1))
+#'     type(out = integer(end - start + 1))
+#'   })
+#'   out <- seq(start, end)
+#'   out
+#' })
+#' quick_seq(1L, 5L)
+#' ```
+#'
 #' @returns A quicker R function.
 #' @export
+#' @examples
+#' add_ab <- quick(function(a, b) {
+#'   declare(type(a = numeric(n)),
+#'           type(b = numeric(n)))
+#'   out <- a + b
+#'   out
+#' })
+#' add_ab(1, 2)
 quick <- function(fun, name = NULL) {
   if (is.null(name)) {
     name <- if (is.symbol(substitute(fun)))

@@ -426,6 +426,12 @@ and place them in the `./src` directory. Run `devtools::load_all()` or
 
 ## Installation
 
+You can install quickr from CRAN with:
+
+``` r
+install.packages("quickr")
+```
+
 You can install the development version of quickr from
 [GitHub](https://github.com/) with:
 
