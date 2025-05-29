@@ -1,12 +1,12 @@
 Package: quickr
-Title: Compiler for R code
+Title: Compiler for R
 Version: 0.0.0.9000
 Authors@R: c(
     person("Tomasz", "Kalinowski", email = "tomasz@posit.co", role = c("aut", "cre")),
     person("Posit Software, PBC", role = c("cph", "fnd"),
            comment = c(ROR = "03wc8by49"))
     )
-Description: Compiles R functions annotated with type and shape declarations for
+Description: Compiles R functions annotated with type and shape declarations to provide
     extremely fast performance and robust runtime type checking. Supports
     both just-in-time (JIT) and ahead-of-time (AOT) compilation.
     Compilation is performed by lowering R code to Fortran.
