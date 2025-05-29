@@ -16,7 +16,6 @@ Suggests:
     pkgload (>= 1.4.0.9000),
     testthat (>= 3.0.0),
     rlang,
+    cli,
     bench
 Config/testthat/edition: 3
-Remotes: 
-    t-kalinowski/pkgload@load_code-then-compile_dll

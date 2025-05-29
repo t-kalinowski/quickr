@@ -1,6 +1,3 @@
-
-
-
 #' Quick Function
 #'
 #' @param fun An R function
@@ -17,14 +14,15 @@ quick <- function(fun, name = NULL) {
   }
 
   if (nzchar(pkgname <- Sys.getenv("DEVTOOLS_LOAD"))) {
-    if (requireNamespace("pkgload", quietly = TRUE)) {
-      if (!collector$is_active()) {
-        for (i in seq_along(sys.calls())) {
-          if (identical(sys.function(i), pkgload::load_code)) {
-            collector$activate(paste0(pkgname, ":quick_funcs"))
-            defer(dump_collected(), sys.frame(i))
-            break
-          }
+    if (!collector$is_active()) {
+      if (!requireNamespace("pkgload", quietly = TRUE)) {
+        stop("Please install 'pkgload'")
+      }
+      for (i in seq_along(sys.calls())) {
+        if (identical(sys.function(i), pkgload::load_code)) {
+          collector$activate(paste0(pkgname, ":quick_funcs"))
+          defer(dump_collected(), sys.frame(i), after = TRUE)
+          break
         }
       }
     }
