@@ -111,8 +111,8 @@ quick_seq(1L, 5L)
 }
 \examples{
 add_ab <- quick(function(a, b) {
-  declare(type(a = numeric(n)),
-          type(b = numeric(n)))
+  declare(type(a = double(n)),
+          type(b = double(n)))
   out <- a + b
   out
 })
