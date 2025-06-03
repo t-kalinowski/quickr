@@ -88,10 +88,11 @@ dump_collected <- function() {
 
   append(sources$c) <- c("", entries, "")
 
-  R_init_pkg <- paste0("R_init_", pkgname)
+  R_init_pkg <- paste0("R_init_", pkgname, "(")
   has_pkg_init_fn <- list.files("src", pattern = "\\.(c|cpp|h|hpp|c\\+\\+)$",
                                 recursive = TRUE, all.files = TRUE,
                                 full.names = TRUE) |>
+    setdiff("src/quickr_entrypoints.c") |>
     lapply(function(f) {
       any(grepl(R_init_pkg, readLines(f, warn = FALSE), fixed = TRUE))
     }) |> unlist() |> any()
