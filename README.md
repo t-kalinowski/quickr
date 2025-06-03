@@ -1,11 +1,11 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# quickr
+# quickr <img src="man/figures/logo.png" align="right" height="138"/>
 
-<img
+<!-- <img
 src="https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMjBhNWt1Z3Q4ZW56cG00c2hncmtwbGJycm53M3JxYWdscjRkaDJobCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/12haGO61oFZ28w/giphy.gif"
-alt="An animated GIF showing two characters in a spaceship cockpit rapidly accelerating into hyperspace, with stars stretching into bright streaks, creating a sensation of rapid acceleration and motion." />
+alt="An animated GIF showing two characters in a spaceship cockpit rapidly accelerating into hyperspace, with stars stretching into bright streaks, creating a sensation of rapid acceleration and motion." /> -->
 
 <!-- badges: start -->
 
@@ -425,6 +425,12 @@ and place them in the `./src` directory. Run `devtools::load_all()` or
 `./src` and `./R` are in sync with each other.
 
 ## Installation
+
+You can install quickr from CRAN with:
+
+``` r
+install.packages("quickr")
+```
 
 You can install the development version of quickr from
 [GitHub](https://github.com/) with:

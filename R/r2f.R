@@ -5,7 +5,9 @@
 # a Fortran object, which is a string of Fortran code and some attributes
 # describing the value.
 lang2fortran <- r2f <- function(e, scope = NULL, ..., calls = character(), hoist = NULL) {
-  ## a better name for 'hoist' might be 'emit_prefix' (or premit, pre_emit, emit(), emit_hoisted)
+  ## 'hoist()' is a function that individual handlers can call to pre-emit some
+  ## Fortran code. E.g., to setup a temporary variable if the generated Fortran
+  ## code doesn't neatly translate into a single expression.
   hoisted <- character()
   if (is.null(hoist)) {
     delayedAssign("hoist_connection", textConnection("hoisted", "w", TRUE))
@@ -51,13 +53,14 @@ lang2fortran <- r2f <- function(e, scope = NULL, ..., calls = character(), hoist
                     calls = c(calls, as.character(callable)),
                     hoist = hoist)
           }
+
           res
+
         } else {
 
-
-        handler(as.list(e)[-1L], scope, ...,
-                calls = c(calls, as.character(callable)),
-                hoist = hoist)
+          handler(as.list(e)[-1L], scope, ...,
+                  calls = c(calls, as.character(callable)),
+                  hoist = hoist)
 
         }
 
