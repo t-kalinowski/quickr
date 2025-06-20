@@ -644,8 +644,39 @@ r2f_handlers[["!="]] <- function(args, scope, ...) {
 }
 
 
-r2f_handlers[["%%"]] <- r2f_handlers[["%/%"]] <-
-  .r2f_handler_not_implemented_yet
+
+# ---- remainder (%%) and integer division (%/%) ----
+#
+# R semantics:
+#   x %%  y  ==  r   where  r has the sign of y  (divisor)
+#   x %/% y  ==  q   where  q = floor(x / y)
+# and  x == r + y * q  (within rounding error)
+#
+# Fortran intrinsics:
+#   - MODULO(a,p)   : remainder with sign(p)
+#   - FLOOR(x)      : greatest integer ≤ x      (real)
+#   - AINT(x)       : truncation toward 0       (real)
+
+r2f_handlers[["%%"]] <- function(args, scope, ...) {
+  .[left, right] <- lapply(args, r2f, scope, ...)
+  out_val <- conform(left@value, right@value)
+  # MODULO gives result with sign(right) – matches R %% behaviour
+  Fortran(glue("modulo({left}, {right})"), out_val)
+}
+
+r2f_handlers[["%/%"]] <- function(args, scope, ...) {
+  .[left, right] <- lapply(args, r2f, scope, ...)
+  out_val <- conform(left@value, right@value)
+
+  expr <- switch(
+    out_val@mode,
+    integer = glue("int(floor(real({left}) / real({right})))"),
+    double  = glue("floor({left} / {right})"),
+    stop("%/% only implemented for numeric types")
+  )
+
+  Fortran(expr, out_val)
+}
 
 
 
