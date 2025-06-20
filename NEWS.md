@@ -6,6 +6,9 @@
 
 - Added support for expression return values.
 
+- Fix passing a scalar (rank-0) arg to reduction intrinsics
+  (min, max, prod, sum).
+
 - Fixed an issue with dll symbol registration when
   `quick()` is used in a package (#19).
 
