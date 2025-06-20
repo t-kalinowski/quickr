@@ -980,7 +980,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 
-# TODO: while, return
+# TODO: return
 
 # ---- repeat ----
 r2f_handlers[["repeat"]] <- function(args, scope, ...) {
@@ -1003,6 +1003,18 @@ r2f_handlers[["break"]] <- function(args, scope, ...) {
 r2f_handlers[["next"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 0L)
   Fortran("cycle")
+}
+
+# ---- while ----
+r2f_handlers[["while"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 2L)
+  cond <- r2f(args[[1]], scope, ...)
+  body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  Fortran(glue(
+    "do while ({cond})
+    {indent(body)}
+    end do
+    "))
 }
 
 ## ---- for ----
