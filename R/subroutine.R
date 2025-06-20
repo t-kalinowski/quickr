@@ -4,27 +4,21 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
 
 
   check_all_var_names_valid(closure)
+
   # translate body, and populate scope with variables
   body <- body(closure)
 
-  # TODO: try harder here to use one of the input vars as the output var
   # defuse calls like `-1` and `1+1i`. Not really necessary, but simplifies downstream a little.
-
   body <- defuse_numeric_literals(body)
+
+  # TODO: try harder here to use one of the input vars as the output var
   body <- ensure_last_expr_sym(body)
 
   # update closure with sym return value
   base::body(closure) <- body
-
-  scope <- new_scope(closure, parent)
-
-  # translate body, and populate scope with variables
-  body <- body(closure)
-
   # body <- rlang::zap_srcref(body)
 
-
-
+  scope <- new_scope(closure, parent)
 
   # inject symbols for var sizes in declare calls, so like:
   #   declare(type(foo = integer(nr, NA)),
