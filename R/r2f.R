@@ -979,7 +979,31 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
   }
 }
 
-# TODO: repeat, while, next, return
+
+# TODO: while, return
+
+# ---- repeat ----
+r2f_handlers[["repeat"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  body <- r2f(args[[1]], scope, ...)
+  Fortran(glue(
+    "do
+    {indent(body)}
+    end do
+    "))
+}
+
+# ---- break ----
+r2f_handlers[["break"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 0L)
+  Fortran("exit")
+}
+
+# ---- break ----
+r2f_handlers[["next"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 0L)
+  Fortran("cycle")
+}
 
 ## ---- for ----
 r2f_iterable <- function(e, scope, ...) {
