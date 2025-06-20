@@ -282,6 +282,8 @@ r2f_handlers[["prod"]] <- function(args, scope, ...) {
   reduce_arg <- function(arg) {
     mask_hoist <- create_mask_hoist()
     x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+    if(x@value@rank == 0)
+      return(x)
     hoisted_mask <- mask_hoist$get_hoisted()
     s <- glue(
       if (is.null(hoisted_mask))
