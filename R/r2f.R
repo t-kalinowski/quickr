@@ -282,6 +282,8 @@ r2f_handlers[["prod"]] <- function(args, scope, ...) {
   reduce_arg <- function(arg) {
     mask_hoist <- create_mask_hoist()
     x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+    if(x@value@rank == 0)
+      return(x)
     hoisted_mask <- mask_hoist$get_hoisted()
     s <- glue(
       if (is.null(hoisted_mask))
@@ -644,8 +646,39 @@ r2f_handlers[["!="]] <- function(args, scope, ...) {
 }
 
 
-r2f_handlers[["%%"]] <- r2f_handlers[["%/%"]] <-
-  .r2f_handler_not_implemented_yet
+
+# ---- remainder (%%) and integer division (%/%) ----
+#
+# R semantics:
+#   x %%  y  ==  r   where  r has the sign of y  (divisor)
+#   x %/% y  ==  q   where  q = floor(x / y)
+# and  x == r + y * q  (within rounding error)
+#
+# Fortran intrinsics:
+#   - MODULO(a,p)   : remainder with sign(p)
+#   - FLOOR(x)      : greatest integer ≤ x      (real)
+#   - AINT(x)       : truncation toward 0       (real)
+
+r2f_handlers[["%%"]] <- function(args, scope, ...) {
+  .[left, right] <- lapply(args, r2f, scope, ...)
+  out_val <- conform(left@value, right@value)
+  # MODULO gives result with sign(right) – matches R %% behaviour
+  Fortran(glue("modulo({left}, {right})"), out_val)
+}
+
+r2f_handlers[["%/%"]] <- function(args, scope, ...) {
+  .[left, right] <- lapply(args, r2f, scope, ...)
+  out_val <- conform(left@value, right@value)
+
+  expr <- switch(
+    out_val@mode,
+    integer = glue("int(floor(real({left}) / real({right})))"),
+    double  = glue("floor({left} / {right})"),
+    stop("%/% only implemented for numeric types")
+  )
+
+  Fortran(expr, out_val)
+}
 
 
 
@@ -979,7 +1012,43 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
   }
 }
 
-# TODO: repeat, while, next, return
+
+# TODO: return
+
+# ---- repeat ----
+r2f_handlers[["repeat"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  body <- r2f(args[[1]], scope, ...)
+  Fortran(glue(
+    "do
+    {indent(body)}
+    end do
+    "))
+}
+
+# ---- break ----
+r2f_handlers[["break"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 0L)
+  Fortran("exit")
+}
+
+# ---- break ----
+r2f_handlers[["next"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 0L)
+  Fortran("cycle")
+}
+
+# ---- while ----
+r2f_handlers[["while"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 2L)
+  cond <- r2f(args[[1]], scope, ...)
+  body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  Fortran(glue(
+    "do while ({cond})
+    {indent(body)}
+    end do
+    "))
+}
 
 ## ---- for ----
 r2f_iterable <- function(e, scope, ...) {

@@ -887,3 +887,149 @@ test_that("declare(type()) varients", {
   })
   expect_quick_identical(quick_seq, list(1L, 5L))
 })
+
+
+test_that("repeat/break", {
+  inc_to_5 <- function(x) {
+    declare(type(x = integer(1)))
+    repeat {
+      if (x >= 5L) {
+        break
+      }
+      x <- x + 1L
+    }
+    x
+  }
+
+  expect_translation_snapshots(inc_to_5)
+  expect_quick_identical(inc_to_5, -1L, 0L, 4L, 5L)
+})
+
+test_that("repeat + next", {
+  inc_to_5_skip_neg <- function(x) {
+    declare(type(x = integer(1)))
+    repeat {
+      x <- x + 1L
+      if (x < 0L) next
+      if (x >= 5L) break
+    }
+    x
+  }
+
+  expect_translation_snapshots(inc_to_5_skip_neg)
+  expect_quick_identical(inc_to_5_skip_neg, -3L, -1L, 0L, 4L, 5L)
+})
+
+test_that("break/for", {
+  fn <- function(x) {
+    declare(type(x = integer(1)))
+    for (i in 1:10) {
+      x = x + 1L
+      if (x >= 5L) {
+        break
+      }
+    }
+    x
+  }
+
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, -1L, 0L, 4L, 5L)
+})
+
+
+
+test_that("while", {
+  fn <- function(x) {
+    declare(type(x = integer(1)))
+    while(x < 5L) {
+      x = x+1L
+    }
+    x
+  }
+
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, -1L, 0L, 4L, 5L)
+})
+
+test_that("while + next", {
+
+  inc_to_5_skip_neg_while <- function(x) {
+    declare(type(x = integer(1)))
+    while (x < 5L) {
+      x <- x + 1L
+      if (x < 0L) next
+    }
+    x
+  }
+
+  expect_translation_snapshots(inc_to_5_skip_neg_while)
+  expect_quick_identical(inc_to_5_skip_neg_while, -3L, -1L, 0L, 4L, 5L)
+})
+
+
+test_that("while + break", {
+
+  inc_to_5_break_while <- function(x) {
+    declare(type(x = integer(1)))
+    while (TRUE) {
+      if (x >= 5L) break
+      x <- x + 1L
+    }
+    x
+  }
+
+  expect_translation_snapshots(inc_to_5_break_while)
+  expect_quick_identical(inc_to_5_break_while, -1L, 0L, 4L, 5L)
+})
+
+test_that("expr return value", {
+  fn <- function(x) {
+    declare(type(x = integer(NA)))
+    x + 1L
+  }
+
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, 1:10)
+})
+
+
+# -------------------------------------------------------------------------
+# Remainder (%%) and integer division (%/%) operators
+# -------------------------------------------------------------------------
+
+test_that("%% and %%", {
+  x <- -7:7
+  x <- expand.grid(a = x, b = x)
+  x <- x[x$b != 0, ]                  # avoid divisor == 0
+  x <- as.list(x)
+
+  rem_double <- function(a, b) {
+    declare(type(a = double(n)), type(b = double(n)))
+    a %% b
+  }
+
+  expect_translation_snapshots(rem_double)
+  expect_quick_equal(rem_double, lapply(x, function(v) v + 0.2))
+
+  rem_int <- function(a, b) {
+    declare(type(a = integer(n)), type(b = integer(n)))
+    a %% b
+  }
+  expect_quick_identical(rem_int, x)
+
+
+  div_double <- function(a, b) {
+    declare(type(a = double(n)), type(b = double(n)))
+    a %/% b
+  }
+
+  expect_translation_snapshots(div_double)
+  expect_quick_equal(div_double, lapply(x, function(v) v + 0.2))
+
+  div_int <- function(a, b) {
+    declare(type(a = integer(n)), type(b = integer(n)))
+    a %/% b
+  }
+  expect_quick_identical(div_int, x)
+})
+
