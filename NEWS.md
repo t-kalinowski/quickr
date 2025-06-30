@@ -1,5 +1,8 @@
 # quickr (development version)
 
+- Internal utility `r2f()` print method now shows the generated `c_bridge` 
+  for translated subroutines.
+
 - Added support for `while`, `repeat`, `break`, `next`.
 
 - Added support for `%%` and `%/%`.
