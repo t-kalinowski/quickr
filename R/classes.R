@@ -282,10 +282,17 @@ FortranSubroutine := new_class(Fortran, properties = list(
   name = prop_string(),
   signature = class_character,
   closure = class_function,
-  scope = NULL | class_environment
+  scope = NULL | class_environment,
+  c_bridge = S7::new_property(
+    NULL | class_character,
+    getter = function(self) {
+      make_c_bridge(self) %error% NULL
+    })
 ))
 
+`%error%` <- function(x, y) tryCatch(x, error = function(e) y)
 
+try_prop <- function(object, name) S7::prop(object, name) %error% NULL
 
 emit <- function(..., sep = "", end = "\n") cat(..., end, sep = sep)
 
@@ -297,25 +304,9 @@ method(as.character, Variable) <- function(x, ...)
   x@name %||% stop("Variable does not have a name")
 
 method(print, Fortran) <- function(x, ...) {
-  # cat("Fortran:\n", x, "\n", sep = "")
   emit(trimws(x), end = "\n\n")
-  for(prop_name in c("value", "r"))
-    if (!is.null(prop_val <- prop(x, prop_name))) {
-      emit("@", prop_name, ": ", trimws(indent(format(prop_val))));
-      # str(prop_val, nest.lev = 1)
-    }
-
-
-  # cat("@r:\n")
-  # print(x@r)
-}
-
-method(print, FortranSubroutine) <- function(x, ...) {
-  NextMethod()
-  for(prop_name in  c("closure")) # c("signature",
-    if (!is.null(prop_val <- prop(x, prop_name))) {
+  for(prop_name in c("value", "r", "c_bridge"))
+    if (!is.null(prop_val <- try_prop(x, prop_name))) {
       emit("@", prop_name, ": ", trimws(indent(format(prop_val))));
     }
-  # getS3method("str", "S7_object")(x)
 }
-
