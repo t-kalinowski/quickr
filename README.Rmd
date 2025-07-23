@@ -59,7 +59,7 @@ This package lets you trade back some of that flexibility for some speed, for th
 
 <!-- -   Excellent support in R. -->
 <!--     One of the original motivations for R was to serve as a front-end for Fortran. -->
-<!--     Since it's inception, R has supported Fortran extensions, and supported them well. -->
+<!--     Since its inception, R has supported Fortran extensions, and supported them well. -->
 <!--     It also means that any computing environment where R build tools are available, Fortran is supported. -->
 <!--     The barrier to entry and thorny questions, that, for example, using Rust in CRAN might raise, is non-existent for Fortran. -->
 
@@ -258,7 +258,7 @@ plot(timings)
 
 Simulate how heat spreads over time across a 2D grid, using the [finite difference method](https://en.wikipedia.org/wiki/Finite_difference) applied to the [Heat Equation](https://en.wikipedia.org/wiki/Heat_equation).
 
-Here, `quick()` returns a function over 100 time faster.
+Here, `quick()` returns a function over 100 times faster.
 
 ```{r}
 diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {

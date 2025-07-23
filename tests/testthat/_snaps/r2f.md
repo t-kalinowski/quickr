@@ -4448,7 +4448,7 @@
         return out_;
       }
 
-# %% and %%
+# %% and %/%
 
     Code
       fn

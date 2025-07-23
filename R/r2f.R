@@ -683,7 +683,7 @@ r2f_handlers[["%/%"]] <- function(args, scope, ...) {
 
 
 # TODO: the scalar || probably need some more type checking.
-# TODO: gfortan supports implicit casting that of logical to integer when
+# TODO: gfortran supports implicit casting that of logical to integer when
 # assigning a logical to a variable declared integer, converting `.true.` to `1`,
 # but this is not a standard language feature, and Intel's `ifort` uses `-1` for `.true`.
 # We should explicitly use

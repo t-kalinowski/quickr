@@ -10,7 +10,7 @@
 #'
 #' @param path Path to an R package
 #'
-#' @returns Called for it's side effect.
+#' @returns Called for its side effect.
 #' @export
 compile_package <- function(path = ".") {
   if (path != ".") {

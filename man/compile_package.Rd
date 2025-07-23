@@ -10,7 +10,7 @@ compile_package(path = ".")
 \item{path}{Path to an R package}
 }
 \value{
-Called for it's side effect.
+Called for its side effect.
 }
 \description{
 This will compile all \code{quick()} functions in an R package, and

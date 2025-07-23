@@ -20,11 +20,11 @@ and dynamicism can come at the expense of speed. This package lets you
 trade back some of that flexibility for some speed, for the context of a
 single function.
 
-<!-- Programming language design requires some hard decisions and trade-ofs. -->
+<!-- Programming language design requires some hard decisions and trade-offs. -->
 
 <!-- When you want to have it all, you typically end up have two (or more!) languages. -->
 
-<!-- An interpreted, dynamic language full of conveniences, and a staticly-typed, explicit, high-performance language. -->
+<!-- An interpreted, dynamic language full of conveniences, and a statically‑typed, explicit, high-performance language. -->
 
 <!-- This is sometimes called the "Two Language Problem". -->
 
@@ -60,7 +60,7 @@ single function.
 
 <!--     One of the original motivations for R was to serve as a front-end for Fortran. -->
 
-<!--     Since it's inception, R has supported Fortran extensions, and supported them well. -->
+<!--     Since its inception, R has supported Fortran extensions, and supported them well. -->
 
 <!--     It also means that any computing environment where R build tools are available, Fortran is supported. -->
 
@@ -139,7 +139,7 @@ timings
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
 #> 1 r             1.05s    1.05s     0.955     847KB    0.955
-#> 2 quickr        4.8ms   5.09ms   195.        782KB    3.07 
+#> 2 quickr        4.8ms   5.09ms   195.        782KB    3.07
 #> 3 c            4.73ms   5.04ms   196.        782KB    3.09
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
@@ -163,15 +163,15 @@ In the case of `convolve()`, `quick()` returns a function approximately
 
 <!-- -->
 
-    #>  [1] -         :         !=        (         [         [<-       {        
-    #>  [8] *         /         &         &&        %/%       %%        ^        
-    #> [15] +         <         <-        <=        =         ==        >        
-    #> [22] >=        |         ||        Arg       Conj      Fortran   Im       
-    #> [29] Mod       Re        abs       acos      asin      atan      c        
-    #> [36] cat       cbind     ceiling   character cos       declare   double   
-    #> [43] exp       floor     for       if        ifelse    integer   length   
-    #> [50] log       log10     logical   matrix    max       min       numeric  
-    #> [57] print     prod      raw       seq       sin       sqrt      sum      
+    #>  [1] -         :         !=        (         [         [<-       {
+    #>  [8] *         /         &         &&        %/%       %%        ^
+    #> [15] +         <         <-        <=        =         ==        >
+    #> [22] >=        |         ||        Arg       Conj      Fortran   Im
+    #> [29] Mod       Re        abs       acos      asin      atan      c
+    #> [36] cat       cbind     ceiling   character cos       declare   double
+    #> [43] exp       floor     for       if        ifelse    integer   length
+    #> [50] log       log10     logical   matrix    max       min       numeric
+    #> [57] print     prod      raw       seq       sin       sqrt      sum
     #> [64] tan       which.max which.min
 
 Many of these restrictions are expected to be relaxed as the project
@@ -295,7 +295,7 @@ difference method](https://en.wikipedia.org/wiki/Finite_difference)
 applied to the [Heat
 Equation](https://en.wikipedia.org/wiki/Heat_equation).
 
-Here, `quick()` returns a function over 100 time faster.
+Here, `quick()` returns a function over 100 times faster.
 
 ``` r
 diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
@@ -407,7 +407,7 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           105.4ms 109.13ms      7.42  124.31MB    22.3 
+#> 1 r           105.4ms 109.13ms      7.42  124.31MB    22.3
 #> 2 rcpp         19.7ms  19.84ms     49.4     4.44MB     1.98
 #> 3 quickr          7ms   7.09ms    138.    781.35KB     2.00
 

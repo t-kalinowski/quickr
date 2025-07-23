@@ -839,7 +839,7 @@ test_that("seq", {
 })
 
 
-test_that("declare(type()) varients", {
+test_that("declare(type()) variants", {
 
   # exprs in {
   quick_seq <- (function(start, end) {
@@ -997,7 +997,7 @@ test_that("expr return value", {
 # Remainder (%%) and integer division (%/%) operators
 # -------------------------------------------------------------------------
 
-test_that("%% and %%", {
+test_that("%% and %/%", {
   x <- -7:7
   x <- expand.grid(a = x, b = x)
   x <- x[x$b != 0, ]                  # avoid divisor == 0
