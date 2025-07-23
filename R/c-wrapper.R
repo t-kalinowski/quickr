@@ -341,7 +341,7 @@ friendly_size <- function(var, axis = NULL) {
   if (is.null(axis) || var@rank == 1 && axis == 1)
     glue("length({var@name})")
   else
-    glue("dim({var@name})[axis]")
+    glue("dim({var@name})[{axis}]")
 }
 
 as_friendly_size_name <- function(size_name) {
