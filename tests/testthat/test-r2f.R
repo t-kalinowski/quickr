@@ -643,7 +643,18 @@ test_that("size constraint", {
     x
   }
 
-  expect_quick_identical(fn, 3, -3, 0, -0)
+  qfn := quick(fn)
+
+  expect_error(
+    qfn(c(1, 2)),
+    regexp = "length(x) must be 1, not 2",
+    fixed = TRUE
+  )
+
+  expect_identical(qfn(3), fn(3))
+  expect_identical(qfn(-3), fn(-3))
+  expect_identical(qfn(0), fn(0))
+  expect_identical(qfn(-0), fn(-0))
 })
 
 
