@@ -153,7 +153,7 @@ dims2f <- function(dims, scope) {
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
   vars <- as.list(syms)
   names(vars) <- syms
-  eval_env <- list2env(vars, parent = dims2c_eval_base_env)
+  eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {
     d <- eval(d, eval_env)
     if (is.symbol(d)) as.character(d)
