@@ -1,4 +1,3 @@
-
 # Tests for dynamic dimension expressions evaluated in Fortran environment
 
 test_that("arithmetic expressions in dimensions compile", {
@@ -39,4 +38,3 @@ test_that("matrix dimension expressions compile", {
   expect_identical(qfn(3L), fn(3L))
   expect_identical(qfn(6L), fn(6L))
 })
-

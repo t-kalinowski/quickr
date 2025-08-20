@@ -8,15 +8,19 @@ NULL
 # This will be exported by S7 next release.
 `:=` <- function(left, right) {
   name <- substitute(left)
-  if (!is.symbol(name))
+  if (!is.symbol(name)) {
     stop("left hand side must be a symbol")
+  }
 
   right <- substitute(right)
-  if (!is.call(right))
+  if (!is.call(right)) {
     stop("right hand side must be a call")
+  }
 
-  if (is.symbol(cl <- right[[1L]]) &&
-      as.character(cl) %in% c("function", "new.env")) {
+  if (
+    is.symbol(cl <- right[[1L]]) &&
+      as.character(cl) %in% c("function", "new.env")
+  ) {
     # attach "name" attr for usage like:
     # foo := function(){}
     # foo := new.env()
@@ -45,13 +49,10 @@ NULL
 `%error%` <- function(x, y) tryCatch(x, error = function(e) y)
 
 `append<-` <- function(x, after, value) {
-  if (missing(after))
-    c(x, value)
-  else
-    append(x, value, after = after)
+  if (missing(after)) c(x, value) else append(x, value, after = after)
 }
 
-`append1<-` <- function (x, value) {
+`append1<-` <- function(x, value) {
   stopifnot(is.list(x) || identical(mode(x), mode(value)))
   x[[length(x) + 1L]] <- value
   x
@@ -67,45 +68,53 @@ map_int <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = 0L, ...)
 map_lgl <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)
 map_chr <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = "", ...)
 
-imap <- function (.x, .f, ...) {
-  out <- .mapply(.f, list(.x, names(.x) %||% seq_along(.x)),
-                 list(...))
+imap <- function(.x, .f, ...) {
+  out <- .mapply(.f, list(.x, names(.x) %||% seq_along(.x)), list(...))
   names(out) <- names(.x)
   out
 }
 
-map2 <- function (.x, .y, .f, ...) {
-  if (length(.x) != length(.y) && length(.x) != 1L && length(.y) != 1L)
-    stop(".x and .y must have the same length, or one of them must have length 1")
+map2 <- function(.x, .y, .f, ...) {
+  if (length(.x) != length(.y) && length(.x) != 1L && length(.y) != 1L) {
+    stop(
+      ".x and .y must have the same length, or one of them must have length 1"
+    )
+  }
   out <- .mapply(.f, list(.x, .y), list(...))
-  if (length(.x) == length(out))
+  if (length(.x) == length(out)) {
     names(out) <- names(.x)
+  }
   out
 }
 
-discard <- function(.x, .f, ...)
+discard <- function(.x, .f, ...) {
   .x[!vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)]
+}
 
-keep <- function(.x, .f, ...)
+keep <- function(.x, .f, ...) {
   .x[vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)]
+}
 
-compact <- function(.x)
+compact <- function(.x) {
   .x[as.logical(lengths(.x, use.names = FALSE))]
+}
 
 drop_nulls <- function(x, i) {
-  if (missing(i))
-    x[!vapply( X = x, FUN = is.null, FUN.VALUE = FALSE, USE.NAMES = FALSE)]
-  else {
+  if (missing(i)) {
+    x[!vapply(X = x, FUN = is.null, FUN.VALUE = FALSE, USE.NAMES = FALSE)]
+  } else {
     drop <- logical(length(x))
     names(drop) <- names(x)
-    drop[i] <- vapply(X = x[i], FUN = is.null, FUN.VALUE = FALSE, USE.NAMES = FALSE)
+    drop[i] <-
+      vapply(X = x[i], FUN = is.null, FUN.VALUE = FALSE, USE.NAMES = FALSE)
     x[!drop]
   }
 }
 
 last <- function(x) x[[length(x)]]
 drop_last <- function(x) x[-length(x)]
-
+# fmt: skip
+{
 is_scalar_na      <- function(x) is.atomic(x)    && !is.object(x) && length(x) == 1L && is.na(x)
 is_scalar_atomic  <- function(x) is.atomic(x)    && !is.object(x) && length(x) == 1L && !is.na(x)
 is_scalar_integer <- function(x) is.integer(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
@@ -114,6 +123,7 @@ is_bool           <- function(x) is.logical(x)   && !is.object(x) && length(x) =
 is_number         <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
 is_wholenumber    <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x) &&
   x >= 0L && (is.integer(x) || is.double(x) && trunc(x) == x)
+}
 
 new_function <- function(args = NULL, body = NULL, env = parent.frame()) {
   as.function.default(c(args, body %||% list(NULL)), env)
@@ -166,6 +176,7 @@ indent <- function(x, n = 2L) {
   paste0(strrep(" ", n), x, collapse = "\n")
 }
 
+# fmt: skip
 parent.pkg <- function(env = parent.frame(2)) {
   if (isNamespace(env <- topenv(env)))
     as.character(getNamespaceName(env)) # unname
@@ -174,9 +185,12 @@ parent.pkg <- function(env = parent.frame(2)) {
 }
 
 set_names <- function(x, nm = x, ...) {
-  names(x) <-  as.character(
-    if (is.function(nm)) nm(names(x), ...)
-    else unlist(list(nm, ...), use.names = FALSE)
+  names(x) <- as.character(
+    if (is.function(nm)) {
+      nm(names(x), ...)
+    } else {
+      unlist(list(nm, ...), use.names = FALSE)
+    }
   )
   x
 }
@@ -184,23 +198,31 @@ set_names <- function(x, nm = x, ...) {
 zip_lists <- function(...) {
   x <- if (...length() == 1L) ..1 else list(...)
 
-  if (is.character(nms.1 <- names(x.1 <- x[[1L]])))
-    if (anyDuplicated(nms.1) || anyNA(nms.1) || any(nms.1 == ""))
-      stop("All names must be unique.",
-           " (Use `unname()` for positional matching.)")
+  if (is.character(nms.1 <- names(x.1 <- x[[1L]]))) {
+    if (anyDuplicated(nms.1) || anyNA(nms.1) || any(nms.1 == "")) {
+      stop(
+        "All names must be unique.",
+        " (Use `unname()` for positional matching.)"
+      )
+    }
+  }
 
-  if (length(setdiff(lengths(x), 1L)) != 1L)
+  if (length(setdiff(lengths(x), 1L)) != 1L) {
     stop("all elements must have the same length")
+  }
 
   for (i in seq_along(x)) {
-    if (identical(nms.1, nms.i <- names(x[[i]])))
+    if (identical(nms.1, nms.i <- names(x[[i]]))) {
       next
+    }
     if (setequal(nms.1, nms.i)) {
       x[[i]] <- x[[i]][nms.1]
       next
     }
-    stop("All names of arguments provided to `zip_lists()` must match.",
-         " Call `unname()` on each argument if you want positional matching")
+    stop(
+      "All names of arguments provided to `zip_lists()` must match.",
+      " Call `unname()` on each argument if you want positional matching"
+    )
   }
   ans <- .mapply(list, x, NULL)
   names(ans) <- nms.1
@@ -213,7 +235,7 @@ is_type_call <- function(e) {
   is.call(e) && identical(e[[1]], quote(type))
 }
 
-reduce <- function (.x, .f, ..., .init) {
+reduce <- function(.x, .f, ..., .init) {
   f <- function(x, y) .f(x, y, ...)
   Reduce(f, .x, init = .init)
 }
@@ -222,7 +244,7 @@ substitute_ <- function(expr, env) {
   do.call(base::substitute, list(expr, env))
 }
 
-defer <- function (expr, env = parent.frame(), after = FALSE) {
+defer <- function(expr, env = parent.frame(), after = FALSE) {
   thunk <- as.call(list(function() expr))
   do.call(on.exit, list(thunk, TRUE, after), envir = env)
 }

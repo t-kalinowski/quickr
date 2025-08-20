@@ -1,5 +1,3 @@
-
-
 scrub_environment <- function(x) {
   gsub("environment: 0x[0-9a-f]+", "environment: 0x0", x)
 }
@@ -9,12 +7,14 @@ expect_translation_snapshots <- function(fn, name = deparse(substitute(fn))) {
   fsub <- r2f(fn)
   cwrapper <- make_c_bridge(fsub)
 
-  expect_snapshot({
-    fn
-    cat(fsub)
-    cat(cwrapper)
-  }, transform = scrub_environment)
-
+  expect_snapshot(
+    {
+      fn
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 }
 
 expect_quick_identical <- function(fn, ...) {
