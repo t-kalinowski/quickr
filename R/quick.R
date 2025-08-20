@@ -111,10 +111,11 @@
 #' add_ab(1, 2)
 quick <- function(fun, name = NULL) {
   if (is.null(name)) {
-    name <- if (is.symbol(substitute(fun)))
+    name <- if (is.symbol(substitute(fun))) {
       deparse(substitute(fun))
-    else
+    } else {
       make_unique_name(prefix = "anonymous_quick_function_")
+    }
   }
 
   if (nzchar(pkgname <- Sys.getenv("DEVTOOLS_LOAD"))) {
@@ -160,9 +161,12 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   name <- fsub@name
   c_wrapper <- make_c_bridge(fsub)
 
-  if (dir.exists(build_dir)) unlink(build_dir, recursive = T)
-  if (!dir.exists(build_dir))
+  if (dir.exists(build_dir)) {
+    unlink(build_dir, recursive = T)
+  }
+  if (!dir.exists(build_dir)) {
     dir.create(build_dir)
+  }
   owd <- setwd(build_dir)
   on.exit(setwd(owd))
 
@@ -176,7 +180,8 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     result <- system2(
       R.home("bin/R"),
       c("CMD SHLIB --use-LTO", "-o", dll_path, fsub_path, c_wrapper_path),
-      stdout = TRUE, stderr = TRUE
+      stdout = TRUE,
+      stderr = TRUE
     )
   })
   if (!is.null(attr(result, "status"))) {
@@ -194,35 +199,44 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 }
 
 
-
-create_quick_closure <- function(name, closure,
-                                 native_symbol = as.name(paste0(name, "_"))) {
-  body(closure) <- as.call(c(quote(.External), native_symbol,
-                             lapply(names(formals(closure)), as.name)))
+create_quick_closure <- function(
+  name,
+  closure,
+  native_symbol = as.name(paste0(name, "_"))
+) {
+  body(closure) <- as.call(c(
+    quote(.External),
+    native_symbol,
+    lapply(names(formals(closure)), as.name)
+  ))
   closure
 }
 
 
-
 check_all_var_names_valid <- function(fun) {
   nms <- unique(c(names(formals(fun)), all.vars(body(fun), functions = FALSE)))
-  invalid <- endsWith(nms, "_") | startsWith(nms, "_") | nms %in% c(
+  invalid <- endsWith(nms, "_") |
+    startsWith(nms, "_") |
+    nms %in%
+      c(
+        # clashes with Fortran subroutine symbols
+        "c_int",
+        "c_double",
+        "c_ptrdiff_t",
 
-    # clashes with Fortran subroutine symbols
-    "c_int", "c_double", "c_ptrdiff_t",
+        # clashes with C bridge symbols
+        "int" #, "double",
 
-    # clashes with C bridge symbols
-    "int" #, "double",
-
-    # ??? (clashes with R symbols?)
-    # "double", "integer"
-  )
+        # ??? (clashes with R symbols?)
+        # "double", "integer"
+      )
   if (any(invalid)) {
-    stop("symbols cannot start or end with '_', but found: ",
-         glue_collapse(invalid, ", ", last = ", and "))
+    stop(
+      "symbols cannot start or end with '_', but found: ",
+      glue_collapse(invalid, ", ", last = ", and ")
+    )
   }
 }
-
 
 
 # ---- utils ----

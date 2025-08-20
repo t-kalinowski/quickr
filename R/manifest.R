@@ -1,6 +1,3 @@
-
-
-
 ### local variables with unspecified size are 'allocatable'. If they are bound
 ### to a named symbol, the manifest must mark it as allocatable.
 ###
@@ -38,20 +35,25 @@
 ### typically "small" and enforced by the OS.
 
 r2f.scope <- function(scope) {
-
   vars <- as.list.environment(scope, all.names = TRUE)
   vars <- lapply(vars, function(var) {
-
     intent_in <- var@name %in% names(formals(scope@closure))
-    intent_out <- var@name == closure_return_var_name(scope@closure) || intent_in && var@modified
+    intent_out <- var@name == closure_return_var_name(scope@closure) ||
+      intent_in && var@modified
 
     intent <-
-      if (intent_in && intent_out) "intent(in out)"
-      else if (intent_in) "intent(in)"
-      else if (intent_out) "intent(out)"
-      else NULL
+      if (intent_in && intent_out) {
+        "intent(in out)"
+      } else if (intent_in) {
+        "intent(in)"
+      } else if (intent_out) {
+        "intent(out)"
+      } else {
+        NULL
+      }
 
-    type <- switch(var@mode,
+    type <- switch(
+      var@mode,
       double = "real(c_double)",
       integer = "integer(c_int)",
       complex = "complex(c_double_complex)",
@@ -66,28 +68,35 @@ r2f.scope <- function(scope) {
       dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
     }
 
-    allocatable <- if (!is.null(dims) && grepl(":", dims, fixed = TRUE))
+    allocatable <- if (!is.null(dims) && grepl(":", dims, fixed = TRUE)) {
       "allocatable"
+    }
 
-    if (intent_in && intent_out && !is.null(allocatable))
+    if (intent_in && intent_out && !is.null(allocatable)) {
       stop("all input and output vars must have a fully defined shape")
+    }
 
     name <- var@name
     comment <- if (var@mode == "logical") " ! logical"
 
-    glue('{str_flatten_commas(type, intent, allocatable)} :: {name}{dims}{comment}',
-         .null = "")
+    glue(
+      '{str_flatten_commas(type, intent, allocatable)} :: {name}{dims}{comment}',
+      .null = ""
+    )
   })
 
   # vars that will be visible in the C bridge, either as an input or output
-  non_local_var_names <- unique(c(names(formals(scope@closure)),
-                                  closure_return_var_name(scope@closure)))
+  non_local_var_names <- unique(c(
+    names(formals(scope@closure)),
+    closure_return_var_name(scope@closure)
+  ))
 
   # collect all size_names; sort so non-locals are declared first.
   size_names <- unique(unlist(lapply(non_local_var_names, function(name) {
     var <- scope[[name]]
     lapply(var@dims, all.names, functions = FALSE, unique = TRUE)
-  }))) |> setdiff(names(formals(scope@closure)))
+  }))) |>
+    setdiff(names(formals(scope@closure)))
 
   sizes <- lapply(size_names, function(name) {
     kind <- if (endsWith(name, "_len_")) "c_ptrdiff_t" else "c_int"
@@ -100,20 +109,23 @@ r2f.scope <- function(scope) {
     locals = vars[setdiff(names(vars), non_local_var_names)]
   ))
 
-  manifest <- imap(manifest, \(declarations, category)
-                   str_flatten_lines(paste("!", category), declarations)) |>
+  manifest <- imap(manifest, \(declarations, category) {
+    str_flatten_lines(paste("!", category), declarations)
+  }) |>
     str_flatten("\n\n")
 
   manifest <- str_flatten_lines("! manifest start", manifest, "! manifest end")
 
   # symbols that must come in as args to the subroutine
   # # method="radix" for locale-independent stable order.
-  signature <- unique(c(non_local_var_names, sort(size_names, method = "radix")))
+  signature <- unique(c(
+    non_local_var_names,
+    sort(size_names, method = "radix")
+  ))
   attr(manifest, "signature") <- signature
 
   manifest
 }
-
 
 
 ## fortran precedence order
@@ -145,8 +157,10 @@ dims2f_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
 dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("real({e1}) / real({e2})")
 # dividing integers truncates towards 0
 dims2f_eval_base_env[["%/%"]] <- function(e1, e2) glue("int({e1}) / int({e2})")
-dims2f_eval_base_env[["%%"]]  <- function(e1, e2) glue("mod(int({e1}), int({e2}))")
-dims2f_eval_base_env[["^"]]  <- function(e1, e2) glue("({e1})**({e2})")
+dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
+  glue("mod(int({e1}), int({e2}))")
+}
+dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
 
 
 dims2f <- function(dims, scope) {
@@ -156,18 +170,25 @@ dims2f <- function(dims, scope) {
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {
     d <- eval(d, eval_env)
-    if (is.symbol(d)) as.character(d)
-    else if (is_wholenumber(d)) as.character(d)
-    else if (is_scalar_na(d)) ":"
-    else if (is_string(d)) d
-    else if (inherits(d, Variable)) {
+    if (is.symbol(d)) {
+      as.character(d)
+    } else if (is_wholenumber(d)) {
+      as.character(d)
+    } else if (is_scalar_na(d)) {
+      ":"
+    } else if (is_string(d)) {
+      d
+    } else if (inherits(d, Variable)) {
       # a locally allocated var that is a return var
-      if (!d@modified && d@is_arg)
+      if (!d@modified && d@is_arg) {
         return(d@name)
+      }
       stop("unexpected axis size value")
     }
   })
-  if (!length(dims) || identical(dims, "1")) ""
-  else str_flatten_commas(dims)
+  if (!length(dims) || identical(dims, "1")) {
+    ""
+  } else {
+    str_flatten_commas(dims)
+  }
 }
-

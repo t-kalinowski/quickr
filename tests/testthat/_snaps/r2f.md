@@ -61,8 +61,7 @@
       slow_add2
     Output
       function(x, y) {
-          declare(type(x = integer(n)),
-                  type(y = integer(n)))
+          declare(type(x = integer(n)), type(y = integer(n)))
           out <- x + y
           out
         }
@@ -588,7 +587,13 @@
     Code
       viterbi
     Output
-      function(observations, states, initial_probs, transition_probs, emission_probs) {
+      function(
+          observations,
+          states,
+          initial_probs,
+          transition_probs,
+          emission_probs
+        ) {
           declare({
             type(observations = integer(num_steps))
             type(states = integer(num_states))
@@ -602,7 +607,11 @@
       
           # Trellis matrices for probabilities and backtracking
           trellis <- matrix(0, nrow = length(states), ncol = length(observations))
-          backpointer <- matrix(0L, nrow = length(states), ncol = length(observations))
+          backpointer <- matrix(
+            0L,
+            nrow = length(states),
+            ncol = length(observations)
+          )
       
           # print(backpointer)
           # print(trellis)
@@ -618,14 +627,14 @@
           for (step in 2:num_steps) {
             for (current_state in 1:num_states) {
               probabilities <- trellis[, step - 1] * transition_probs[, current_state]
-              trellis[current_state, step] <- max(probabilities) * emission_probs[current_state, observations[step]]
+              trellis[current_state, step] <- max(probabilities) *
+                emission_probs[current_state, observations[step]]
               backpointer[current_state, step] <- which.max(probabilities)
             }
           }
       
           # print(backpointer)
           # print(trellis)
-      
       
           # Backtracking to find the most likely path
           path <- integer(length(observations))
@@ -818,7 +827,13 @@
     Code
       viterbi
     Output
-      function(observations, states, initial_probs, transition_probs, emission_probs) {
+      function(
+          observations,
+          states,
+          initial_probs,
+          transition_probs,
+          emission_probs
+        ) {
           declare(
             type(observations = integer(num_steps)),
             type(states = integer(num_states)),
@@ -828,13 +843,18 @@
           )
       
           trellis <- matrix(0, nrow = length(states), ncol = length(observations))
-          backpointer <- matrix(0L, nrow = length(states), ncol = length(observations))
+          backpointer <- matrix(
+            0L,
+            nrow = length(states),
+            ncol = length(observations)
+          )
           trellis[, 1] <- initial_probs * emission_probs[, observations[1]]
       
           for (step in 2:length(observations)) {
             for (current_state in 1:length(states)) {
               probabilities <- trellis[, step - 1] * transition_probs[, current_state]
-              trellis[current_state, step] <- max(probabilities) * emission_probs[current_state, observations[step]]
+              trellis[current_state, step] <- max(probabilities) *
+                emission_probs[current_state, observations[step]]
               backpointer[current_state, step] <- which.max(probabilities)
             }
           }
@@ -1030,8 +1050,7 @@
       
           # Initialize temperature grid
           temp <- matrix(0, nx, ny)
-          temp[nx / 2, ny / 2] <- 100  # Initial heat source in the center
-      
+          temp[nx / 2, ny / 2] <- 100 # Initial heat source in the center
       
           # Boundary conditions
           # apply_boundary_conditions <- function(temp) {
@@ -1068,13 +1087,15 @@
             temp_new <- temp
             for (i in 2:(nx - 1)) {
               for (j in 2:(ny - 1)) {
-                temp_new[i, j] <- temp[i, j] + k * dt *
-                  ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
-                     dx ^ 2 + (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
+                temp_new[i, j] <- temp[i, j] +
+                  k *
+                    dt *
+                    ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
+                      dx^2 +
+                      (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy^2)
               }
             }
             temp <- temp_new
-      
           }
       
           temp
@@ -1325,7 +1346,7 @@
     Output
       function(x) {
           declare(type(x = double(NA)))
-          out <- max(x[x>=0])
+          out <- max(x[x >= 0])
           out
         }
       <environment: 0x0>
@@ -1397,7 +1418,7 @@
             which.max(lgl1),
             which.max(int1),
             which.max(dbl1),
-            which.max(dbl1[dbl1<0])
+            which.max(dbl1[dbl1 < 0])
           )
           out
         }
@@ -1503,11 +1524,12 @@
           )
           out <- double(length(x) - length(weights) + 1)
           n <- length(weights)
-          if (normalize)
-            weights <- weights/sum(weights)*length(weights)
+          if (normalize) {
+            weights <- weights / sum(weights) * length(weights)
+          }
       
-          for(i in seq_along(out)) {
-            out[i] <- sum(x[i:(i+n-1)] * weights) / length(weights)
+          for (i in seq_along(out)) {
+            out[i] <- sum(x[i:(i + n - 1)] * weights) / length(weights)
           }
           out
         }
@@ -1716,8 +1738,7 @@
       fn
     Output
       function(a, b) {
-          declare(type(a = double(n)),
-                  type(b = double(n+1)))
+          declare(type(a = double(n)), type(b = double(n + 1)))
           a = sum(b)
           a
         }
@@ -4065,7 +4086,9 @@
           declare(type(x = integer(1)))
           repeat {
             x <- x + 1L
-            if (x < 0L) next
+            if (x < 0L) {
+              next
+            }
             if (x >= 5L) break
           }
           x
@@ -4202,8 +4225,8 @@
     Output
       function(x) {
           declare(type(x = integer(1)))
-          while(x < 5L) {
-            x = x+1L
+          while (x < 5L) {
+            x = x + 1L
           }
           x
         }
@@ -4329,7 +4352,9 @@
       function(x) {
           declare(type(x = integer(1)))
           while (TRUE) {
-            if (x >= 5L) break
+            if (x >= 5L) {
+              break
+            }
             x <- x + 1L
           }
           x

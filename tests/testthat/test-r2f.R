@@ -1,8 +1,4 @@
-
-
-
 test_that("add1", {
-
   slow_add1 <- function(x) {
     declare(type(x = double(NA)))
     x <- x + 1
@@ -13,9 +9,14 @@ test_that("add1", {
   fsub <- new_fortran_subroutine("slow_add1", slow_add1)
   cwrapper <- make_c_bridge(fsub)
 
-
-  expect_snapshot({ slow_add1; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      slow_add1
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
   quick_add1 <- quick(name = "slow_add1", slow_add1)
   expect_equal(quick_add1(as.double(1:3)), slow_add1(as.double(1:3)))
@@ -25,10 +26,8 @@ test_that("add1", {
 
 
 test_that("add2", {
-
   slow_add2 <- function(x, y) {
-    declare(type(x = integer(n)),
-            type(y = integer(n)))
+    declare(type(x = integer(n)), type(y = integer(n)))
     out <- x + y
     out
   }
@@ -37,17 +36,23 @@ test_that("add2", {
   fsub <- new_fortran_subroutine("slow_add2", slow_add2)
   cwrapper <- make_c_bridge(fsub)
 
-  expect_snapshot({ slow_add2; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      slow_add2
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
-  x <- 1:3; y <- 4:6
+  x <- 1:3
+  y <- 4:6
   quick_add2 <- quick(name = "slow_add2", slow_add2)
   expect_equal(quick_add2(x, y), slow_add2(x, y))
 })
 
 
 test_that("convolve", {
-
   # options("quickr.r2f.debug" = TRUE)
   slow_convolve <- function(a, b) {
     declare(type(a = double(NA)))
@@ -65,32 +70,39 @@ test_that("convolve", {
   (fsub <- new_fortran_subroutine("slow_convolve", slow_convolve))
   cwrapper <- make_c_bridge(fsub)
 
-
-  expect_snapshot({ slow_convolve; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      slow_convolve
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
   quick_convolve <- quick(name = "quick_convolve", slow_convolve)
-  a <- 1:3; b <- 10:15
-  expect_error(quick_convolve(a, b), "must be 'double', not 'integer'", fixed = TRUE)
-  a <- as.double(1:3); b <- as.double(10:15)
+  a <- 1:3
+  b <- 10:15
+  expect_error(
+    quick_convolve(a, b),
+    "must be 'double', not 'integer'",
+    fixed = TRUE
+  )
+  a <- as.double(1:3)
+  b <- as.double(10:15)
   expect_equal(quick_convolve(a, b), slow_convolve(a, b))
-  a <- as.double(0:3); b <- 1
+  a <- as.double(0:3)
+  b <- 1
   expect_equal(quick_convolve(a, b), slow_convolve(a, b))
-
-
 })
 
 
 test_that("which.max", {
-
   fn <- function(a) {
     declare(type(a = double(NA)))
 
     out <- which.max(a)
     out
-
   }
-
 
   expect_snapshot(r2f(fn))
 
@@ -105,7 +117,6 @@ test_that("which.max", {
   # qfn(-c(1, 2, 3, 2, 1))
   # fn(-c(1, 2, 3, 2, 1))
 
-
   # ---------------------
 
   # now with logical
@@ -118,13 +129,11 @@ test_that("which.max", {
 
   expect_snapshot(r2f(fn))
 
-
   x <- logical(1000)
   x[500] <- TRUE
 
   qfn <- quick(fn)
   expect_identical(fn(x), qfn(x))
-
 })
 
 #   qfn_find_loc_int <- quick("fn", fn)
@@ -137,9 +146,7 @@ test_that("which.max", {
 
 # })
 
-
 test_that("matrix", {
-
   fn <- function(a, b) {
     declare(type(a = integer(1)))
     declare(type(b = integer(1)))
@@ -160,8 +167,6 @@ test_that("matrix", {
   # expect_identical(qfn(3L, 4), fn(3L, 4))
   expect_identical(qfn(3L, 4L), fn(3L, 4L))
 
-
-
   fn <- function(val, nc, nr) {
     # declare({
     #   type(val = double(1))
@@ -179,14 +184,11 @@ test_that("matrix", {
   }
   qfn <- quick(fn)
 
-
   qfn(1.1, 3L, 3L)
 
   expect_identical(qfn(2.3, 3L, 4L), fn(2.3, 3L, 4L))
   expect_identical(qfn(2.3, 3L, 4L), matrix(2.3, 3L, 4L))
   # bench::mark(fn(2.3, 3, 4), matrix(2.3, 3, 4), qfn(2.3, 3, 4)) -> r; print(r); plot(r)
-
-
 })
 
 
@@ -194,7 +196,7 @@ test_that("reuse implicit size", {
   fn <- function(a1, a2) {
     declare(type(a1 = double(n)))
     declare(type(a2 = double(n, n)))
-    out <- a1 + a2[1,]
+    out <- a1 + a2[1, ]
     out
   }
 
@@ -202,7 +204,10 @@ test_that("reuse implicit size", {
   c_wrapper <- make_c_bridge(fsub)
   qfn <- quick(fn)
 
-  expect_snapshot({print(fsub); cat(c_wrapper)})
+  expect_snapshot({
+    print(fsub)
+    cat(c_wrapper)
+  })
 
   n <- 1000
   a1 <- as.double(1:n)
@@ -214,11 +219,14 @@ test_that("reuse implicit size", {
 })
 
 
-
-
-
 test_that("viterbi", {
-  viterbi <- function(observations, states, initial_probs, transition_probs, emission_probs) {
+  viterbi <- function(
+    observations,
+    states,
+    initial_probs,
+    transition_probs,
+    emission_probs
+  ) {
     declare({
       type(observations = integer(num_steps))
       type(states = integer(num_states))
@@ -232,7 +240,11 @@ test_that("viterbi", {
 
     # Trellis matrices for probabilities and backtracking
     trellis <- matrix(0, nrow = length(states), ncol = length(observations))
-    backpointer <- matrix(0L, nrow = length(states), ncol = length(observations))
+    backpointer <- matrix(
+      0L,
+      nrow = length(states),
+      ncol = length(observations)
+    )
 
     # print(backpointer)
     # print(trellis)
@@ -248,14 +260,14 @@ test_that("viterbi", {
     for (step in 2:num_steps) {
       for (current_state in 1:num_states) {
         probabilities <- trellis[, step - 1] * transition_probs[, current_state]
-        trellis[current_state, step] <- max(probabilities) * emission_probs[current_state, observations[step]]
+        trellis[current_state, step] <- max(probabilities) *
+          emission_probs[current_state, observations[step]]
         backpointer[current_state, step] <- which.max(probabilities)
       }
     }
 
     # print(backpointer)
     # print(trellis)
-
 
     # Backtracking to find the most likely path
     path <- integer(length(observations))
@@ -274,12 +286,18 @@ test_that("viterbi", {
     # Return the most likely path
     out <- states[path]
     out
-  };
+  }
 
   fsub <- r2f(viterbi)
   cwrapper <- make_c_bridge(fsub)
-  expect_snapshot({ viterbi; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      viterbi
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
   set.seed(42)
 
@@ -291,24 +309,41 @@ test_that("viterbi", {
   observations <- sample(1:num_obs, num_steps, replace = TRUE)
   states <- 1:num_states
   initial_probs <- runif(num_states)
-  initial_probs <- initial_probs / sum(initial_probs)  # Normalize to sum to 1
+  initial_probs <- initial_probs / sum(initial_probs) # Normalize to sum to 1
   transition_probs <- matrix(runif(num_states * num_states), nrow = num_states)
-  transition_probs <- transition_probs / rowSums(transition_probs)  # Row-normalize
+  transition_probs <- transition_probs / rowSums(transition_probs) # Row-normalize
   emission_probs <- matrix(runif(num_states * num_obs), nrow = num_states)
-  emission_probs <- emission_probs / rowSums(emission_probs)  # Row-normalize
+  emission_probs <- emission_probs / rowSums(emission_probs) # Row-normalize
 
   qviterbi <- quick(viterbi)
   expect_equal(
-    viterbi(observations, states, initial_probs, transition_probs, emission_probs),
-    qviterbi(observations, states, initial_probs, transition_probs, emission_probs)
+    viterbi(
+      observations,
+      states,
+      initial_probs,
+      transition_probs,
+      emission_probs
+    ),
+    qviterbi(
+      observations,
+      states,
+      initial_probs,
+      transition_probs,
+      emission_probs
+    )
   )
 })
 
 
-
 #
 test_that("viterbi2", {
-  viterbi <- function(observations, states, initial_probs, transition_probs, emission_probs) {
+  viterbi <- function(
+    observations,
+    states,
+    initial_probs,
+    transition_probs,
+    emission_probs
+  ) {
     declare(
       type(observations = integer(num_steps)),
       type(states = integer(num_states)),
@@ -318,13 +353,18 @@ test_that("viterbi2", {
     )
 
     trellis <- matrix(0, nrow = length(states), ncol = length(observations))
-    backpointer <- matrix(0L, nrow = length(states), ncol = length(observations))
+    backpointer <- matrix(
+      0L,
+      nrow = length(states),
+      ncol = length(observations)
+    )
     trellis[, 1] <- initial_probs * emission_probs[, observations[1]]
 
     for (step in 2:length(observations)) {
       for (current_state in 1:length(states)) {
         probabilities <- trellis[, step - 1] * transition_probs[, current_state]
-        trellis[current_state, step] <- max(probabilities) * emission_probs[current_state, observations[step]]
+        trellis[current_state, step] <- max(probabilities) *
+          emission_probs[current_state, observations[step]]
         backpointer[current_state, step] <- which.max(probabilities)
       }
     }
@@ -339,9 +379,14 @@ test_that("viterbi2", {
     out
   }
 
-  expect_snapshot({ viterbi; cat(fsub <- r2f(viterbi)); cat(make_c_bridge(fsub)) },
-                  transform = scrub_environment)
-
+  expect_snapshot(
+    {
+      viterbi
+      cat(fsub <- r2f(viterbi))
+      cat(make_c_bridge(fsub))
+    },
+    transform = scrub_environment
+  )
 
   set.seed(1234)
 
@@ -354,29 +399,51 @@ test_that("viterbi2", {
   observations <- sample(1:num_obs, num_steps, replace = TRUE)
   states <- 1:num_states
   initial_probs <- runif(num_states)
-  initial_probs <- initial_probs / sum(initial_probs)  # Normalize to sum to 1
+  initial_probs <- initial_probs / sum(initial_probs) # Normalize to sum to 1
   transition_probs <- matrix(runif(num_states * num_states), nrow = num_states)
-  transition_probs <- transition_probs / rowSums(transition_probs)  # Row-normalize
+  transition_probs <- transition_probs / rowSums(transition_probs) # Row-normalize
   emission_probs <- matrix(runif(num_states * num_obs), nrow = num_states)
-  emission_probs <- emission_probs / rowSums(emission_probs)  # Row-normalize
+  emission_probs <- emission_probs / rowSums(emission_probs) # Row-normalize
 
   qviterbi <- quick(viterbi)
   expect_equal(
-    viterbi(observations, states, initial_probs, transition_probs, emission_probs),
-    qviterbi(observations, states, initial_probs, transition_probs, emission_probs)
+    viterbi(
+      observations,
+      states,
+      initial_probs,
+      transition_probs,
+      emission_probs
+    ),
+    qviterbi(
+      observations,
+      states,
+      initial_probs,
+      transition_probs,
+      emission_probs
+    )
   )
-  if (FALSE)
-  {
+  if (FALSE) {
     bench::mark(
-      viterbi(observations, states, initial_probs, transition_probs, emission_probs),
-      qviterbi(observations, states, initial_probs, transition_probs, emission_probs)
-    ) -> res; res |> print() |> plot(); summary(res, relative = TRUE) |> print()
+      viterbi(
+        observations,
+        states,
+        initial_probs,
+        transition_probs,
+        emission_probs
+      ),
+      qviterbi(
+        observations,
+        states,
+        initial_probs,
+        transition_probs,
+        emission_probs
+      )
+    ) -> res
+    res |> print() |> plot()
+    summary(res, relative = TRUE) |> print()
     # viterbi(observations, states, initial_probs, transition_probs, emission_probs)
     # qviterbi(observations, states, initial_probs, transition_probs, emission_probs)
   }
-
-
-
 })
 
 test_that("heat diffusion", {
@@ -384,14 +451,13 @@ test_that("heat diffusion", {
   # 2D grid, explicit time-stepping, fixed boundaries
 
   # Parameters
-  nx <- 100L       # Grid size in x
-  ny <- 100L       # Grid size in y
-  dx <- 1L         # Grid spacing
+  nx <- 100L # Grid size in x
+  ny <- 100L # Grid size in y
+  dx <- 1L # Grid spacing
   dy <- 1L
-  dt <- 0.01      # Time step
-  k <- 0.1        # Thermal diffusivity
-  steps <- 50L    # Number of time steps
-
+  dt <- 0.01 # Time step
+  k <- 0.1 # Thermal diffusivity
+  steps <- 50L # Number of time steps
 
   diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
     declare(
@@ -406,8 +472,7 @@ test_that("heat diffusion", {
 
     # Initialize temperature grid
     temp <- matrix(0, nx, ny)
-    temp[nx / 2, ny / 2] <- 100  # Initial heat source in the center
-
+    temp[nx / 2, ny / 2] <- 100 # Initial heat source in the center
 
     # Boundary conditions
     # apply_boundary_conditions <- function(temp) {
@@ -444,13 +509,15 @@ test_that("heat diffusion", {
       temp_new <- temp
       for (i in 2:(nx - 1)) {
         for (j in 2:(ny - 1)) {
-          temp_new[i, j] <- temp[i, j] + k * dt *
-            ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
-               dx ^ 2 + (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
+          temp_new[i, j] <- temp[i, j] +
+            k *
+              dt *
+              ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
+                dx^2 +
+                (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy^2)
         }
       }
       temp <- temp_new
-
     }
 
     temp
@@ -459,30 +526,34 @@ test_that("heat diffusion", {
     # image(temp, col = heat.colors(100), main = "Heat Diffusion")
   }
 
-
-  expect_snapshot({ diffuse_heat; cat(fsub <- r2f(diffuse_heat)); cat(make_c_bridge(fsub)) },
-                  transform = scrub_environment)
-
+  expect_snapshot(
+    {
+      diffuse_heat
+      cat(fsub <- r2f(diffuse_heat))
+      cat(make_c_bridge(fsub))
+    },
+    transform = scrub_environment
+  )
 
   qdiffuse_heat <- quick(diffuse_heat)
 
-  expect_equal(qdiffuse_heat(nx, ny, dx, dy, dt, k, steps),
-               diffuse_heat(nx, ny, dx, dy, dt, k, steps))
-
+  expect_equal(
+    qdiffuse_heat(nx, ny, dx, dy, dt, k, steps),
+    diffuse_heat(nx, ny, dx, dy, dt, k, steps)
+  )
 
   if (FALSE) {
-
-  bench::mark(qdiffuse_heat(nx, ny, dx, dy, dt, k, steps),
-              diffuse_heat(nx, ny, dx, dy, dt, k, steps)) -> res;
-  res |> print() |> plot(); summary(res, relative = TRUE) |> print()
-
+    bench::mark(
+      qdiffuse_heat(nx, ny, dx, dy, dt, k, steps),
+      diffuse_heat(nx, ny, dx, dy, dt, k, steps)
+    ) -> res
+    res |> print() |> plot()
+    summary(res, relative = TRUE) |> print()
   }
-
 })
 
 
 test_that("hoist mask", {
-
   # no mask to hoist
   fn <- function(x) {
     declare(type(x = double(NA)))
@@ -493,39 +564,46 @@ test_that("hoist mask", {
   fsub <- r2f(fn)
   cwrapper <- make_c_bridge(fsub)
 
-
-  expect_snapshot({ fn; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      fn
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
   x <- runif(100, -10, 10)
   qfn := quick(fn)
   expect_equal(qfn(x), fn(x))
 
-
   # mask hoists
   fn <- function(x) {
     declare(type(x = double(NA)))
-    out <- max(x[x>=0])
+    out <- max(x[x >= 0])
     out
   }
 
   fsub <- r2f(fn)
   cwrapper <- make_c_bridge(fsub)
 
-
-  expect_snapshot({ fn; cat(fsub); cat(cwrapper) },
-                  transform = scrub_environment)
+  expect_snapshot(
+    {
+      fn
+      cat(fsub)
+      cat(cwrapper)
+    },
+    transform = scrub_environment
+  )
 
   x <- runif(100, -10, 10)
   qfn := quick(fn)
   expect_equal(qfn(x), fn(x))
   # bench::mark(qfn(x), fn(x), relative = T)
-
 })
 
 
 test_that("which.max/which.min", {
-
   fn <- function(lgl1, int1, dbl1) {
     declare(type(lgl1 = logical(NA)))
     declare(type(int1 = integer(NA)))
@@ -537,7 +615,7 @@ test_that("which.max/which.min", {
       which.max(lgl1),
       which.max(int1),
       which.max(dbl1),
-      which.max(dbl1[dbl1<0])
+      which.max(dbl1[dbl1 < 0])
     )
     out
   }
@@ -556,12 +634,14 @@ test_that("which.max/which.min", {
   # )
 
   expect_translation_snapshots(fn)
-  expect_quick_identical(fn, list(
-    lgl1 = sample(c(TRUE, FALSE), 10, TRUE),
-    int1 = sample.int(100),
-    dbl1 = runif(100, -1, 1)
-  ))
-
+  expect_quick_identical(
+    fn,
+    list(
+      lgl1 = sample(c(TRUE, FALSE), 10, TRUE),
+      int1 = sample.int(100),
+      dbl1 = runif(100, -1, 1)
+    )
+  )
 })
 
 test_that("roll_mean", {
@@ -573,25 +653,22 @@ test_that("roll_mean", {
     )
     out <- double(length(x) - length(weights) + 1)
     n <- length(weights)
-    if (normalize)
-      weights <- weights/sum(weights)*length(weights)
+    if (normalize) {
+      weights <- weights / sum(weights) * length(weights)
+    }
 
-    for(i in seq_along(out)) {
-      out[i] <- sum(x[i:(i+n-1)] * weights) / length(weights)
+    for (i in seq_along(out)) {
+      out[i] <- sum(x[i:(i + n - 1)] * weights) / length(weights)
     }
     out
   }
 
   x <- dnorm(seq(-3, 3, len = 2000))
-  weights <- runif (30)
+  weights <- runif(30)
 
   expect_translation_snapshots(slow_roll_mean)
   expect_quick_equal(slow_roll_mean, list(x, weights))
-
-
 })
-
-
 
 
 test_that("between", {
@@ -607,15 +684,12 @@ test_that("between", {
 
   expect_translation_snapshots(between)
   expect_quick_identical(between, list(x = runif(100), left = .4, right = .6))
-
 })
-
 
 
 test_that("size constraint", {
   fn <- function(a, b) {
-    declare(type(a = double(n)),
-            type(b = double(n+1)))
+    declare(type(a = double(n)), type(b = double(n + 1)))
     a = sum(b)
     a
   }
@@ -632,7 +706,6 @@ test_that("size constraint", {
   )
   expect_translation_snapshots(fn, "call_size_constraint")
   expect_equal(qfn(1, c(2, 3)), 5)
-
 })
 
 
@@ -726,12 +799,19 @@ test_that("logical ops", {
 
 
 test_that("double unary intrinsics", {
-
   double_intrinsics <- c(
-    "sin", "cos", "tan",
-    "asin", "acos", "atan",
-    "sqrt", "exp", "log", "log10",
-    "floor", "ceiling",
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "sqrt",
+    "exp",
+    "log",
+    "log10",
+    "floor",
+    "ceiling",
     "abs"
   )
 
@@ -749,12 +829,12 @@ test_that("double unary intrinsics", {
 
     x <- switch(
       intr,
-      asin  = seq(-1, 1, length.out = 20),
-      acos  = seq(-1, 1, length.out = 20),
-      sqrt  = seq(0, 10, length.out = 20),
-      log   = seq(.1, 10, length.out = 20),
+      asin = seq(-1, 1, length.out = 20),
+      acos = seq(-1, 1, length.out = 20),
+      sqrt = seq(0, 10, length.out = 20),
+      log = seq(.1, 10, length.out = 20),
       log10 = seq(.1, 10, length.out = 20),
-      exp   = seq(-2, 2, length.out = 20),
+      exp = seq(-2, 2, length.out = 20),
       seq(-5, 5, length.out = 20)
     )
     expect_quick_equal(fn, x)
@@ -762,7 +842,6 @@ test_that("double unary intrinsics", {
 })
 
 test_that("integer unary intrinsics", {
-
   integer_intrinsics <- c("abs")
 
   for (intr in integer_intrinsics) {
@@ -771,7 +850,9 @@ test_that("integer unary intrinsics", {
          declare(type(x = integer(NA)))
          out <- %s(x)
          out
-       }", intr)))
+       }",
+      intr
+    )))
 
     expect_translation_snapshots(fn)
 
@@ -781,16 +862,26 @@ test_that("integer unary intrinsics", {
 })
 
 test_that("complex unary intrinsics", {
-
   set.seed(123)
   x <- seq(-5, 5, length.out = 30)
   z <- complex(real = x, imaginary = sample(x))
 
   complex_intrinsics <- c(
-    "sin", "cos", "tan",
-    "asin", "acos", "atan",
-    "sqrt", "exp", "log", "log10",
-    "Re", "Im", "Mod", "Arg", "Conj"
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "sqrt",
+    "exp",
+    "log",
+    "log10",
+    "Re",
+    "Im",
+    "Mod",
+    "Arg",
+    "Conj"
   )
 
   for (intr in complex_intrinsics) {
@@ -799,12 +890,13 @@ test_that("complex unary intrinsics", {
          declare(type(z = complex(NA)))
          out <- %s(z)
          out
-       }", intr)))
+       }",
+      intr
+    )))
 
     expect_translation_snapshots(fn)
     expect_quick_equal(fn, z)
   }
-
 })
 
 
@@ -831,11 +923,9 @@ test_that("ifelse", {
     out
   }
   expect_quick_equal(fn, list(seq(-5, 5, length.out = 20), double(20)))
-
 })
 
 test_that("seq", {
-
   fn <- function(a, b) {
     declare(
       type(a = integer(1)),
@@ -851,7 +941,6 @@ test_that("seq", {
 
 
 test_that("declare(type()) variants", {
-
   # exprs in {
   quick_seq <- (function(start, end) {
     declare({
@@ -921,7 +1010,9 @@ test_that("repeat + next", {
     declare(type(x = integer(1)))
     repeat {
       x <- x + 1L
-      if (x < 0L) next
+      if (x < 0L) {
+        next
+      }
       if (x >= 5L) break
     }
     x
@@ -948,12 +1039,11 @@ test_that("break/for", {
 })
 
 
-
 test_that("while", {
   fn <- function(x) {
     declare(type(x = integer(1)))
-    while(x < 5L) {
-      x = x+1L
+    while (x < 5L) {
+      x = x + 1L
     }
     x
   }
@@ -963,7 +1053,6 @@ test_that("while", {
 })
 
 test_that("while + next", {
-
   inc_to_5_skip_neg_while <- function(x) {
     declare(type(x = integer(1)))
     while (x < 5L) {
@@ -979,11 +1068,12 @@ test_that("while + next", {
 
 
 test_that("while + break", {
-
   inc_to_5_break_while <- function(x) {
     declare(type(x = integer(1)))
     while (TRUE) {
-      if (x >= 5L) break
+      if (x >= 5L) {
+        break
+      }
       x <- x + 1L
     }
     x
@@ -1011,7 +1101,7 @@ test_that("expr return value", {
 test_that("%% and %/%", {
   x <- -7:7
   x <- expand.grid(a = x, b = x)
-  x <- x[x$b != 0, ]                  # avoid divisor == 0
+  x <- x[x$b != 0, ] # avoid divisor == 0
   x <- as.list(x)
 
   rem_double <- function(a, b) {
@@ -1028,7 +1118,6 @@ test_that("%% and %/%", {
   }
   expect_quick_identical(rem_int, x)
 
-
   div_double <- function(a, b) {
     declare(type(a = double(n)), type(b = double(n)))
     a %/% b
@@ -1043,4 +1132,3 @@ test_that("%% and %/%", {
   }
   expect_quick_identical(div_int, x)
 })
-

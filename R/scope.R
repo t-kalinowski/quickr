@@ -1,5 +1,3 @@
-
-
 new_ordered_env <- function(parent = emptyenv()) {
   env <- new.env(parent = parent)
   class(env) <- "quickr_ordered_env"
@@ -44,11 +42,15 @@ print.quickr_ordered_env <- function(x, ...) {
 
 
 check_assignment_compatible <- function(target, value) {
-  if (is.null(value)) return()
+  if (is.null(value)) {
+    return()
+  }
   stopifnot(exprs = {
     inherits(target, Variable)
     inherits(value, Variable)
-    passes_as_scalar(target) || passes_as_scalar(value) || target@rank == value@rank
+    passes_as_scalar(target) ||
+      passes_as_scalar(value) ||
+      target@rank == value@rank
   })
 }
 
@@ -56,7 +58,6 @@ new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
   class(scope) <- unique(c("quickr_scope", class(scope)))
   attr(scope, "closure") <- closure
-
 
   attr(scope, "get_unique_var") <- local({
     i <- 0L
@@ -68,8 +69,9 @@ new_scope <- function(closure, parent = emptyenv()) {
   attr(scope, "assign") <- function(name, value) {
     stopifnot(inherits(value, Variable), is.symbol(name) || is_string(name))
     name <- as.character(name)
-    if (exists(name, scope))
+    if (exists(name, scope)) {
       check_assignment_compatible(get(name, scope), value)
+    }
     value@name <- name
     assign(name, value, scope)
   }
@@ -85,6 +87,6 @@ new_scope <- function(closure, parent = emptyenv()) {
 
 #' @importFrom utils .AtNames findMatches
 #' @export
-.AtNames.quickr_scope <- function(x, pattern = "")
+.AtNames.quickr_scope <- function(x, pattern = "") {
   findMatches(pattern, names(attributes(x)))
-
+}

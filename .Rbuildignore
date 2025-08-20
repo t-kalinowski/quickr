@@ -7,3 +7,4 @@
 ^scratch$
 ^\.vscode$
 ^cran-comments\.md$
+^[\.]?air\.toml$

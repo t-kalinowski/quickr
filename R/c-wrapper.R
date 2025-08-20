@@ -1,4 +1,3 @@
-
 make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   stopifnot(inherits(fsub, FortranSubroutine))
 
@@ -10,19 +9,31 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   c_body <- character()
 
-  if (!all(closure_arg_names %in% fsub_arg_names))
-    stop("Undeclared arguments: ", str_flatten_commas(setdiff(closure_arg_names, fsub_arg_names)))
+  if (!all(closure_arg_names %in% fsub_arg_names)) {
+    stop(
+      "Undeclared arguments: ",
+      str_flatten_commas(setdiff(closure_arg_names, fsub_arg_names))
+    )
+  }
 
   closure_arg_vars <- mget(closure_arg_names, scope)
 
   # first unpack all the input vars into named C variables (including sizes and pointer)
-  append(c_body) <- lapply(closure_arg_vars, closure_arg_c_defs, strict = strict) |>
+  append(c_body) <- lapply(
+    closure_arg_vars,
+    closure_arg_c_defs,
+    strict = strict
+  ) |>
     rbind("")
 
   ## TODO, might still need to define a length size for vars where rank>1, if in checks.
 
   # now do all size checks.
-  append(c_body) <- lapply(closure_arg_vars, closure_arg_size_checks, scope = scope)
+  append(c_body) <- lapply(
+    closure_arg_vars,
+    closure_arg_size_checks,
+    scope = scope
+  )
 
   # maybe define and allocate the output var
   n_protected <- 0L
@@ -32,20 +43,27 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     assign(return_var@name, return_var, scope)
     append(c_body) <- return_var_c_defs(return_var, fsub@scope)
     add(n_protected) <- 1L # allocated return var
-    if (return_var@rank > 1)
-      add(n_protected) <- 1L # allocated _dim_sexp
+    if (return_var@rank > 1) {
+      add(n_protected) <- 1L  # allocated _dim_sexp
+    }
   }
 
   fsub_call_args <- fsub_arg_names |>
     lapply(\(nm) paste0(nm, if (!is_size_name(nm)) "__")) |>
     unlist()
 
-  if (length(fsub_call_args) > 3)
+  if (length(fsub_call_args) > 3) {
     fsub_call_args <- paste0("\n  ", fsub_call_args)
+  }
 
-  append(c_body) <- c("", glue("{fsub@name}({str_flatten_commas(fsub_call_args)});"), "")
-  if (n_protected > 0)
+  append(c_body) <- c(
+    "",
+    glue("{fsub@name}({str_flatten_commas(fsub_call_args)});"),
+    ""
+  )
+  if (n_protected > 0) {
     append(c_body) <- glue("UNPROTECT({n_protected});")
+  }
   append(c_body) <- glue("return {return_var@name};")
 
   c_args <- paste("SEXP", names(formals(closure)), collapse = ", ")
@@ -55,24 +73,26 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   fsub_extern_decl <- fsub_extern_decl(fsub)
 
-  c_headers <- glue::trim(r"--(
+  c_headers <- glue::trim(
+    r"--(
      #define R_NO_REMAP
      #include <R.h>
      #include <Rinternals.h>
 
 
-     )--")
+     )--"
+  )
 
   as_glue(str_flatten_lines(c(
     if (headers) c_headers,
-    fsub_extern_decl, "",
-    c_func_def)
-  ))
+    fsub_extern_decl,
+    "",
+    c_func_def
+  )))
 }
 
 
 closure_arg_c_defs <- function(var, strict = TRUE) {
-
   name <- var@name
   mode <- var@mode
 
@@ -85,44 +105,53 @@ closure_arg_c_defs <- function(var, strict = TRUE) {
   append(c_code) <- glue(
     "// {name}
     _args = CDR(_args);
-    SEXP {var@name} = CAR(_args);")
+    SEXP {var@name} = CAR(_args);"
+  )
 
   # first maybe duplicate or coerce the SEXP if needed.
   append(c_code) <- glue("if (TYPEOF({name}) != {SEXPTYPE}) {{")
-  append(c_code) <- indent(if (strict) {
-    glue(r"(
+  append(c_code) <- indent(
+    if (strict) {
+      glue(
+        r"(
       Rf_error("typeof({name}) must be '{mode}', not '%s'", R_typeToChar({name}));
-      )")
-  } else {
-    glue("{name} = Rf_coerceVector({name}, {SEXPTYPE});
-         {protect}")
-  })
-
+      )"
+      )
+    } else {
+      glue(
+        "{name} = Rf_coerceVector({name}, {SEXPTYPE});
+         {protect}"
+      )
+    }
+  )
 
   if (var@modified) {
-    dup <- glue('
+    dup <- glue(
+      '
       {name} = Rf_duplicate({name});
       {protect}
-      ')
+      '
+    )
 
     if (strict) {
       append(c_code) <- c("}", dup)
     } else {
       append(c_code) <- sprintf("} else %s", dup)
     }
-
   } else {
     append(c_code) <- "}"
   }
 
   # define the variable that will be passed to the fsub
   append(c_code) <- glue(
-    "{fsub_arg_var_c_type(var)} {name}__ = {sexpdata(var@mode)}({name});")
-
+    "{fsub_arg_var_c_type(var)} {name}__ = {sexpdata(var@mode)}({name});"
+  )
 
   if (var@rank == 1) {
     size_name <- get_size_name(var)
-    append(c_code) <- glue("const R_xlen_t {size_name} = Rf_xlength({var@name});")
+    append(c_code) <- glue(
+      "const R_xlen_t {size_name} = Rf_xlength({var@name});"
+    )
   } else if (var@rank > 1) {
     append(c_code) <- glue(
       'const int* const {var@name}__dim_ = ({{
@@ -144,7 +173,6 @@ closure_arg_c_defs <- function(var, strict = TRUE) {
 }
 
 
-
 closure_arg_size_checks <- function(var, scope) {
   imap(var@dims, function(d, axis) {
     # axis is either:
@@ -154,7 +182,8 @@ closure_arg_size_checks <- function(var, scope) {
     size_name <- get_size_name(var, axis)
 
     if (is_scalar_integer(d)) {
-      return(glue('
+      return(glue(
+        '
           if ({size_name} != {d})
             Rf_error("{friendly_size(var, axis)} must be {d}, not %0.f",
                       (double){size_name});'
@@ -167,7 +196,8 @@ closure_arg_size_checks <- function(var, scope) {
         return()
       } else {
         # it's a constraint for another size
-        return(glue('
+        return(glue(
+          '
             if ({d} != {size_name})
               Rf_error("{as_friendly_size_name(size_name)} must equal {as_friendly_size_name(d)},"
                        " but are %0.f and %0.f",
@@ -178,7 +208,8 @@ closure_arg_size_checks <- function(var, scope) {
 
     if (is.call(d)) {
       size.c <- dims2c(list(d), scope)
-      return(glue('{{
+      return(glue(
+        '{{
           const R_xlen_t expected = {size.c};
           if ({size_name} != expected)
             Rf_error("{as_friendly_size_name(size_name)} must equal {as_friendly_size_expression(d)},"
@@ -191,8 +222,6 @@ closure_arg_size_checks <- function(var, scope) {
     stop("bad dim")
   })
 }
-
-
 
 
 return_var_c_defs <- function(var, scope) {
@@ -218,11 +247,13 @@ return_var_c_defs <- function(var, scope) {
       logical = "
         SEXP {name} = PROTECT(Rf_allocVector(LGLSXP, {len_name}));
         int* {name}__ = LOGICAL({name});"
-    )))
+    ))
+  )
 
   if (var@rank > 1) {
     append(c_code) <- c_block(
-      glue("
+      glue(
+        "
         const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, {var@rank}));
         int* const _dim = INTEGER(_dim_sexp);"
       ),
@@ -237,20 +268,24 @@ return_var_c_defs <- function(var, scope) {
 }
 
 
-
-
 dims2c_eval_base_env <- new.env()
 
 
-dims2c_eval_base_env[["("]]   <- baseenv()[["("]]
-dims2c_eval_base_env[["+"]]   <- function(e1, e2) glue("({e1} + {e2})")
-dims2c_eval_base_env[["-"]]   <- function(e1, e2) glue("({e1} - {e2})")
-dims2c_eval_base_env[["*"]]   <- function(e1, e2) glue("({e1} * {e2})")
-dims2c_eval_base_env[["/"]]   <- function(e1, e2) glue("((double)({e1}) / (double)({e2}))")
+dims2c_eval_base_env[["("]] <- baseenv()[["("]]
+dims2c_eval_base_env[["+"]] <- function(e1, e2) glue("({e1} + {e2})")
+dims2c_eval_base_env[["-"]] <- function(e1, e2) glue("({e1} - {e2})")
+dims2c_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
+dims2c_eval_base_env[["/"]] <- function(e1, e2) {
+  glue("((double)({e1}) / (double)({e2}))")
+}
 # dividing integers truncates towards 0
-dims2c_eval_base_env[["%/%"]] <- function(e1, e2) glue("((R_xlen_t){e1} / (R_xlen_t){e2})")
-dims2c_eval_base_env[["%%"]]  <- function(e1, e2) glue("((R_xlen_t){e1} % (R_xlen_t){e2})")
-dims2c_eval_base_env[["^"]]   <- function(e1, e2) glue("({e1}**{e2})")
+dims2c_eval_base_env[["%/%"]] <- function(e1, e2) {
+  glue("((R_xlen_t){e1} / (R_xlen_t){e2})")
+}
+dims2c_eval_base_env[["%%"]] <- function(e1, e2) {
+  glue("((R_xlen_t){e1} % (R_xlen_t){e2})")
+}
+dims2c_eval_base_env[["^"]] <- function(e1, e2) glue("({e1}**{e2})")
 
 
 dims2c <- function(dims, scope) {
@@ -266,8 +301,9 @@ dims2c <- function(dims, scope) {
         return(as.character(var))
       }
       # resolve a variable from scope (i.e., some other arg var)
-      if (!inherits(var, Variable))
+      if (!inherits(var, Variable)) {
         stop("could not resolve size: ", var)
+      }
       glue("Rf_asInteger({var@name})")
       # Should this be as double?
       # TODO: force this into a named c var, to avoid repeated calls
@@ -275,8 +311,9 @@ dims2c <- function(dims, scope) {
 
   eval_env <- list2env(syms, parent = dims2c_eval_base_env)
   c_dims <- lapply(dims, function(d) {
-    if (inherits(d, Variable))
+    if (inherits(d, Variable)) {
       return(glue("Rf_asInteger({d@name})"))
+    }
     eval(d, eval_env)
   })
 
@@ -284,10 +321,11 @@ dims2c <- function(dims, scope) {
 }
 
 c_dims2c_len <- function(c_dims) {
-  if (length(c_dims) == 1)
+  if (length(c_dims) == 1) {
     c_dims[[1L]]
-  else
-    paste0("(", unlist(c_dims), ")", collapse = " * " )
+  } else {
+    paste0("(", unlist(c_dims), ")", collapse = " * ")
+  }
   # eval(Reduce(\(a, b) { call("*", as.symbol(a@name), as.symbol(b@name)) }, dims),
   #      eval_env)
 }
@@ -310,21 +348,25 @@ passes_as_value <- function(var) {
 }
 
 sexptype <- function(mode) {
-  switch(mode,
-         integer = "INTSXP",
-         double = "REALSXP",
-         complex = "CPLXSXP",
-         logical = "LGLSXP",
-         stop("Unrecognized mode: ", mode))
+  switch(
+    mode,
+    integer = "INTSXP",
+    double = "REALSXP",
+    complex = "CPLXSXP",
+    logical = "LGLSXP",
+    stop("Unrecognized mode: ", mode)
+  )
 }
 
 sexpdata <- function(mode) {
-  switch(mode,
-         integer = "INTEGER",
-         double = "REAL",
-         complex = "COMPLEX",
-         logical = "LOGICAL",
-         stop("Unrecognized mode: ", mode))
+  switch(
+    mode,
+    integer = "INTEGER",
+    double = "REAL",
+    complex = "COMPLEX",
+    logical = "LOGICAL",
+    stop("Unrecognized mode: ", mode)
+  )
 }
 
 is_size_name <- function(name) {
@@ -338,27 +380,35 @@ is_size_name <- function(name) {
 }
 
 friendly_size <- function(var, axis = NULL) {
-  if (is.null(axis) || var@rank == 1 && axis == 1)
+  if (is.null(axis) || var@rank == 1 && axis == 1) {
     glue("length({var@name})")
-  else
+  } else {
     glue("dim({var@name})[{axis}]")
+  }
 }
 
 as_friendly_size_name <- function(size_name) {
   size_name <- as.character(size_name)
-  if (endsWith(size_name, "__len_"))
+  if (endsWith(size_name, "__len_")) {
     sprintf("length(%s)", sub("__len_$", "", size_name))
-  else
+  } else {
     sub("^(.*)__dim_([0-9]+)_$", "dim(\\1)[\\2]", size_name)
+  }
 }
 
 as_friendly_size_expression <- function(d) {
   stopifnot(is.call(d))
   nms <- all.names(d, functions = FALSE, unique = TRUE)
   friendly_substitutions <- new.env(parent = emptyenv())
-  for(name in nms)
-    if (is_size_name(name))
-      assign(name, str2lang(as_friendly_size_name(name)), friendly_substitutions)
+  for (name in nms) {
+    if (is_size_name(name)) {
+      assign(
+        name,
+        str2lang(as_friendly_size_name(name)),
+        friendly_substitutions
+      )
+    }
+  }
   d <- substitute_(d, friendly_substitutions)
   d <- call("(", d)
   deparse1(d)
@@ -366,15 +416,17 @@ as_friendly_size_expression <- function(d) {
 
 closure_return_var_name <- function(closure) {
   return_var_name <- last(body(closure))
-  if (!is.symbol(return_var_name))
+  if (!is.symbol(return_var_name)) {
     stop("return value must be a symbol")
+  }
   as.character(return_var_name)
 }
 
 
 fsub_arg_var_c_type <- function(var) {
-  type <- switch(var@mode,
-    double  = "double*",
+  type <- switch(
+    var@mode,
+    double = "double*",
     integer = "int*",
     complex = "Rcomplex*",
     logical = "int*",
@@ -384,8 +436,7 @@ fsub_arg_var_c_type <- function(var) {
   #   (the array values are read only)
   # the second const declares that the pointer itself can't be modified
   #   (the fsub can never move/reallocate the array, so this const is always present)
-  paste0(c(if (!var@modified) "const", type, "const"),
-         collapse = " ")
+  paste0(c(if (!var@modified) "const", type, "const"), collapse = " ")
 }
 
 fsub_extern_decl <- function(fsub) {
@@ -394,16 +445,20 @@ fsub_extern_decl <- function(fsub) {
 
   fsub_c_sig <- map_chr(fsub_arg_names, function(name) {
     if (is_size_name(name)) {
-      type <- if (endsWith("__len_", name))
-        "R_xlen_t" else "R_len_t"
+      type <- if (endsWith("__len_", name)) {
+        "R_xlen_t"
+      } else {
+        "R_len_t"
+      }
       glue("const {type} {name}")
     } else {
       var <- get(name, fsub@scope)
       glue("{fsub_arg_var_c_type(var)} {var@name}__")
     }
   })
-  if (length(fsub_c_sig) >= 3L)
+  if (length(fsub_c_sig) >= 3L) {
     fsub_c_sig <- paste0("\n  ", fsub_c_sig)
+  }
 
   glue("extern void {fsub@name}({str_flatten_commas(fsub_c_sig)});")
 }

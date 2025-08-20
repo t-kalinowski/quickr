@@ -1,8 +1,4 @@
-
-
 new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
-
-
   check_all_var_names_valid(closure)
 
   # translate body, and populate scope with variables
@@ -33,9 +29,10 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   # TODO: this check might be too late, because r2f() might throw cryptic errors
   # when handling undeclared variables. Either throw better errors from r2f(), or
   # handle all declares first
-  for(arg_name in names(formals(closure))) {
-    if (is.null(var <- get0(arg_name, scope)))
+  for (arg_name in names(formals(closure))) {
+    if (is.null(var <- get0(arg_name, scope))) {
       stop("arg not declared: ", arg_name)
+    }
   }
 
   # figure out the return variable.
@@ -51,38 +48,48 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   manifest <- r2f.scope(scope)
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
-  used_iso_bindings <- unique(unlist(use.names = FALSE, list(
-    lapply(scope, function(var) {
-      list(
-        switch(
-          var@mode,
-          double = "c_double",
-          integer = "c_int",
-          logical = if (var@name %in% fsub_arg_names)
-            "c_int",
-          complex = "c_double_complex",
-          raw = "c_int8_t"
-        ),
-        lapply(var@dims, function(size) {
-          syms <- all.vars(size)
-          c(if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
-            if (any(grepl("__dim_[0-9]+_$", syms))) "c_int")
-        })
-      )
-    }))))
+  used_iso_bindings <- unique(unlist(
+    use.names = FALSE,
+    list(
+      lapply(scope, function(var) {
+        list(
+          switch(
+            var@mode,
+            double = "c_double",
+            integer = "c_int",
+            logical = if (var@name %in% fsub_arg_names) {
+              "c_int"
+            },
+            complex = "c_double_complex",
+            raw = "c_int8_t"
+          ),
+          lapply(var@dims, function(size) {
+            syms <- all.vars(size)
+            c(
+              if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
+              if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
+            )
+          })
+        )
+      })
+    )
+  ))
 
   # check for literal kinds
   if (!"c_int" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+_c_int\\b", body))
+    if (grepl("\\b[0-9]+_c_int\\b", body)) {
       append(used_iso_bindings) <- "c_int"
+    }
   }
   if (!"c_double" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body))
+    if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body)) {
       append(used_iso_bindings) <- "c_double"
+    }
   }
   used_iso_bindings <- sort(used_iso_bindings, method = "radix")
 
-  subroutine <- glue("
+  subroutine <- glue(
+    "
     subroutine {name}({str_flatten_commas(fsub_arg_names)}) bind(c)
       use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}
       implicit none
@@ -91,7 +98,8 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
 
     {indent(body)}
     end subroutine
-    ")
+    "
+  )
 
   subroutine <- insert_fortran_line_continuations(subroutine)
 
@@ -104,7 +112,10 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   )
 }
 
-insert_fortran_line_continuations <- function(code, preserve_attributes = TRUE) {
+insert_fortran_line_continuations <- function(
+  code,
+  preserve_attributes = TRUE
+) {
   attrs_in <- attributes(code)
 
   code <- as.character(code)
@@ -121,18 +132,22 @@ insert_fortran_line_continuations <- function(code, preserve_attributes = TRUE) 
 
     # maximum 255 continuations are allowed
     for (i in 1:256) {
-      if (!any(too_long <- nchar(lines) > 132))
+      if (!any(too_long <- nchar(lines) > 132)) {
         break
+      }
       lines[too_long] <- sub("^(.{1,130})\\s", "\\1 &\n", lines[too_long])
       lines <- str_split_lines(lines)
     }
-    if (i > 255L)
-      stop("Too long line encountered. Please split long expressions into a sequence of smaller expressions.")
+    if (i > 255L) {
+      stop(
+        "Too long line encountered. Please split long expressions into a sequence of smaller expressions."
+      )
+    }
   }
 
   code <- str_flatten_lines(lines)
-  if (preserve_attributes)
+  if (preserve_attributes) {
     attributes(code) <- attrs_in
+  }
   code
 }
-
