@@ -21,7 +21,7 @@ Imports:
     glue,
     S7
 Suggests:
-    pkgload (>= 1.4.0.9000),
+    pkgload (>= 1.4.0),
     testthat (>= 3.0.0),
     rlang,
     cli,
