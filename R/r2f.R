@@ -186,6 +186,7 @@ num2fortran <- function(x) {
 
 r2f_handlers := new.env(parent = emptyenv())
 
+
 get_r2f_handler <- function(name) {
   stopifnot("All functions called must be named as symbols" = is.symbol(name))
   get0(name, r2f_handlers) %||%
@@ -202,12 +203,10 @@ r2f_default_handler <- function(args, scope = NULL, ..., calls) {
 
 ## ??? export as S7::convert() methods?
 register_r2f_handler <- function(name, fun) {
-  stopifnot(
-    is_string(name),
-    identical(formals(fun), alist(x = , scope = NULL))
-  )
-
-  r2f_handlers[[name]] <- fun
+  for (nm in name) {
+    r2f_handlers[[nm]] <- fun
+  }
+  invisible(fun)
 }
 
 .r2f_handler_not_implemented_yet <- function(e, scope, ...) {
@@ -287,51 +286,55 @@ create_mask_hoist <- function() {
   environment()
 }
 
-r2f_handlers[c("max", "min", "sum", "prod")] <- list(function(
-  args,
-  scope,
-  ...
-) {
-  intrinsic <- switch(
-    last(list(...)$calls),
-    max = "maxval",
-    min = "minval",
-    sum = "sum",
-    prod = "product"
-  )
-
-  reduce_arg <- function(arg) {
-    mask_hoist <- create_mask_hoist()
-    x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
-    if (x@value@rank == 0) {
-      return(x)
-    }
-    hoisted_mask <- mask_hoist$get_hoisted()
-    s <- glue(
-      if (is.null(hoisted_mask)) {
-        "{intrinsic}({x})"
-      } else {
-        "{intrinsic}({x}, mask = {hoisted_mask})"
-      }
-    )
-    Fortran(s, Variable(x@value@mode))
-  }
-
-  if (length(args) == 1) {
-    reduce_arg(args[[1]])
-  } else {
-    args <- lapply(args, reduce_arg)
-    mode <- reduce_promoted_mode(args)
-    s <- switch(
+register_r2f_handler(
+  c("max", "min", "sum", "prod"),
+  function(
+    args,
+    scope,
+    ...
+  ) {
+    intrinsic <- switch(
       last(list(...)$calls),
-      max = glue("max({str_flatten_commas(args)})"),
-      min = glue("min({str_flatten_commas(args)})"),
-      sum = glue("({str_flatten(args, ' + ')})"),
-      prod = glue("({str_flatten(args, ' * ')})")
+      max = "maxval",
+      min = "minval",
+      sum = "sum",
+      prod = "product"
     )
-    Fortran(s, Variable(mode))
+
+    reduce_arg <- function(arg) {
+      mask_hoist <- create_mask_hoist()
+      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+      if (x@value@rank == 0) {
+        return(x)
+      }
+      hoisted_mask <- mask_hoist$get_hoisted()
+      s <- glue(
+        if (is.null(hoisted_mask)) {
+          "{intrinsic}({x})"
+        } else {
+          "{intrinsic}({x}, mask = {hoisted_mask})"
+        }
+      )
+      Fortran(s, Variable(x@value@mode))
+    }
+
+    if (length(args) == 1) {
+      reduce_arg(args[[1]])
+    } else {
+      args <- lapply(args, reduce_arg)
+      mode <- reduce_promoted_mode(args)
+      s <- switch(
+        last(list(...)$calls),
+        max = glue("max({str_flatten_commas(args)})"),
+        min = glue("min({str_flatten_commas(args)})"),
+        sum = glue("({str_flatten(args, ' + ')})"),
+        prod = glue("({str_flatten(args, ' * ')})")
+      )
+      Fortran(s, Variable(mode))
+    }
   }
-})
+)
+
 
 r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
   function(args, scope = NULL, ...) {
@@ -537,24 +540,27 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
 # ---- pure elemental unary math intrinsics ----
 
 ## real and complex intrinsics
-r2f_handlers[c(
-  "sin",
-  "cos",
-  "tan",
-  "asin",
-  "acos",
-  "atan",
-  "sqrt",
-  "exp",
-  "log",
-  "floor",
-  "ceiling"
-)] <- list(function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  intrinsic <- last(list(...)$calls)
-  Fortran(glue("{intrinsic}({arg})"), arg@value)
-})
+register_r2f_handler(
+  c(
+    "sin",
+    "cos",
+    "tan",
+    "asin",
+    "acos",
+    "atan",
+    "sqrt",
+    "exp",
+    "log",
+    "floor",
+    "ceiling"
+  ),
+  function(args, scope, ...) {
+    stopifnot(length(args) == 1L)
+    arg <- r2f(args[[1]], scope, ...)
+    intrinsic <- last(list(...)$calls)
+    Fortran(glue("{intrinsic}({arg})"), arg@value)
+  }
+)
 
 r2f_handlers[["log10"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
@@ -730,7 +736,8 @@ r2f_handlers[["%/%"]] <- function(args, scope, ...) {
 # but this is not a standard language feature, and Intel's `ifort` uses `-1` for `.true`.
 # We should explicitly use
 #   `merge(1_c_int, 0_c_int, <lgl>)` to cast logical to int.
-r2f_handlers[c("&", "&&", "|", "||")] <- list(
+register_r2f_handler(
+  c("&", "&&", "|", "||"),
   function(args, scope, ...) {
     args <- lapply(args, r2f, scope, ...)
     args <- lapply(args, function(a) {
