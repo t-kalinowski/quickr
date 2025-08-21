@@ -236,6 +236,14 @@ check_all_var_names_valid <- function(fun) {
       glue_collapse(invalid, ", ", last = ", and ")
     )
   }
+
+  case_clashes <- nms[is_duplicate(tolower(nms))]
+  if (length(case_clashes)) {
+    stop(
+      "Fortran is case-insensitive; these names conflict when case is ignored: ",
+      glue_collapse(glue::backtick(case_clashes), ", ", last = " and ")
+    )
+  }
 }
 
 
@@ -247,3 +255,9 @@ make_unique_name <- local({
     paste0(prefix, i <<- i + 1L)
   }
 })
+
+is_duplicate <- function(x) {
+  out <- duplicated(x) | duplicated(x, fromLast = TRUE)
+  names(out) <- names(x)
+  out
+}
