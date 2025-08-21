@@ -37,3 +37,14 @@ whole_doubles_to_ints <- function(x) {
   }
   walker(x)
 }
+
+
+substitute_unique_case_insensitive_symbols <- function(x) {
+  # TODO: would be nice to fix case-insenstive name clashes
+  # with automatic substitutions. Would be a little involved since
+  # substitute will not replace tag names in a call, e.g.,
+  # declare(type(<NAME> = ...)), NAME would need to be manually replaced.
+  stopifnot(is.function(x))
+  nms <- unique(c(all.names(body(x), names(formals(x)))))
+  stop("not yet implemented")
+}
