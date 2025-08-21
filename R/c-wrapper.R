@@ -44,7 +44,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     append(c_body) <- return_var_c_defs(return_var, fsub@scope)
     add(n_protected) <- 1L # allocated return var
     if (return_var@rank > 1) {
-      add(n_protected) <- 1L  # allocated _dim_sexp
+      add(n_protected) <- 1L # allocated _dim_sexp
     }
   }
 
@@ -445,7 +445,7 @@ fsub_extern_decl <- function(fsub) {
 
   fsub_c_sig <- map_chr(fsub_arg_names, function(name) {
     if (is_size_name(name)) {
-      type <- if (endsWith("__len_", name)) {
+      type <- if (name |> endsWith("__len_")) {
         "R_xlen_t"
       } else {
         "R_len_t"

@@ -8,3 +8,4 @@
 ^\.vscode$
 ^cran-comments\.md$
 ^[\.]?air\.toml$
+^\.github$
