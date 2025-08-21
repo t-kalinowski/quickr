@@ -35,7 +35,7 @@
       #include <Rinternals.h>
       
       
-      extern void slow_add1(double* const x__, const R_len_t x__len_);
+      extern void slow_add1(double* const x__, const R_xlen_t x__len_);
       
       SEXP slow_add1_(SEXP _args) {
         // x
@@ -98,7 +98,7 @@
         const int* const x__, 
         const int* const y__, 
         int* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP slow_add2_(SEXP _args) {
         // x
@@ -198,8 +198,8 @@
         const double* const a__, 
         const double* const b__, 
         double* const ab__, 
-        const R_len_t a__len_, 
-        const R_len_t b__len_);
+        const R_xlen_t a__len_, 
+        const R_xlen_t b__len_);
       
       SEXP slow_convolve_(SEXP _args) {
         // a
@@ -271,7 +271,7 @@
         extern void fn(
           const double* const a__,
           int* const out__,
-          const R_len_t a__len_);
+          const R_xlen_t a__len_);
         
         SEXP fn_(SEXP _args) {
           // a
@@ -329,7 +329,7 @@
         extern void fn(
           const int* const a__,
           int* const out__,
-          const R_len_t a__len_);
+          const R_xlen_t a__len_);
         
         SEXP fn_(SEXP _args) {
           // a
@@ -471,7 +471,7 @@
           const double* const a1__,
           const double* const a2__,
           double* const out__,
-          const R_len_t a1__len_);
+          const R_xlen_t a1__len_);
         
         SEXP fn_(SEXP _args) {
           // a1
@@ -532,7 +532,7 @@
         const double* const a1__, 
         const double* const a2__, 
         double* const out__, 
-        const R_len_t a1__len_);
+        const R_xlen_t a1__len_);
       
       SEXP fn_(SEXP _args) {
         // a1
@@ -724,8 +724,8 @@
         const double* const emission_probs__, 
         int* const out__, 
         const R_len_t emission_probs__dim_2_, 
-        const R_len_t observations__len_, 
-        const R_len_t states__len_);
+        const R_xlen_t observations__len_, 
+        const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {
         // observations
@@ -934,8 +934,8 @@
         const double* const emission_probs__, 
         int* const out__, 
         const R_len_t emission_probs__dim_2_, 
-        const R_len_t observations__len_, 
-        const R_len_t states__len_);
+        const R_xlen_t observations__len_, 
+        const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {
         // observations
@@ -1317,7 +1317,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1380,7 +1380,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1462,9 +1462,9 @@
         const int* const int1__, 
         const double* const dbl1__, 
         int* const out__, 
-        const R_len_t dbl1__len_, 
-        const R_len_t int1__len_, 
-        const R_len_t lgl1__len_);
+        const R_xlen_t dbl1__len_, 
+        const R_xlen_t int1__len_, 
+        const R_xlen_t lgl1__len_);
       
       SEXP fn_(SEXP _args) {
         // lgl1
@@ -1580,8 +1580,8 @@
         double* const weights__, 
         const int* const normalize__, 
         double* const out__, 
-        const R_len_t weights__len_, 
-        const R_len_t x__len_);
+        const R_xlen_t weights__len_, 
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1681,7 +1681,7 @@
         const double* const left__, 
         const double* const right__, 
         int* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1773,7 +1773,7 @@
       extern void fn(
         double* const a__, 
         const double* const b__, 
-        const R_len_t a__len_);
+        const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
         // a
@@ -2115,7 +2115,7 @@
         const double* const a__, 
         const double* const b__, 
         int* const out__, 
-        const R_len_t a__len_);
+        const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
         // a
@@ -2196,7 +2196,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2260,7 +2260,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2324,7 +2324,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2388,7 +2388,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2452,7 +2452,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2516,7 +2516,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2580,7 +2580,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2644,7 +2644,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2708,7 +2708,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2772,7 +2772,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2836,7 +2836,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2900,7 +2900,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -2964,7 +2964,7 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -3028,7 +3028,7 @@
       extern void fn(
         const int* const x__, 
         int* const out__, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -3092,7 +3092,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3156,7 +3156,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3220,7 +3220,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3284,7 +3284,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3348,7 +3348,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3412,7 +3412,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3476,7 +3476,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3540,7 +3540,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3604,7 +3604,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3668,7 +3668,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3732,7 +3732,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         double* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3796,7 +3796,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         double* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3860,7 +3860,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         double* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3924,7 +3924,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         double* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -3988,7 +3988,7 @@
       extern void fn(
         const Rcomplex* const z__, 
         Rcomplex* const out__, 
-        const R_len_t z__len_);
+        const R_xlen_t z__len_);
       
       SEXP fn_(SEXP _args) {
         // z
@@ -4451,7 +4451,7 @@
       extern void fn(
         const int* const x__, 
         int* const out___, 
-        const R_len_t x__len_);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -4515,7 +4515,7 @@
         const double* const a__, 
         const double* const b__, 
         double* const out___, 
-        const R_len_t a__len_);
+        const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
         // a
@@ -4596,7 +4596,7 @@
         const double* const a__, 
         const double* const b__, 
         double* const out___, 
-        const R_len_t a__len_);
+        const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
         // a

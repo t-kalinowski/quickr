@@ -44,7 +44,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     append(c_body) <- return_var_c_defs(return_var, fsub@scope)
     add(n_protected) <- 1L # allocated return var
     if (return_var@rank > 1) {
-      add(n_protected) <- 1L  # allocated _dim_sexp
+      add(n_protected) <- 1L # allocated _dim_sexp
     }
   }
 
