@@ -322,3 +322,66 @@
         return out_;
       }
 
+# division in my_mean maintains double precision
+
+    Code
+      fn
+    Output
+      function(x) {
+          declare(type(x = double(NA)))
+          mu <- sum(x) / length(x)
+          mu
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, mu, x__len_) bind(c)
+        use iso_c_binding, only: c_double, c_ptrdiff_t
+        implicit none
+      
+        ! manifest start
+        ! sizes
+        integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! args
+        real(c_double), intent(in) :: x(x__len_)
+        real(c_double), intent(out) :: mu
+        ! manifest end
+      
+      
+        mu = (sum(x) / real(size(x), kind=c_double))
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const double* const x__, 
+        double* const mu__, 
+        const R_xlen_t x__len_);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != REALSXP) {
+          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+        }
+        const double* const x__ = REAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        const R_xlen_t mu__len_ = (1);
+        SEXP mu = PROTECT(Rf_allocVector(REALSXP, mu__len_));
+        double* mu__ = REAL(mu);
+        
+        fn(x__, mu__, x__len_);
+        
+        UNPROTECT(1);
+        return mu;
+      }
+

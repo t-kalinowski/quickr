@@ -55,3 +55,17 @@ test_that("division casts complex", {
   expect_quick_equal(div_cplx, list(a, b))
 })
 
+
+test_that("division in my_mean maintains double precision", {
+  my_mean <- function(x) {
+    declare(type(x = double(NA)))
+    mu <- sum(x) / length(x)
+    mu
+  }
+
+  expect_translation_snapshots(my_mean)
+
+  x <- c(3, 5, 7, 8)
+  expect_quick_equal(my_mean, list(x))
+})
+
