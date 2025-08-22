@@ -386,7 +386,16 @@ r2f_handlers[["["]] <- function(
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", var@value@dims[[i]]))
     } else {
-      r2f(idx, scope, ...)
+      sub <- r2f(idx, scope, ...)
+      if (sub@value@mode == "double") {
+        # Fortran subscripts must be integers; coerce numeric expressions
+        Fortran(
+          glue("int({sub}, kind=c_ptrdiff_t)"),
+          Variable("integer", sub@value@dims)
+        )
+      } else {
+        sub
+      }
     }
   })
 
@@ -668,6 +677,11 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ...) {
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
+}
+
+r2f_handlers[["as.double"]] <- function(args, scope = NULL, ...) {
+  stopifnot(length(args) == 1L)
+  maybe_cast_double(r2f(args[[1]], scope, ...))
 }
 
 r2f_handlers[["^"]] <- function(args, scope, ...) {

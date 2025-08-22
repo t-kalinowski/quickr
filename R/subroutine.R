@@ -86,6 +86,11 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
       append(used_iso_bindings) <- "c_double"
     }
   }
+  if (!"c_ptrdiff_t" %in% used_iso_bindings) {
+    if (grepl("\\bc_ptrdiff_t\\b", body)) {
+      append(used_iso_bindings) <- "c_ptrdiff_t"
+    }
+  }
   used_iso_bindings <- sort(used_iso_bindings, method = "radix")
 
   subroutine <- glue(
