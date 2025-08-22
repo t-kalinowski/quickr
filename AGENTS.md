@@ -1,14 +1,14 @@
 
 This project is an R package that transpiles R functions to Fortran.
 
-- To run run the full test suite:
+- To run the full test suite:
 ```sh
 R -q -e 'testthat::test_local()'
 ```
 
 - To run a single test file:
 ```sh
-R -q -e 'testthat::test_file("tests/testthat/test-dims2f.R")'
+R -q -e 'devtools::test_active_file("tests/testthat/test-dims2f.R")'
 ```
 
 - To see the generated C and Fortran code for an R function, use `r2f()`:
