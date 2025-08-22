@@ -102,7 +102,7 @@ EOF
 
 ### ---- END https://raw.githubusercontent.com/eddelbuettel/r2u/master/inst/scripts/add_cranapt_noble.sh ---
 
-### Now setup the actual dependencies for the quirckr package
+### Now setup the actual dependencies for the quickr package
 
 apt-get install -y gfortran gcc
 apt-get install -y --no-install-recommends r-cran-{glue,testthat}
@@ -114,7 +114,7 @@ apt-get install -y --no-install-recommends r-cran-devtools  # not strictly neces
 
 echo >> ~/.Rprofile <<'EOF'
 options(
-  testthat.use_colours = FALSE, Should the output be coloured? (Default: TRUE).
+  testthat.use_colours = FALSE,
   # testthat.summary.max_reports: The maximum number of detailed test reports printed for the summary reporter (default: 10).
   testthat.summary.omit_dots = TRUE
 )
