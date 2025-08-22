@@ -1108,7 +1108,7 @@
       cat(fsub <- r2f(diffuse_heat))
     Output
       subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -1131,7 +1131,8 @@
       
       
         temp = 0.0_c_double
-        temp((nx / 2_c_int), (ny / 2_c_int)) = 100.0_c_double
+      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int, &
+      kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
         do step = 1, steps
           temp(1_c_int, :) = 0.0_c_double
           temp(nx, :) = 0.0_c_double
@@ -1564,7 +1565,7 @@
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)
-          out(i) = (sum((x(i:((i + n) - 1_c_int):sign(1, ((i + n) - 1_c_int)-i)) * weights)) / size(weights))
+          out(i) = (sum((x(i:((i + n) - 1_c_int):sign(1, ((i + n) - 1_c_int)-i)) * weights)) / real(size(weights), kind=c_double))
         end do
       end subroutine
     Code
