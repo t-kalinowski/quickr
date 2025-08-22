@@ -35,7 +35,8 @@ sudo apt install -y --no-install-recommends r-base
 
 
 ### --- https://raw.githubusercontent.com/eddelbuettel/r2u/master/inst/scripts/add_cranapt_noble.sh ---
-### lightly modified to avoid using gpg, which doesn't use up the codex proxy correctly and errors
+### lightly modified to avoid using gpg, which doesn't use the codex proxy
+### correctly and errors
 #!/bin/bash
 
 ## See the README.md of 'r2u' for details on these steps
