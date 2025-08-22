@@ -632,6 +632,22 @@ r2f_handlers[["Conj"]] <- function(args, scope, ...) {
 
 # ---- elemental binary infix operators ----
 
+maybe_cast_double <- function(x) {
+  if (x@value@mode == "logical") {
+    Fortran(
+      glue("merge(1_c_double, 0_c_double, {x})"),
+      Variable("double", x@value@dims)
+    )
+  } else if (x@value@mode == "integer") {
+    Fortran(
+      glue("real({x}, kind=c_double)"),
+      Variable("double", x@value@dims)
+    )
+  } else {
+    x
+  }
+}
+
 r2f_handlers[["+"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   Fortran(glue("({left} + {right})"), conform(left@value, right@value))
@@ -649,6 +665,8 @@ r2f_handlers[["*"]] <- function(args, scope = NULL, ...) {
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  left <- maybe_cast_double(left)
+  right <- maybe_cast_double(right)
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
 }
 
