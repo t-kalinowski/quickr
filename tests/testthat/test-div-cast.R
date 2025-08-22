@@ -51,12 +51,12 @@ test_that("division casts complex", {
   real <- -2:2
   imag <- rev(real)
   a <- complex(real = real, imaginary = imag)
-  b <- sample(a[a != 0+0i], length(a), replace = TRUE)
+  b <- sample(a[a != 0 + 0i], length(a), replace = TRUE)
   expect_quick_equal(div_cplx, list(a, b))
 })
 
 
-test_that("division in my_mean maintains double precision", {
+test_that("division example in #33", {
   my_mean <- function(x) {
     declare(type(x = double(NA)))
     mu <- sum(x) / length(x)
@@ -68,4 +68,3 @@ test_that("division in my_mean maintains double precision", {
   x <- c(3, 5, 7, 8)
   expect_quick_equal(my_mean, list(x))
 })
-

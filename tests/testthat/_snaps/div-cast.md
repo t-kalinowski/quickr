@@ -322,7 +322,7 @@
         return out_;
       }
 
-# division in my_mean maintains double precision
+# division example in #33
 
     Code
       fn
