@@ -110,4 +110,13 @@ R -q -e 'install.packages(c("dotty", "S7"))'
 apt-get install -y --no-install-recommends r-cran-devtools  # not strictly necessary, but pulls in load_all(), cli, ...
 
 
+
+echo >> ~/.Rprofile <<'EOF'
+options(
+  testthat.use_colours = FALSE, Should the output be coloured? (Default: TRUE).
+  # testthat.summary.max_reports: The maximum number of detailed test reports printed for the summary reporter (default: 10).
+  testthat.summary.omit_dots = TRUE
+)
+EOF
+
 # R -e 'devtools::test()'
