@@ -3,7 +3,10 @@
 #' Compile an R function.
 #'
 #' @param fun An R function
-#' @param name Optional string, name to use for the function.
+#' @param name String, name to use for the function. This is optional in
+#'   regular usage but required in an R package. As a convenience, arguments
+#'   `fun` and `name` can also be supplied as positional arguments to `quick` with
+#'   `name` in the first position.
 #'
 #' @details
 #'
@@ -12,8 +15,9 @@
 #' The shape and mode of all function arguments must be declared. Local and
 #' return variables may optionally also be declared.
 #'
-#' `declare(type())` also has support for declaring size constraints, or size
-#' relationships between variables. Here are some examples of declare calls:
+#' `declare(type())` also has support for declaring size constraints, or
+#' size relationships between variables. Here are some examples of declare
+#' calls:
 #'
 #' ```r
 #' declare(type(x = double(NA))) # x is a 1-d double vector of any length
@@ -64,11 +68,11 @@
 #'
 #' ## Return values
 #'
-#' The shape and type of a function return value must be known at compile time.
-#' In most situations, this will be automatically inferred by `quick()`. However,
-#' if the output is dynamic, then you may need to provide a hint.
-#' For example, returning the result of `seq()` will fail because the output shape
-#' cannot be inferred.
+#' The shape and type of a function return value must be known at compile
+#' time. In most situations, this will be automatically inferred by
+#' `quick()`. However, if the output is dynamic, then you may need to
+#' provide a hint. For example, returning the result of `seq()` will fail
+#' because the output shape cannot be inferred.
 #'
 #' ```r
 #' # Will fail to compile:
@@ -82,8 +86,8 @@
 #' })
 #' ```
 #'
-#' However, if the output size can be declared as a dynamic expression using other
-#' values known at runtime, compilation will succeed:
+#' However, if the output size can be declared as a dynamic expression using
+#' other values known at runtime, compilation will succeed:
 #'
 #' ```r
 #' # Succeeds:
@@ -116,6 +120,8 @@ quick <- function(fun, name = NULL) {
     } else {
       make_unique_name(prefix = "anonymous_quick_function_")
     }
+  } else if (is.function(name) && is_string(fun)) {
+    .[name, fun] <- list(fun, name)
   }
 
   if (nzchar(pkgname <- Sys.getenv("DEVTOOLS_LOAD"))) {
@@ -143,6 +149,12 @@ quick <- function(fun, name = NULL) {
 
   pkgname <- parent.pkg()
   if (!is.null(pkgname) && pkgname != "quickr") {
+    if (startsWith(name, 'anonymous_quick_function_')) {
+      stop(
+        'When used in an R package, you must provide a unique `name` to every `quick()` call.\n',
+        'For example: `my_fun <- quick("my_fun", function(x) ....)'
+      )
+    }
     # we are in a package - but outside a quickr::compile_package() call.
     return(create_quick_closure(name, fun))
   }
@@ -184,10 +196,13 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       stderr = TRUE
     )
   })
-  if (!is.null(attr(result, "status"))) {
+  if (!is.null(status <- attr(result, "status"))) {
+    # Adjust the compiler error so RStudio console formatter doesn't mangle
+    # the actual error message https://github.com/rstudio/rstudio/issues/16365
+    result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
     writeLines(result, stderr())
-    str(attributes(result))
-    stop("Compilation Error")
+    cat("---\nCompiler exit status:", status, "\n", file = stderr())
+    stop("Compilation Error", call. = FALSE)
   }
 
   # tryCatch(dyn.unload(dll_path), error = identity)

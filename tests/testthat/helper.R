@@ -47,3 +47,8 @@ assign_in_global <- function(...) {
   x <- rlang::dots_list(..., .named = TRUE)
   list2env(x, envir = globalenv())
 }
+
+set_seed_and_call <- function(fun, ...) {
+  set.seed(1234)
+  fun(...)
+}
