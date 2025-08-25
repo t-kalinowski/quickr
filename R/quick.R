@@ -184,10 +184,13 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       stderr = TRUE
     )
   })
-  if (!is.null(attr(result, "status"))) {
+  if (!is.null(status <- attr(result, "status"))) {
+    # Adjust the compiler error so RStudio console formatter doesn't mangle
+    # the actual error message https://github.com/rstudio/rstudio/issues/16365
+    result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
     writeLines(result, stderr())
-    str(attributes(result))
-    stop("Compilation Error")
+    cat("---\nCompiler exit status:", status, "\n", file = stderr())
+    stop("Compilation Error", call. = FALSE)
   }
 
   # tryCatch(dyn.unload(dll_path), error = identity)
