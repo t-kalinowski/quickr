@@ -38,7 +38,7 @@ r2f.scope <- function(scope) {
   vars <- as.list.environment(scope, all.names = TRUE)
   vars <- lapply(vars, function(var) {
     intent_in <- var@name %in% names(formals(scope@closure))
-    intent_out <- var@name == closure_return_var_name(scope@closure) ||
+    intent_out <- var@name %in% closure_return_var_names(scope@closure) ||
       intent_in && var@modified
 
     intent <-
@@ -88,7 +88,7 @@ r2f.scope <- function(scope) {
   # vars that will be visible in the C bridge, either as an input or output
   non_local_var_names <- unique(c(
     names(formals(scope@closure)),
-    closure_return_var_name(scope@closure)
+    closure_return_var_names(scope@closure)
   ))
 
   # collect all size_names; sort so non-locals are declared first.

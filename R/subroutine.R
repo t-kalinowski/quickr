@@ -35,14 +35,25 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
     }
   }
 
-  # figure out the return variable.
-  if (is.symbol(last_expr <- last(body(closure)))) {
+  # figure out the return variable(s).
+  last_expr <- last(body(closure))
+  if (is.symbol(last_expr)) {
     return_var <- get(last_expr, scope)
     return_var@is_return <- TRUE
     scope[[as.character(last_expr)]] <- return_var
+  } else if (is_call(last_expr, quote(list))) {
+    args <- as.list(last_expr)[-1L]
+    for (arg in args) {
+      if (!is.symbol(arg)) {
+        stop("last expression list elements must be symbols")
+      }
+      var <- get(arg, scope)
+      var@is_return <- TRUE
+      scope[[as.character(arg)]] <- var
+    }
   } else {
     # lots we can still do here, just not implemented yet.
-    stop("last expression in the function must be a bare symbol")
+    stop("last expression in the function must be a bare symbol or list of symbols")
   }
 
   manifest <- r2f.scope(scope)
