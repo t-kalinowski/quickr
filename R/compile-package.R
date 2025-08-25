@@ -25,11 +25,9 @@ compile_package <- function(path = ".") {
   }
   pkgname <- as.character(pkgname)
 
-  # collect all `quick()` calls in the package
-  collector$activate(paste0(pkgname, ":quick_funcs"))
-
   # TODO: need to unset various R_* env vars, or just
   # take a dep on callr
+  # TODO: prompt to install pkgload if not available?
   system2(
     file.path(R.home("bin"), "R"),
     c("-q", "-e", shQuote("pkgload::load_all()"))
