@@ -106,13 +106,15 @@
 #' @returns A quicker R function.
 #' @export
 #' @examples
+#' \donttest{
 #' add_ab <- quick(function(a, b) {
 #'   declare(type(a = double(n)),
 #'           type(b = double(n)))
-#'   out <- a + b
-#'   out
+#'   a + b
 #' })
 #' add_ab(1, 2)
+#' add_ab(c(1, 2, 3), c(4, 5, 6))
+#' }
 quick <- function(fun, name = NULL) {
   if (is.null(name)) {
     name <- if (is.symbol(substitute(fun))) {
