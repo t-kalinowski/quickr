@@ -112,8 +112,16 @@ apt-get install -y --no-install-recommends r-cran-devtools  # not strictly neces
 
 
 
+# Interactively asked codex how many cores are available
+# it ran nproc and got back 5
+echo >> ~/.Renviron <<'EOF'
+NOT_CRAN=true
+TESTTHAT_CPUS=5
+EOF
+
 echo >> ~/.Rprofile <<'EOF'
 options(
+  Ncpus = 4L,
   testthat.use_colours = FALSE,
   # testthat.summary.max_reports: The maximum number of detailed test reports printed for the summary reporter (default: 10).
   testthat.summary.omit_dots = TRUE
