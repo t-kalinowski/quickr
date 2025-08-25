@@ -3,6 +3,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   closure <- fsub@closure
   scope <- fsub@scope
+  uses_rng <- isTRUE(attr(scope, "uses_rng", TRUE))
 
   fsub_arg_names <- fsub@signature # arg names
   closure_arg_names <- names(formals(closure))
@@ -58,7 +59,9 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   append(c_body) <- c(
     "",
+    if (uses_rng) "GetRNGstate();",
     glue("{fsub@name}({str_flatten_commas(fsub_call_args)});"),
+    if (uses_rng) "PutRNGstate();",
     ""
   )
   if (n_protected > 0) {
@@ -73,14 +76,12 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   fsub_extern_decl <- fsub_extern_decl(fsub)
 
-  c_headers <- glue::trim(
-    r"--(
-     #define R_NO_REMAP
-     #include <R.h>
-     #include <Rinternals.h>
-
-
-     )--"
+  c_headers <- str_flatten_lines(
+    "#define R_NO_REMAP",
+    "#include <R.h>",
+    "#include <Rinternals.h>",
+    if (uses_rng) "#include <R_ext/Random.h>",
+    ""
   )
 
   as_glue(str_flatten_lines(c(

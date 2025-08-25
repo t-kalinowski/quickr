@@ -91,8 +91,23 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
       append(used_iso_bindings) <- "c_ptrdiff_t"
     }
   }
+  if (isTRUE(attr(scope@closure, "uses_rng", TRUE))) {
+    used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
   used_iso_bindings <- sort(used_iso_bindings, method = "radix")
 
+  # browser()
+  rng_interface <- glue::trim(
+    '
+    interface
+      function unif_rand() bind(c, name = "unif_rand") result(u)
+        use iso_c_binding, only: c_double
+        real(c_double) :: u
+      end function unif_rand
+    end interface
+    '
+  )
+  uses_rng <- isTRUE(attr(scope, 'uses_rng', TRUE))
   subroutine <- glue(
     "
     subroutine {name}({str_flatten_commas(fsub_arg_names)}) bind(c)
@@ -100,6 +115,7 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
       implicit none
 
     {indent(manifest)}
+    {if (uses_rng) indent(rng_interface)}
 
     {indent(body)}
     end subroutine
