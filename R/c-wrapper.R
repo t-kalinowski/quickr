@@ -81,6 +81,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     "#include <R.h>",
     "#include <Rinternals.h>",
     if (uses_rng) "#include <R_ext/Random.h>",
+    "",
     ""
   )
 
