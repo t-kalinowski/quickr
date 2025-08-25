@@ -26,6 +26,12 @@
 
 - Added workaround for cases where the compiler error message might not
   display correctly in RStudio.
+  
+- Improved error message when using case-sensitive variable names (#18, #36, #39)
+
+- Added `AGENTS.md` and `scripts/setup_codex.sh` to enable the ChatGPT/Codex agent 
+  to run tests in a docker container configured without internet access.
+  
 
 # quickr 0.1.0
 
