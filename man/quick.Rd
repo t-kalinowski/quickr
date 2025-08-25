@@ -9,7 +9,10 @@ quick(fun, name = NULL)
 \arguments{
 \item{fun}{An R function}
 
-\item{name}{Optional string, name to use for the function.}
+\item{name}{String, name to use for the function. This is optional in
+regular usage but required in an R package. As a convenience, arguments
+\code{fun} and \code{name} can also be supplied as positional arguments to \code{quick} with
+\code{name} in the first position.}
 }
 \value{
 A quicker R function.
@@ -23,8 +26,9 @@ Compile an R function.
 The shape and mode of all function arguments must be declared. Local and
 return variables may optionally also be declared.
 
-\code{declare(type())} also has support for declaring size constraints, or size
-relationships between variables. Here are some examples of declare calls:
+\code{declare(type())} also has support for declaring size constraints, or
+size relationships between variables. Here are some examples of declare
+calls:
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{declare(type(x = double(NA))) # x is a 1-d double vector of any length
 declare(type(x = double(10))) # x is a 1-d double vector of length 10
@@ -75,11 +79,11 @@ declare(\{
 
 \subsection{Return values}{
 
-The shape and type of a function return value must be known at compile time.
-In most situations, this will be automatically inferred by \code{quick()}. However,
-if the output is dynamic, then you may need to provide a hint.
-For example, returning the result of \code{seq()} will fail because the output shape
-cannot be inferred.
+The shape and type of a function return value must be known at compile
+time. In most situations, this will be automatically inferred by
+\code{quick()}. However, if the output is dynamic, then you may need to
+provide a hint. For example, returning the result of \code{seq()} will fail
+because the output shape cannot be inferred.
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{# Will fail to compile:
 quick_seq <- quick(function(start, end) \{
@@ -92,8 +96,8 @@ quick_seq <- quick(function(start, end) \{
 \})
 }\if{html}{\out{</div>}}
 
-However, if the output size can be declared as a dynamic expression using other
-values known at runtime, compilation will succeed:
+However, if the output size can be declared as a dynamic expression using
+other values known at runtime, compilation will succeed:
 
 \if{html}{\out{<div class="sourceCode r">}}\preformatted{# Succeeds:
 quick_seq <- quick(function(start, end) \{

@@ -364,6 +364,12 @@ plot(timings) + bench::scale_x_bench_time(base = NULL)
 When called in a package, `quick()` will pre-compile the quick functions and place them in the `./src` directory.
 Run `devtools::load_all()` or `quickr::compile_package()` to ensure that the generated files in `./src` and `./R` are in sync with each other.
 
+In a package, you must provide a function name to `quick()`. For example:
+
+```r
+my_fun <- quick(name = "my_fun", function(x) ....)
+```
+
 ## Installation
 
 You can install quickr from CRAN with:
