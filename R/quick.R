@@ -116,6 +116,8 @@ quick <- function(fun, name = NULL) {
     } else {
       make_unique_name(prefix = "anonymous_quick_function_")
     }
+  } else if (is.function(name) && is_string(fun)) {
+    .[name, fun] <- list(fun, name)
   }
 
   if (nzchar(pkgname <- Sys.getenv("DEVTOOLS_LOAD"))) {
