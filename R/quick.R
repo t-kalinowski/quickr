@@ -187,6 +187,9 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   if (!is.null(attr(result, "status"))) {
     writeLines(result, stderr())
     str(attributes(result))
+    cat("\n----\n") # https://github.com/rstudio/rstudio/issues/16365
+    flush.connection(stderr())
+    flush.console()
     stop("Compilation Error")
   }
 
