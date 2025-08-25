@@ -35,16 +35,19 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     scope = scope
   )
 
-  # maybe define and allocate the output var
+  # maybe define and allocate the output var(s)
   n_protected <- 0L
-  return_var <- get(closure_return_var_name(closure), scope)
-  if (!return_var@name %in% closure_arg_names) {
-    return_var@modified <- TRUE
-    assign(return_var@name, return_var, scope)
-    append(c_body) <- return_var_c_defs(return_var, fsub@scope)
-    add(n_protected) <- 1L # allocated return var
-    if (return_var@rank > 1) {
-      add(n_protected) <- 1L # allocated _dim_sexp
+  return_var_names <- closure_return_var_names(closure)
+  return_vars <- mget(return_var_names, scope)
+  for (return_var in return_vars) {
+    if (!return_var@name %in% closure_arg_names) {
+      return_var@modified <- TRUE
+      assign(return_var@name, return_var, scope)
+      append(c_body) <- return_var_c_defs(return_var, fsub@scope)
+      add(n_protected) <- 1L # allocated return var
+      if (return_var@rank > 1) {
+        add(n_protected) <- 1L # allocated _dim_sexp
+      }
     }
   }
 
@@ -61,10 +64,27 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     glue("{fsub@name}({str_flatten_commas(fsub_call_args)});"),
     ""
   )
-  if (n_protected > 0) {
-    append(c_body) <- glue("UNPROTECT({n_protected});")
+  if (length(return_var_names) == 1L) {
+    if (n_protected > 0) {
+      append(c_body) <- glue("UNPROTECT({n_protected});")
+    }
+    append(c_body) <- glue("return {return_var_names};")
+  } else {
+    return_var_names_un <- unname(return_var_names)
+    append(c_body) <- c(
+      glue("SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_names_un)}));"),
+      imap(return_var_names_un, function(nm, i) {
+        glue("SET_VECTOR_ELT(_ans, {i-1}, {nm});")
+      }),
+      glue("SEXP _names = PROTECT(Rf_allocVector(STRSXP, {length(return_var_names_un)}));"),
+      imap(return_var_names_un, function(nm, i) {
+        glue("SET_STRING_ELT(_names, {i-1}, Rf_mkChar(\"{nm}\"));")
+      }),
+      "Rf_setAttrib(_ans, R_NamesSymbol, _names);"
+    )
+    append(c_body) <- glue("UNPROTECT({n_protected + 2});")
+    append(c_body) <- "return _ans;"
   }
-  append(c_body) <- glue("return {return_var@name};")
 
   c_args <- paste("SEXP", names(formals(closure)), collapse = ", ")
   c_body <- as_glue(str_flatten_lines(c_body))
@@ -414,12 +434,19 @@ as_friendly_size_expression <- function(d) {
   deparse1(d)
 }
 
-closure_return_var_name <- function(closure) {
-  return_var_name <- last(body(closure))
-  if (!is.symbol(return_var_name)) {
-    stop("return value must be a symbol")
+closure_return_var_names <- function(closure) {
+  return_var_expr <- last(body(closure))
+  if (is.symbol(return_var_expr)) {
+    return(as.character(return_var_expr))
   }
-  as.character(return_var_name)
+  if (is_call(return_var_expr, quote(list))) {
+    args <- as.list(return_var_expr)[-1L]
+    if (!all(map_lgl(args, is.symbol))) {
+      stop("return list must contain only symbols")
+    }
+    return(map_chr(args, as.character))
+  }
+  stop("return value must be a symbol or list of symbols")
 }
 
 

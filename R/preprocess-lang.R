@@ -17,10 +17,37 @@ ensure_last_expr_sym <- function(bdy) {
   if (!is_call(bdy, quote(`{`))) {
     stop("bad body, needs {")
   }
-  if (!is.symbol(last_expr <- last(bdy))) {
-    bdy[[length(bdy)]] <- call("<-", quote(out_), last_expr)
-    bdy[[length(bdy) + 1L]] <- quote(out_)
+  last_expr <- last(bdy)
+  if (is.symbol(last_expr)) {
+    n <- length(bdy)
+    if (n >= 3L) {
+      prev_expr <- bdy[[n - 1L]]
+      if (
+        is_call(prev_expr, quote(`<-`)) &&
+          identical(prev_expr[[2L]], last_expr) &&
+          is_call(prev_expr[[3L]], quote(list))
+      ) {
+        args <- as.list(prev_expr[[3L]])[-1L]
+        if (!all(map_lgl(args, is.symbol))) {
+          stop("all elements of return list must be symbols")
+        }
+        bdy_list <- as.list(bdy)
+        bdy_list <- bdy_list[-(n - 1L)]
+        bdy_list[[length(bdy_list)]] <- prev_expr[[3L]]
+        return(as.call(bdy_list))
+      }
+    }
+    return(bdy)
   }
+  if (is_call(last_expr, quote(list))) {
+    args <- as.list(last_expr)[-1L]
+    if (!all(map_lgl(args, is.symbol))) {
+      stop("all elements of return list must be symbols")
+    }
+    return(bdy)
+  }
+  bdy[[length(bdy)]] <- call("<-", quote(out_), last_expr)
+  bdy[[length(bdy) + 1L]] <- quote(out_)
   bdy
 }
 
