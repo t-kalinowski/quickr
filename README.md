@@ -3,12 +3,11 @@
 
 # quickr <img src="man/figures/logo.png" align="right" height="138"/>
 
-<!-- <img
-src="https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMjBhNWt1Z3Q4ZW56cG00c2hncmtwbGJycm53M3JxYWdscjRkaDJobCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/12haGO61oFZ28w/giphy.gif"
-alt="An animated GIF showing two characters in a spaceship cockpit rapidly accelerating into hyperspace, with stars stretching into bright streaks, creating a sensation of rapid acceleration and motion." /> -->
+<!-- ![](https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMjBhNWt1Z3Q4ZW56cG00c2hncmtwbGJycm53M3JxYWdscjRkaDJobCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/12haGO61oFZ28w/giphy.gif){alt="An animated GIF showing two characters in a spaceship cockpit rapidly accelerating into hyperspace, with stars stretching into bright streaks, creating a sensation of rapid acceleration and motion."} -->
 
 <!-- badges: start -->
 
+[![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml)
 <!-- badges: end -->
 
 The goal of quickr is to make your R code run quicker.
@@ -20,11 +19,11 @@ and dynamicism can come at the expense of speed. This package lets you
 trade back some of that flexibility for some speed, for the context of a
 single function.
 
-<!-- Programming language design requires some hard decisions and trade-offs. -->
+<!-- Programming language design requires some hard decisions and trade-ofs. -->
 
 <!-- When you want to have it all, you typically end up have two (or more!) languages. -->
 
-<!-- An interpreted, dynamic language full of conveniences, and a statically‑typed, explicit, high-performance language. -->
+<!-- An interpreted, dynamic language full of conveniences, and a staticly-typed, explicit, high-performance language. -->
 
 <!-- This is sometimes called the "Two Language Problem". -->
 
@@ -138,9 +137,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             1.05s    1.05s     0.955     847KB    0.955
-#> 2 quickr        4.8ms   5.09ms   195.        782KB    3.07
-#> 3 c            4.73ms   5.04ms   196.        782KB    3.09
+#> 1 r             1.04s    1.04s     0.957     782KB    0.957
+#> 2 quickr       4.85ms   5.03ms   198.        782KB    3.61 
+#> 3 c            4.88ms   5.06ms   197.        782KB    4.13
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -163,16 +162,17 @@ In the case of `convolve()`, `quick()` returns a function approximately
 
 <!-- -->
 
-    #>  [1] -         :         !=        (         [         [<-       {
-    #>  [8] *         /         &         &&        %/%       %%        ^
-    #> [15] +         <         <-        <=        =         ==        >
-    #> [22] >=        |         ||        Arg       Conj      Fortran   Im
-    #> [29] Mod       Re        abs       acos      asin      atan      c
-    #> [36] cat       cbind     ceiling   character cos       declare   double
-    #> [43] exp       floor     for       if        ifelse    integer   length
-    #> [50] log       log10     logical   matrix    max       min       numeric
-    #> [57] print     prod      raw       seq       sin       sqrt      sum
-    #> [64] tan       which.max which.min
+    #>  [1] -         :         !=        (         [         [<-       {        
+    #>  [8] *         /         &         &&        %/%       %%        ^        
+    #> [15] +         <         <-        <=        =         ==        >        
+    #> [22] >=        |         ||        Arg       Conj      Fortran   Im       
+    #> [29] Mod       Re        abs       acos      as.double asin      atan     
+    #> [36] break     c         cat       cbind     ceiling   character cos      
+    #> [43] declare   dim       double    exp       floor     for       if       
+    #> [50] ifelse    integer   length    log       log10     logical   matrix   
+    #> [57] max       min       ncol      next      nrow      numeric   print    
+    #> [64] prod      raw       repeat    runif     seq       sin       sqrt     
+    #> [71] sum       tan       which.max which.min while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -281,8 +281,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi  143.04µs    162µs     6047.     178KB     14.5
-#> 2 quick_viterbi   2.43µs   2.53µs   368609.        0B      0
+#> 1 slow_viterbi  147.12µs 162.33µs     5957.    1.59KB     16.8
+#> 2 quick_viterbi   2.48µs   2.62µs   367468.        0B      0
 plot(timings)
 ```
 
@@ -360,8 +360,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        127.   122.        1      1014.      Inf
-#> 2 quick_diffuse_heat    1      1       121.        1       NaN
+#> 1 diffuse_heat        131.   127.        1      1011.      Inf
+#> 2 quick_diffuse_heat    1      1       127.        1       NaN
 plot(timings)
 ```
 
@@ -407,9 +407,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           105.4ms 109.13ms      7.42  124.31MB    22.3
-#> 2 rcpp         19.7ms  19.84ms     49.4     4.44MB     1.98
-#> 3 quickr          7ms   7.09ms    138.    781.35KB     2.00
+#> 1 r           114.2ms 132.75ms      5.66  124.24MB     9.44
+#> 2 rcpp        19.35ms  19.58ms     50.9     4.44MB     0   
+#> 3 quickr       6.73ms   6.87ms    142.    781.35KB     1.98
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -423,6 +423,13 @@ When called in a package, `quick()` will pre-compile the quick functions
 and place them in the `./src` directory. Run `devtools::load_all()` or
 `quickr::compile_package()` to ensure that the generated files in
 `./src` and `./R` are in sync with each other.
+
+In a package, you must provide a function name to `quick()`. For
+example:
+
+``` r
+my_fun <- quick(name = "my_fun", function(x) ....)
+```
 
 ## Installation
 
