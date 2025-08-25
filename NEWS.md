@@ -24,6 +24,8 @@
 
 - Fixed segfault encountered on Windows with variable sized arrays.
 
+- Added workaround for cases where the compiler error message might not
+  display correctly in RStudio.
 
 # quickr 0.1.0
 
