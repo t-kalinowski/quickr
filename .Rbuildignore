@@ -4,8 +4,11 @@
 ^README\.Rmd$
 ^LICENSE\.md$
 ^roadmap.md$
-^scratch$
+^scratch.*$
 ^\.vscode$
 ^cran-comments\.md$
 ^[\.]?air\.toml$
 ^\.github$
+^scripts$
+^AGENTS.md$
+^CRAN-SUBMISSION$
