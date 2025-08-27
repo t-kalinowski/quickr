@@ -44,9 +44,6 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   } else if (is_call(last_expr, quote(list))) {
     args <- as.list(last_expr)[-1L]
     for (arg in args) {
-      if (!is.symbol(arg)) {
-        stop("last expression list elements must be symbols")
-      }
       var <- get(arg, scope)
       var@is_return <- TRUE
       scope[[as.character(arg)]] <- var

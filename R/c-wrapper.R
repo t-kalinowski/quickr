@@ -443,12 +443,10 @@ closure_return_var_names <- function(closure) {
   }
   if (is_call(return_var_expr, quote(list))) {
     args <- as.list(return_var_expr)[-1L]
-    if (!all(map_lgl(args, is.symbol))) {
-      stop("return list must contain only symbols")
-    }
     return(map_chr(args, as.character))
   }
-  stop("return value must be a symbol or list of symbols")
+  ## is it redundent ? new_fortran_subroutine also errors ? 
+  stop("return value must be a symbol or list of symbols") 
 }
 
 
