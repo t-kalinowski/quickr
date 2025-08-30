@@ -57,19 +57,19 @@ test_that("no names add to unnamed elements", {
   x <- 1:3
   expect_equal(qfn(x), fn(x))
 })
-test_that("mixed named and symbols list work", {
+
+
+test_that("mixed named and unnamed list work", {
   fn <- function(x) {
     declare(type(x = integer(n)))
     y <- x + 1L
     z <- x + 2L
-    list(abc = y, z)
+    list(y, abc = z, x)
   }
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
 })
-
-
 
 
 test_that("errors if list is used outside return pattern [r2f error]", {
@@ -85,16 +85,44 @@ test_that("errors if list is used outside return pattern [r2f error]", {
   expect_error(quick(fn), "Unsupported function: list")
   ## List is being accessed
   fn <- function(x) {
-    declare(
-      type(x = integer(n)),
-      type(y = integer(n)),
-      type(z = integer(n))
-    )
+    declare(type(x = integer(n)))
     y <- x + 1
     z <- x + 2
     out <- list(y = y, z = z)
     out$y
   }
   expect_error(quick(fn), "Unsupported function: list")
+})
 
+
+test_that("errors om nested list and non-symbols [validate_list_symbols]", {
+  ## Nested lists
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1
+    z <- x + 2
+    out <- list(y = y, z = z, list(x = x))
+    out
+  }
+  x <- 1:3
+  expect_error(quick(fn), "all elements of the list must be symbols")
+
+  ## non-symbols in list
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1
+    z <- x + 2
+    list(a = 1L, b = 2L)
+  }
+  x <- 1:3
+  expect_error(quick(fn), "all elements of the list must be symbols")
+
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1
+    z <- x + 2
+    list(1L)
+  }
+  x <- 1:3
+  expect_error(quick(fn), "all elements of the list must be symbols")
 })
