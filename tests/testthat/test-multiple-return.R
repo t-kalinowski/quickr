@@ -1,58 +1,81 @@
 test_that("multiple return values", {
   fn <- function(x) {
-    declare(
-      type(x = double(n)),
-      type(y = double(n)),
-      type(z = double(n))
-    )
+    declare(type(x = integer(n)))
     y <- x + 1
     z <- x + 2
     list(y = y, z = z)
   }
   qfn <- quick(fn)
-  x <- as.double(1:3)
+  x <- 1:3
   expect_equal(qfn(x), fn(x))
 })
 
 test_that("multiple return values via assignment", {
   fn <- function(x) {
-    declare(
-      type(x = double(n)),
-      type(y = double(n)),
-      type(z = double(n))
-    )
+    declare(type(x = integer(n)))
     y <- x + 1
     z <- x + 2
     out <- list(y = y, z = z)
     out
   }
   qfn <- quick(fn)
-  x <- as.double(1:3)
+  x <- 1:3
   expect_equal(qfn(x), fn(x))
 })
 
 test_that("single return variable still works", {
   fn <- function(x) {
-    declare(
-      type(x = double(n)),
-      type(y = double(n))
-    )
+    declare(type(x = integer(n)))
     y <- x + 1
     y
   }
   qfn <- quick(fn)
-  x <- as.double(1:3)
+  x <- 1:3
   expect_equal(qfn(x), fn(x))
 })
 
-test_that("Errors if list is used outside return pattern [r2f error]", {
+test_that("custom names for multiple return values are preserved", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    z <- x + 2L
+    list(abc = y, def = z)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+test_that("no names add to unnamed elements", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    z <- x + 2L
+    list(y, z)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+test_that("mixed named and symbols list work", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    z <- x + 2L
+    list(abc = y, z)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+
+
+
+test_that("errors if list is used outside return pattern [r2f error]", {
   ## list not last or second to last
   fn <- function(x) {
-    declare(
-      type(x = double(n)),
-      type(y = double(n)),
-      type(z = double(n))
-    )
+    declare(type(x = integer(n)))
     y <- x + 1
     z <- x + 2
     out <- list(y = y, z = z)
@@ -63,9 +86,9 @@ test_that("Errors if list is used outside return pattern [r2f error]", {
   ## List is being accessed
   fn <- function(x) {
     declare(
-      type(x = double(n)),
-      type(y = double(n)),
-      type(z = double(n))
+      type(x = integer(n)),
+      type(y = integer(n)),
+      type(z = integer(n))
     )
     y <- x + 1
     z <- x + 2

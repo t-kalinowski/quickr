@@ -73,19 +73,32 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     }
     append(c_body) <- glue("return {return_var_names};")
   } else {
-    return_var_names_un <- unname(return_var_names)
+    return_var_values <- unname(return_var_names)
+    provided_names <- names(return_var_names)
+    if (is.null(provided_names)) provided_names <- rep("", length(return_var_values))
+    has_any_names <- any(nzchar(provided_names))
+
     append(c_body) <- c(
-      glue("SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_names_un)}));"),
-      imap(return_var_names_un, function(nm, i) {
+      glue("SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_values)}));"),
+      imap(return_var_values, function(nm, i) {
         glue("SET_VECTOR_ELT(_ans, {i-1}, {nm});")
-      }),
-      glue("SEXP _names = PROTECT(Rf_allocVector(STRSXP, {length(return_var_names_un)}));"),
-      imap(return_var_names_un, function(nm, i) {
-        glue("SET_STRING_ELT(_names, {i-1}, Rf_mkChar(\"{nm}\"));")
-      }),
-      "Rf_setAttrib(_ans, R_NamesSymbol, _names);"
+      })
     )
-    append(c_body) <- glue("UNPROTECT({n_protected + 2});")
+
+    if (has_any_names) {
+      names_to_use <- provided_names
+      append(c_body) <- c(
+        glue("SEXP _names = PROTECT(Rf_allocVector(STRSXP, {length(return_var_values)}));"),
+        imap(names_to_use, function(nm, i) {
+          glue('SET_STRING_ELT(_names, {i-1}, Rf_mkChar("{nm}"));')
+        }),
+        "Rf_setAttrib(_ans, R_NamesSymbol, _names);"
+      )
+      append(c_body) <- glue("UNPROTECT({n_protected + 2});")
+    } else {
+      append(c_body) <- glue("UNPROTECT({n_protected + 1});")
+    }
+
     append(c_body) <- "return _ans;"
   }
 
@@ -439,14 +452,21 @@ as_friendly_size_expression <- function(d) {
 closure_return_var_names <- function(closure) {
   return_var_expr <- last(body(closure))
   if (is.symbol(return_var_expr)) {
-    return(as.character(return_var_expr))
+    val <- as.character(return_var_expr)
+    # Return named to keep interface consistent
+    return(setNames(val, val))
   }
   if (is_call(return_var_expr, quote(list))) {
     args <- as.list(return_var_expr)[-1L]
-    return(map_chr(args, as.character))
+    vals <- map_chr(args, as.character)
+    nms <- names(args)
+    if (is.null(nms)) nms <- rep("", length(vals))
+    # Use provided names when present; fallback to symbol names
+    # nms <- ifelse(nzchar(nms), nms, vals)
+    return(setNames(vals, nms))
   }
-  ## is it redundent ? new_fortran_subroutine also errors ? 
-  stop("return value must be a symbol or list of symbols") 
+  ## is it redundent ? new_fortran_subroutine also errors ?
+  stop("return value must be a symbol or list of symbols")
 }
 
 
