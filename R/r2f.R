@@ -661,7 +661,6 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
-    # Unary plus is a no-op; keep explicit for clarity
     Fortran(glue("(+{x})"), x@value)
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
