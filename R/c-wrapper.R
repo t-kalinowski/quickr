@@ -39,8 +39,8 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   # maybe define and allocate the output var(s)
   n_protected <- 0L
   return_var_names <- closure_return_var_names(closure)
-  return_vars <- mget(return_var_names, scope)
-  for (return_var in return_vars) {
+  # Deduplicate by the underlying variable name to avoid duplicate C defs
+  for (return_var in mget(unique(unname(return_var_names)), scope)) {
     if (!return_var@name %in% closure_arg_names) {
       return_var@modified <- TRUE
       assign(return_var@name, return_var, scope)

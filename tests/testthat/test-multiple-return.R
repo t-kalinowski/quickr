@@ -127,6 +127,28 @@ test_that("mixed named and unnamed list work", {
   expect_equal(qfn(x), fn(x))
 })
 
+test_that("duplicate return variables compile once and work", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    list(y, y)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+test_that("duplicate return variables with names work", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    list(a = y, b = y)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
 
 test_that("errors if list is used outside return pattern [r2f error]", {
   ## list not last or second to last
