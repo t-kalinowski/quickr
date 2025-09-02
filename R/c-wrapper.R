@@ -467,6 +467,9 @@ closure_return_var_names <- function(closure) {
   }
   if (is_call(return_var_expr, quote(list))) {
     args <- as.list(return_var_expr)[-1L]
+    if (length(args) == 0L) {
+      stop("return list must contain at least one element")
+    }
     vals <- map_chr(args, as.character)
     nms <- names(args)
     if (is.null(nms)) {

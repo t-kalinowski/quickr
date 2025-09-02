@@ -82,6 +82,38 @@ test_that("single-element named list preserves name", {
   expect_equal(qfn(x), fn(x))
 })
 
+test_that("single-element list via assignment returns a list (VECSXP)", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    out <- list(y)
+    out
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+test_that("assignment form with non-syntactic name errors", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    out <- list(`a b` = y)
+    out
+  }
+  expect_error(quick(fn), "only syntactic names are valid")
+})
+
+test_that("empty return list errors", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    list()
+  }
+  expect_error(quick(fn), "must contain at least one element")
+})
+
+ 
+
 
 test_that("mixed named and unnamed list work", {
   fn <- function(x) {
