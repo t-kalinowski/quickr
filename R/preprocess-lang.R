@@ -26,9 +26,9 @@ ensure_last_expr_sym <- function(bdy) {
   if (!is_call(bdy, quote(`{`))) {
     stop("bad body, needs {")
   }
-  
+
   last_expr <- last(bdy)
-  
+
   # Case 1: Last expression is a symbol
   if (is.symbol(last_expr)) {
     # Check for pattern: out <- list(...); out
@@ -50,13 +50,13 @@ ensure_last_expr_sym <- function(bdy) {
 
     return(bdy)
   }
-  
+
   # Case 2: Last expression is a direct list call
   if (is_call(last_expr, quote(list))) {
     validate_list_symbols(last_expr)
     return(bdy)
   }
-  
+
   # Case 3: Other expressions - create assignment to out_
   bdy[[length(bdy)]] <- call("<-", quote(out_), last_expr)
   bdy[[length(bdy) + 1L]] <- quote(out_)

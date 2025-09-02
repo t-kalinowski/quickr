@@ -59,6 +59,30 @@ test_that("no names add to unnamed elements", {
 })
 
 
+test_that("single-element unnamed list returns a list", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    list(y)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+
+test_that("single-element named list preserves name", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    list(abc = y)
+  }
+  qfn <- quick(fn)
+  x <- 1:3
+  expect_equal(qfn(x), fn(x))
+})
+
+
 test_that("mixed named and unnamed list work", {
   fn <- function(x) {
     declare(type(x = integer(n)))
@@ -125,4 +149,14 @@ test_that("errors om nested list and non-symbols [validate_list_symbols]", {
   }
   x <- 1:3
   expect_error(quick(fn), "all elements of the list must be symbols")
+})
+
+
+test_that("errors on non-syntactic names in return list", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    y <- x + 1L
+    list(`a b` = y)
+  }
+  expect_error(quick(fn), "only syntactic names are valid")
 })

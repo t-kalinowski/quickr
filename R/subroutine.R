@@ -50,7 +50,9 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
     }
   } else {
     # lots we can still do here, just not implemented yet.
-    stop("last expression in the function must be a bare symbol or list of symbols")
+    stop(
+      "last expression in the function must be a bare symbol or list of symbols"
+    )
   }
 
   manifest <- r2f.scope(scope)

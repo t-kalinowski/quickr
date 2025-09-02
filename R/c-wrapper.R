@@ -67,7 +67,10 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     if (uses_rng) "PutRNGstate();",
     ""
   )
-  if (length(return_var_names) == 1L) {
+  # Determine if the closure returns a list call or a single symbol
+  is_list_return <- is_call(last(body(closure)), quote(list))
+
+  if (length(return_var_names) == 1L && !is_list_return) {
     if (n_protected > 0) {
       append(c_body) <- glue("UNPROTECT({n_protected});")
     }
@@ -75,11 +78,15 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   } else {
     return_var_values <- unname(return_var_names)
     provided_names <- names(return_var_names)
-    if (is.null(provided_names)) provided_names <- rep("", length(return_var_values))
+    if (is.null(provided_names)) {
+      provided_names <- rep("", length(return_var_values))
+    }
     has_any_names <- any(nzchar(provided_names))
 
     append(c_body) <- c(
-      glue("SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_values)}));"),
+      glue(
+        "SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_values)}));"
+      ),
       imap(return_var_values, function(nm, i) {
         glue("SET_VECTOR_ELT(_ans, {i-1}, {nm});")
       })
@@ -88,7 +95,9 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     if (has_any_names) {
       names_to_use <- provided_names
       append(c_body) <- c(
-        glue("SEXP _names = PROTECT(Rf_allocVector(STRSXP, {length(return_var_values)}));"),
+        glue(
+          "SEXP _names = PROTECT(Rf_allocVector(STRSXP, {length(return_var_values)}));"
+        ),
         imap(names_to_use, function(nm, i) {
           glue('SET_STRING_ELT(_names, {i-1}, Rf_mkChar("{nm}"));')
         }),
@@ -460,7 +469,19 @@ closure_return_var_names <- function(closure) {
     args <- as.list(return_var_expr)[-1L]
     vals <- map_chr(args, as.character)
     nms <- names(args)
-    if (is.null(nms)) nms <- rep("", length(vals))
+    if (is.null(nms)) {
+      nms <- rep("", length(vals))
+    }
+    # validate names are syntactic when provided
+    if (any(nzchar(nms))) {
+      bad <- nzchar(nms) & make.names(nms) != nms
+      if (any(bad)) {
+        stop(
+          "only syntactic names are valid, encountered: ",
+          paste0(nms[bad], sep = ", ")
+        )
+      }
+    }
     # Use provided names when present; fallback to symbol names
     # nms <- ifelse(nzchar(nms), nms, vals)
     return(setNames(vals, nms))
