@@ -101,4 +101,3 @@ test_that("expr return value", {
   expect_translation_snapshots(fn)
   expect_quick_identical(fn, 1:10)
 })
-
