@@ -100,3 +100,47 @@ test_that("complex unary intrinsics", {
     expect_quick_equal(fn, z)
   }
 })
+
+
+test_that("unary logical 'not'-operator on vector", {
+  fn <- function(x) {
+    declare(type(x = integer(n)))
+    lgl <- x > 1L
+    not_lgl <- !lgl
+    not_lgl
+  }
+
+  x1 <- -3:3
+  x2 <- 0:5
+  expect_quick_identical(fn, list(x1), list(x2))
+})
+
+test_that("unary minus and plus for integer and double", {
+  fn_neg_i <- function(x) {
+    declare(type(x = integer(n)))
+    y <- -x
+    y
+  }
+  fn_pos_i <- function(x) {
+    declare(type(x = integer(n)))
+    y <- +x
+    y
+  }
+  xi <- -5:5
+  expect_quick_identical(fn_neg_i, list(xi))
+  expect_quick_identical(fn_pos_i, list(xi))
+
+  fn_neg_d <- function(x) {
+    declare(type(x = double(n)))
+    y <- -x
+    y
+  }
+  fn_pos_d <- function(x) {
+    declare(type(x = double(n)))
+    y <- +x
+    y
+  }
+  xd <- -5:5 + 0.5
+  expect_quick_equal(fn_neg_d, list(xd))
+  expect_quick_equal(fn_pos_d, list(xd))
+})
