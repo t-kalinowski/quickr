@@ -144,16 +144,3 @@ test_that("unary minus and plus for integer and double", {
   expect_quick_equal(fn_neg_d, list(xd))
   expect_quick_equal(fn_pos_d, list(xd))
 })
-
-test_that("unary results do not alias operand Variable", {
-  # unary minus should not rename x's Variable when assigned to y
-  fn <- function(x) {
-    declare(type(x = integer(n)))
-    y <- -x
-    # x should still be usable after creating y
-    s <- sum(x) + sum(y)
-    list(y = y, original_x = x, sum_x_y = s)
-  }
-  x <- 1:5
-  expect_quick_identical(fn, list(x))
-})

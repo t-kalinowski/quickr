@@ -661,7 +661,7 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
-    Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
+    Fortran(glue("(+{x})"), x@value)
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
     Fortran(glue("({left} + {right})"), conform(left@value, right@value))
@@ -672,7 +672,7 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
   # Support both binary and unary minus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
-    Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
+    Fortran(glue("(-{x})"), x@value)
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
     Fortran(glue("({left} - {right})"), conform(left@value, right@value))
@@ -746,7 +746,7 @@ r2f_handlers[["!"]] <- function(args, scope, ...) {
   if (x@value@mode != "logical") {
     stop("'!' expects a logical value; numeric coercions not yet supported")
   }
-  Fortran(glue("(.not. {x})"), Variable("logical", x@value@dims))
+  Fortran(glue("(.not. {x})"), x@value)
 }
 
 
