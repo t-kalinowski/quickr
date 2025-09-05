@@ -538,14 +538,6 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
   Fortran(glue("merge({tsource}, {fsource}, {mask})"), Variable(mode, dims))
 }
 
-
-r2f_handlers[["abs"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  Fortran(glue("abs({arg})"), arg@value)
-}
-
-
 # ---- pure elemental unary math intrinsics ----
 
 ## real and complex intrinsics
@@ -567,7 +559,10 @@ register_r2f_handler(
     stopifnot(length(args) == 1L)
     arg <- r2f(args[[1]], scope, ...)
     intrinsic <- last(list(...)$calls)
-    Fortran(glue("{intrinsic}({arg})"), arg@value)
+    Fortran(
+      glue("{intrinsic}({arg})"),
+      Variable(mode = arg@value@mode, dims = arg@value@dims)
+    )
   }
 )
 
@@ -579,17 +574,22 @@ r2f_handlers[["log10"]] <- function(args, scope, ...) {
   } else {
     glue("log10({arg})")
   }
-  Fortran(f, arg@value)
+  Fortran(
+    f,
+    Variable(mode = arg@value@mode, dims = arg@value@dims)
+  )
 }
 
 ## accepts real, integer, or complex
 r2f_handlers[["abs"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  if (arg@value@mode == "complex") {
-    arg@value@mode <- "double"
+  val <- if (arg@value@mode == "complex") {
+    Variable(mode = "double", dims = arg@value@dims)
+  } else {
+    Variable(mode = arg@value@mode, dims = arg@value@dims)
   }
-  Fortran(glue("abs({arg})"), arg@value)
+  Fortran(glue("abs({arg})"), val)
 }
 
 
@@ -598,16 +598,14 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
 r2f_handlers[["Re"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- arg@value
-  val@mode <- "double"
+  val <- Variable(mode = "double", dims = arg@value@dims)
   Fortran(glue("real({arg})"), val)
 }
 
 r2f_handlers[["Im"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- arg@value
-  val@mode <- "double"
+  val <- Variable(mode = "double", dims = arg@value@dims)
   Fortran(glue("aimag({arg})"), val)
 }
 
@@ -615,8 +613,7 @@ r2f_handlers[["Im"]] <- function(args, scope, ...) {
 r2f_handlers[["Mod"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- arg@value
-  val@mode <- "double"
+  val <- Variable(mode = "double", dims = arg@value@dims)
   Fortran(glue("abs({arg})"), val)
 }
 
@@ -624,8 +621,7 @@ r2f_handlers[["Mod"]] <- function(args, scope, ...) {
 r2f_handlers[["Arg"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- arg@value
-  val@mode <- "double"
+  val <- Variable(mode = "double", dims = arg@value@dims)
   Fortran(glue("atan2(aimag({arg}), real({arg}))"), val)
 }
 
@@ -633,8 +629,7 @@ r2f_handlers[["Arg"]] <- function(args, scope, ...) {
 r2f_handlers[["Conj"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- arg@value
-  val@mode <- "complex"
+  val <- Variable(mode = "complex", dims = arg@value@dims)
   Fortran(glue("conjg({arg})"), val)
 }
 
@@ -984,7 +979,10 @@ r2f_handlers[["character"]] <- r2f_handlers[["raw"]] <-
 r2f_handlers[["matrix"]] <- function(args, scope = NULL, ...) {
   args$data %||% stop("matrix(data=) must be provided, cannot be NA")
   out <- r2f(args$data, scope, ...)
-  out@value@dims <- r2dims(list(args$nrow, args$ncol), scope)
+  out@value <- Variable(
+    mode = out@value@mode,
+    dims = r2dims(list(args$nrow, args$ncol), scope)
+  )
   out
 
   # TODO: reshape() if !passes_as_scalar(out)
