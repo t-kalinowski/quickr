@@ -144,3 +144,16 @@ test_that("unary minus and plus for integer and double", {
   expect_quick_equal(fn_neg_d, list(xd))
   expect_quick_equal(fn_pos_d, list(xd))
 })
+
+test_that("logical not local used as ifelse mask compiles and runs", {
+  fn <- function(x) {
+    declare(type(x = logical(NA)))
+    y <- !x
+    out <- ifelse(y, 1L, 0L)
+    out
+  }
+
+  # Ensure translation and execution are correct
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(c(TRUE, FALSE, TRUE)))
+})
