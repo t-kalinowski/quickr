@@ -656,7 +656,7 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
-    Fortran(glue("(+{x})"), x@value)
+    Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
     Fortran(glue("({left} + {right})"), conform(left@value, right@value))
@@ -667,7 +667,7 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
   # Support both binary and unary minus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
-    Fortran(glue("(-{x})"), x@value)
+    Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
     Fortran(glue("({left} - {right})"), conform(left@value, right@value))
@@ -741,7 +741,7 @@ r2f_handlers[["!"]] <- function(args, scope, ...) {
   if (x@value@mode != "logical") {
     stop("'!' expects a logical value; numeric coercions not yet supported")
   }
-  Fortran(glue("(.not. {x})"), x@value)
+  Fortran(glue("(.not. {x})"), Variable("logical", x@value@dims))
 }
 
 
@@ -881,9 +881,13 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
 
   # immutable / copy-on-modify usage of Variable()
   if (is.null(var <- get0(name, scope))) {
-    # this is a binding to a new symbol
-    var <- value@value
+    # The var does not exist -> this is a binding to a new symbol
+    # Create a fresh Variable carrying only mode/dims and a new name.
+    src <- value@value
+    var <- Variable(mode = src@mode, dims = src@dims)
     var@name <- name
+    # keep a reference to the R expression assigned, if available
+    try({ var@r <- attr(value, "r", TRUE) }, silent = TRUE)
     scope[[name]] <- var
   } else {
     # The var already exists, this assignment is a modification / reassignment
