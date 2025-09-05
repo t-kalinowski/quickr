@@ -1,4 +1,5 @@
 # quickr (development version)
+- Added support for `!` and unary `-` and `+` (#49, @mns-nordicals)
 
 - Functions can now return multiple arrays in a `list()`, optionally
   named (#49, @mns-nordicals).
