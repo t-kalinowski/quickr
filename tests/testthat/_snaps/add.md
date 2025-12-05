@@ -42,7 +42,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -105,7 +105,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const int* const x__ = INTEGER(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -114,7 +114,7 @@
         _args = CDR(_args);
         SEXP y = CAR(_args);
         if (TYPEOF(y) != INTSXP) {
-          Rf_error("typeof(y) must be 'integer', not '%s'", R_typeToChar(y));
+          Rf_error("typeof(y) must be 'integer', not '%s'", Rf_type2char(TYPEOF(y)));
         }
         const int* const y__ = INTEGER(y);
         const R_xlen_t y__len_ = Rf_xlength(y);

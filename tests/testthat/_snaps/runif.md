@@ -50,7 +50,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
@@ -125,7 +125,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -200,7 +200,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -279,7 +279,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
@@ -288,7 +288,7 @@
         _args = CDR(_args);
         SEXP a = CAR(_args);
         if (TYPEOF(a) != REALSXP) {
-          Rf_error("typeof(a) must be 'double', not '%s'", R_typeToChar(a));
+          Rf_error("typeof(a) must be 'double', not '%s'", Rf_type2char(TYPEOF(a)));
         }
         const double* const a__ = REAL(a);
         const R_xlen_t a__len_ = Rf_xlength(a);
@@ -297,7 +297,7 @@
         _args = CDR(_args);
         SEXP b = CAR(_args);
         if (TYPEOF(b) != REALSXP) {
-          Rf_error("typeof(b) must be 'double', not '%s'", R_typeToChar(b));
+          Rf_error("typeof(b) must be 'double', not '%s'", Rf_type2char(TYPEOF(b)));
         }
         const double* const b__ = REAL(b);
         const R_xlen_t b__len_ = Rf_xlength(b);
@@ -386,7 +386,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
@@ -395,7 +395,7 @@
         _args = CDR(_args);
         SEXP b = CAR(_args);
         if (TYPEOF(b) != REALSXP) {
-          Rf_error("typeof(b) must be 'double', not '%s'", R_typeToChar(b));
+          Rf_error("typeof(b) must be 'double', not '%s'", Rf_type2char(TYPEOF(b)));
         }
         const double* const b__ = REAL(b);
         const R_xlen_t b__len_ = Rf_xlength(b);
@@ -469,7 +469,7 @@
         _args = CDR(_args);
         SEXP b = CAR(_args);
         if (TYPEOF(b) != REALSXP) {
-          Rf_error("typeof(b) must be 'double', not '%s'", R_typeToChar(b));
+          Rf_error("typeof(b) must be 'double', not '%s'", Rf_type2char(TYPEOF(b)));
         }
         const double* const b__ = REAL(b);
         const R_xlen_t b__len_ = Rf_xlength(b);
@@ -543,7 +543,7 @@
         _args = CDR(_args);
         SEXP b = CAR(_args);
         if (TYPEOF(b) != REALSXP) {
-          Rf_error("typeof(b) must be 'double', not '%s'", R_typeToChar(b));
+          Rf_error("typeof(b) must be 'double', not '%s'", Rf_type2char(TYPEOF(b)));
         }
         const double* const b__ = REAL(b);
         const R_xlen_t b__len_ = Rf_xlength(b);

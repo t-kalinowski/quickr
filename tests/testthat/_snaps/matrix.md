@@ -41,7 +41,7 @@
           _args = CDR(_args);
           SEXP a = CAR(_args);
           if (TYPEOF(a) != INTSXP) {
-            Rf_error("typeof(a) must be 'integer', not '%s'", R_typeToChar(a));
+            Rf_error("typeof(a) must be 'integer', not '%s'", Rf_type2char(TYPEOF(a)));
           }
           const int* const a__ = INTEGER(a);
           const R_xlen_t a__len_ = Rf_xlength(a);
@@ -50,7 +50,7 @@
           _args = CDR(_args);
           SEXP b = CAR(_args);
           if (TYPEOF(b) != INTSXP) {
-            Rf_error("typeof(b) must be 'integer', not '%s'", R_typeToChar(b));
+            Rf_error("typeof(b) must be 'integer', not '%s'", Rf_type2char(TYPEOF(b)));
           }
           const int* const b__ = INTEGER(b);
           const R_xlen_t b__len_ = Rf_xlength(b);
@@ -125,7 +125,7 @@
           _args = CDR(_args);
           SEXP a1 = CAR(_args);
           if (TYPEOF(a1) != REALSXP) {
-            Rf_error("typeof(a1) must be 'double', not '%s'", R_typeToChar(a1));
+            Rf_error("typeof(a1) must be 'double', not '%s'", Rf_type2char(TYPEOF(a1)));
           }
           const double* const a1__ = REAL(a1);
           const R_xlen_t a1__len_ = Rf_xlength(a1);
@@ -134,7 +134,7 @@
           _args = CDR(_args);
           SEXP a2 = CAR(_args);
           if (TYPEOF(a2) != REALSXP) {
-            Rf_error("typeof(a2) must be 'double', not '%s'", R_typeToChar(a2));
+            Rf_error("typeof(a2) must be 'double', not '%s'", Rf_type2char(TYPEOF(a2)));
           }
           const double* const a2__ = REAL(a2);
           const int* const a2__dim_ = ({
@@ -186,7 +186,7 @@
         _args = CDR(_args);
         SEXP a1 = CAR(_args);
         if (TYPEOF(a1) != REALSXP) {
-          Rf_error("typeof(a1) must be 'double', not '%s'", R_typeToChar(a1));
+          Rf_error("typeof(a1) must be 'double', not '%s'", Rf_type2char(TYPEOF(a1)));
         }
         const double* const a1__ = REAL(a1);
         const R_xlen_t a1__len_ = Rf_xlength(a1);
@@ -195,7 +195,7 @@
         _args = CDR(_args);
         SEXP a2 = CAR(_args);
         if (TYPEOF(a2) != REALSXP) {
-          Rf_error("typeof(a2) must be 'double', not '%s'", R_typeToChar(a2));
+          Rf_error("typeof(a2) must be 'double', not '%s'", Rf_type2char(TYPEOF(a2)));
         }
         const double* const a2__ = REAL(a2);
         const int* const a2__dim_ = ({

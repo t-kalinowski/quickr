@@ -148,7 +148,7 @@
         _args = CDR(_args);
         SEXP observations = CAR(_args);
         if (TYPEOF(observations) != INTSXP) {
-          Rf_error("typeof(observations) must be 'integer', not '%s'", R_typeToChar(observations));
+          Rf_error("typeof(observations) must be 'integer', not '%s'", Rf_type2char(TYPEOF(observations)));
         }
         const int* const observations__ = INTEGER(observations);
         const R_xlen_t observations__len_ = Rf_xlength(observations);
@@ -157,7 +157,7 @@
         _args = CDR(_args);
         SEXP states = CAR(_args);
         if (TYPEOF(states) != INTSXP) {
-          Rf_error("typeof(states) must be 'integer', not '%s'", R_typeToChar(states));
+          Rf_error("typeof(states) must be 'integer', not '%s'", Rf_type2char(TYPEOF(states)));
         }
         const int* const states__ = INTEGER(states);
         const R_xlen_t states__len_ = Rf_xlength(states);
@@ -166,7 +166,7 @@
         _args = CDR(_args);
         SEXP initial_probs = CAR(_args);
         if (TYPEOF(initial_probs) != REALSXP) {
-          Rf_error("typeof(initial_probs) must be 'double', not '%s'", R_typeToChar(initial_probs));
+          Rf_error("typeof(initial_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(initial_probs)));
         }
         const double* const initial_probs__ = REAL(initial_probs);
         const R_xlen_t initial_probs__len_ = Rf_xlength(initial_probs);
@@ -175,7 +175,7 @@
         _args = CDR(_args);
         SEXP transition_probs = CAR(_args);
         if (TYPEOF(transition_probs) != REALSXP) {
-          Rf_error("typeof(transition_probs) must be 'double', not '%s'", R_typeToChar(transition_probs));
+          Rf_error("typeof(transition_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(transition_probs)));
         }
         const double* const transition_probs__ = REAL(transition_probs);
         const int* const transition_probs__dim_ = ({
@@ -191,7 +191,7 @@
         _args = CDR(_args);
         SEXP emission_probs = CAR(_args);
         if (TYPEOF(emission_probs) != REALSXP) {
-          Rf_error("typeof(emission_probs) must be 'double', not '%s'", R_typeToChar(emission_probs));
+          Rf_error("typeof(emission_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(emission_probs)));
         }
         const double* const emission_probs__ = REAL(emission_probs);
         const int* const emission_probs__dim_ = ({
@@ -358,7 +358,7 @@
         _args = CDR(_args);
         SEXP observations = CAR(_args);
         if (TYPEOF(observations) != INTSXP) {
-          Rf_error("typeof(observations) must be 'integer', not '%s'", R_typeToChar(observations));
+          Rf_error("typeof(observations) must be 'integer', not '%s'", Rf_type2char(TYPEOF(observations)));
         }
         const int* const observations__ = INTEGER(observations);
         const R_xlen_t observations__len_ = Rf_xlength(observations);
@@ -367,7 +367,7 @@
         _args = CDR(_args);
         SEXP states = CAR(_args);
         if (TYPEOF(states) != INTSXP) {
-          Rf_error("typeof(states) must be 'integer', not '%s'", R_typeToChar(states));
+          Rf_error("typeof(states) must be 'integer', not '%s'", Rf_type2char(TYPEOF(states)));
         }
         const int* const states__ = INTEGER(states);
         const R_xlen_t states__len_ = Rf_xlength(states);
@@ -376,7 +376,7 @@
         _args = CDR(_args);
         SEXP initial_probs = CAR(_args);
         if (TYPEOF(initial_probs) != REALSXP) {
-          Rf_error("typeof(initial_probs) must be 'double', not '%s'", R_typeToChar(initial_probs));
+          Rf_error("typeof(initial_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(initial_probs)));
         }
         const double* const initial_probs__ = REAL(initial_probs);
         const R_xlen_t initial_probs__len_ = Rf_xlength(initial_probs);
@@ -385,7 +385,7 @@
         _args = CDR(_args);
         SEXP transition_probs = CAR(_args);
         if (TYPEOF(transition_probs) != REALSXP) {
-          Rf_error("typeof(transition_probs) must be 'double', not '%s'", R_typeToChar(transition_probs));
+          Rf_error("typeof(transition_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(transition_probs)));
         }
         const double* const transition_probs__ = REAL(transition_probs);
         const int* const transition_probs__dim_ = ({
@@ -401,7 +401,7 @@
         _args = CDR(_args);
         SEXP emission_probs = CAR(_args);
         if (TYPEOF(emission_probs) != REALSXP) {
-          Rf_error("typeof(emission_probs) must be 'double', not '%s'", R_typeToChar(emission_probs));
+          Rf_error("typeof(emission_probs) must be 'double', not '%s'", Rf_type2char(TYPEOF(emission_probs)));
         }
         const double* const emission_probs__ = REAL(emission_probs);
         const int* const emission_probs__dim_ = ({

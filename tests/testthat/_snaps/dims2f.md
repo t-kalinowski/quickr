@@ -47,7 +47,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
@@ -111,7 +111,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
@@ -175,7 +175,7 @@
         _args = CDR(_args);
         SEXP n = CAR(_args);
         if (TYPEOF(n) != INTSXP) {
-          Rf_error("typeof(n) must be 'integer', not '%s'", R_typeToChar(n));
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
         }
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);

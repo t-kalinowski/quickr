@@ -47,7 +47,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -111,7 +111,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -175,7 +175,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -239,7 +239,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -303,7 +303,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -367,7 +367,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -431,7 +431,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -495,7 +495,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -559,7 +559,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -623,7 +623,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -687,7 +687,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -751,7 +751,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -815,7 +815,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -879,7 +879,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const int* const x__ = INTEGER(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -943,7 +943,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1007,7 +1007,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1071,7 +1071,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1135,7 +1135,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1199,7 +1199,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1263,7 +1263,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1327,7 +1327,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1391,7 +1391,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1455,7 +1455,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1519,7 +1519,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1583,7 +1583,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1647,7 +1647,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1711,7 +1711,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1775,7 +1775,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1839,7 +1839,7 @@
         _args = CDR(_args);
         SEXP z = CAR(_args);
         if (TYPEOF(z) != CPLXSXP) {
-          Rf_error("typeof(z) must be 'complex', not '%s'", R_typeToChar(z));
+          Rf_error("typeof(z) must be 'complex', not '%s'", Rf_type2char(TYPEOF(z)));
         }
         const Rcomplex* const z__ = COMPLEX(z);
         const R_xlen_t z__len_ = Rf_xlength(z);
@@ -1907,7 +1907,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != LGLSXP) {
-          Rf_error("typeof(x) must be 'logical', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'logical', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const int* const x__ = LOGICAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);

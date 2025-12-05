@@ -49,7 +49,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -120,7 +120,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -190,7 +190,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -251,7 +251,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -316,7 +316,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -383,7 +383,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         x = Rf_duplicate(x);
         SETCAR(_args, x);
@@ -446,7 +446,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != INTSXP) {
-          Rf_error("typeof(x) must be 'integer', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const int* const x__ = INTEGER(x);
         const R_xlen_t x__len_ = Rf_xlength(x);

@@ -3,7 +3,7 @@ This project is an R package that transpiles R functions to Fortran.
 
 - To run the full test suite:
 ```sh
-R -q -e 'testthat::test_local()'
+R -q -e 'devtools::test()'
 ```
 
 - To run a single test file:
@@ -21,5 +21,9 @@ r2f(function(x) {
 })
 EOF
 ```
+
+- When running tests and snapshots need to be updated, use this workflow:
+  - `R -q -e 'testthat::set_max_fails(Inf); devtools::test(); testthat::snapshot_accept()'`
+  - Afterwards always review diffs of updated snapshots to confirm they match expectations.
 
 - Never disable or skip tests.
