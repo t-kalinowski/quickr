@@ -158,7 +158,7 @@ closure_arg_c_defs <- function(var, strict = TRUE) {
     if (strict) {
       glue(
         r"(
-      Rf_error("typeof({name}) must be '{mode}', not '%s'", R_typeToChar({name}));
+      Rf_error("typeof({name}) must be '{mode}', not '%s'", Rf_type2char(TYPEOF({name})));
       )"
       )
     } else {

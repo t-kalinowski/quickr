@@ -41,7 +41,7 @@
           _args = CDR(_args);
           SEXP a = CAR(_args);
           if (TYPEOF(a) != REALSXP) {
-            Rf_error("typeof(a) must be 'double', not '%s'", R_typeToChar(a));
+            Rf_error("typeof(a) must be 'double', not '%s'", Rf_type2char(TYPEOF(a)));
           }
           const double* const a__ = REAL(a);
           const R_xlen_t a__len_ = Rf_xlength(a);
@@ -99,7 +99,7 @@
           _args = CDR(_args);
           SEXP a = CAR(_args);
           if (TYPEOF(a) != LGLSXP) {
-            Rf_error("typeof(a) must be 'logical', not '%s'", R_typeToChar(a));
+            Rf_error("typeof(a) must be 'logical', not '%s'", Rf_type2char(TYPEOF(a)));
           }
           const int* const a__ = LOGICAL(a);
           const R_xlen_t a__len_ = Rf_xlength(a);
@@ -183,7 +183,7 @@
         _args = CDR(_args);
         SEXP lgl1 = CAR(_args);
         if (TYPEOF(lgl1) != LGLSXP) {
-          Rf_error("typeof(lgl1) must be 'logical', not '%s'", R_typeToChar(lgl1));
+          Rf_error("typeof(lgl1) must be 'logical', not '%s'", Rf_type2char(TYPEOF(lgl1)));
         }
         const int* const lgl1__ = LOGICAL(lgl1);
         const R_xlen_t lgl1__len_ = Rf_xlength(lgl1);
@@ -192,7 +192,7 @@
         _args = CDR(_args);
         SEXP int1 = CAR(_args);
         if (TYPEOF(int1) != INTSXP) {
-          Rf_error("typeof(int1) must be 'integer', not '%s'", R_typeToChar(int1));
+          Rf_error("typeof(int1) must be 'integer', not '%s'", Rf_type2char(TYPEOF(int1)));
         }
         const int* const int1__ = INTEGER(int1);
         const R_xlen_t int1__len_ = Rf_xlength(int1);
@@ -201,7 +201,7 @@
         _args = CDR(_args);
         SEXP dbl1 = CAR(_args);
         if (TYPEOF(dbl1) != REALSXP) {
-          Rf_error("typeof(dbl1) must be 'double', not '%s'", R_typeToChar(dbl1));
+          Rf_error("typeof(dbl1) must be 'double', not '%s'", Rf_type2char(TYPEOF(dbl1)));
         }
         const double* const dbl1__ = REAL(dbl1);
         const R_xlen_t dbl1__len_ = Rf_xlength(dbl1);

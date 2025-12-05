@@ -75,7 +75,7 @@
         _args = CDR(_args);
         SEXP x = CAR(_args);
         if (TYPEOF(x) != REALSXP) {
-          Rf_error("typeof(x) must be 'double', not '%s'", R_typeToChar(x));
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
@@ -84,7 +84,7 @@
         _args = CDR(_args);
         SEXP weights = CAR(_args);
         if (TYPEOF(weights) != REALSXP) {
-          Rf_error("typeof(weights) must be 'double', not '%s'", R_typeToChar(weights));
+          Rf_error("typeof(weights) must be 'double', not '%s'", Rf_type2char(TYPEOF(weights)));
         }
         weights = Rf_duplicate(weights);
         SETCAR(_args, weights);
@@ -95,7 +95,7 @@
         _args = CDR(_args);
         SEXP normalize = CAR(_args);
         if (TYPEOF(normalize) != LGLSXP) {
-          Rf_error("typeof(normalize) must be 'logical', not '%s'", R_typeToChar(normalize));
+          Rf_error("typeof(normalize) must be 'logical', not '%s'", Rf_type2char(TYPEOF(normalize)));
         }
         const int* const normalize__ = LOGICAL(normalize);
         const R_xlen_t normalize__len_ = Rf_xlength(normalize);
