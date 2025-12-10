@@ -304,7 +304,7 @@ register_r2f_handler(
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
       x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
-      if (x@value@rank == 0) {
+      if (x@value@is_scalar) {
         return(x)
       }
       hoisted_mask <- mask_hoist$get_hoisted()
@@ -381,7 +381,11 @@ r2f_handlers[["["]] <- function(
   var <- args[[1]]
   var <- r2f(var, scope, ...)
 
-  idxs <- whole_doubles_to_ints(args[-1])
+  idx_args <- args[-1]
+  drop <- idx_args$drop %||% TRUE
+  idx_args$drop <- NULL
+
+  idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", var@value@dims[[i]]))
@@ -421,16 +425,14 @@ r2f_handlers[["["]] <- function(
     )
   }
 
-  drop <- args$drop %||% TRUE
-
-  idxs <- lapply(idxs, function(subscript) {
+  idxs <- imap(idxs, function(subscript, i) {
     # if (!idx@value@rank %in% 0:1)
     #   stop("all args to x[...] must have rank 0 or 1",
     #        deparse1(as.call(c(quote(`[`,args )))))
     switch(
       paste0(subscript@value@mode, subscript@value@rank),
       logical0 = {
-        Fortran(":", Variable("integer", NA))
+        Fortran(":", Variable("integer", var@value@dims[[i]]))
       },
       logical1 = {
         # we convert to a temp integer vector, doing the equivalent of R's which()
@@ -457,7 +459,13 @@ r2f_handlers[["["]] <- function(
     )
   })
 
-  dims <- drop_nulls(lapply(idxs, \(idx) idx@value@dims[[1]]))
+  dims <- drop_nulls(lapply(idxs, function(idx) {
+    if (drop && passes_as_scalar(idx@value)) {
+      return(NULL)
+    }
+
+    idx@value@dims[[1]]
+  }))
   outval <- Variable(var@value@mode, dims)
   Fortran(glue("{var}({str_flatten_commas(idxs)})"), outval)
 }
@@ -887,7 +895,10 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
     var <- Variable(mode = src@mode, dims = src@dims)
     var@name <- name
     # keep a reference to the R expression assigned, if available
-    try({ var@r <- attr(value, "r", TRUE) }, silent = TRUE)
+    tryCatch(
+      var@r <- attr(value, "r", TRUE),
+      error = function(e) NULL
+    )
     scope[[name]] <- var
   } else {
     # The var already exists, this assignment is a modification / reassignment
