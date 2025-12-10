@@ -145,12 +145,12 @@
       
         delta = (a - b)
         if ((delta < 0.0_c_double)) then
-          delta = (-1.0_c_double * delta)
+          delta = ((-1.0_c_double) * delta)
         end if
         a_gt_b = (a > b)
         b_gt_a = (b > a)
         delta_lt_3 = (delta <= 3.0_c_double)
-        out = a_gt_b .or. b_gt_a .and. delta_lt_3
+        out = (a_gt_b .or. b_gt_a) .and. delta_lt_3
       end subroutine
     Code
       cat(cwrapper)
@@ -235,7 +235,7 @@
       
       
         delta = abs((a - b))
-        out = (a /= b) .and. (delta <= 3.0_c_double)
+        out = ((a /= b)) .and. ((delta <= 3.0_c_double))
       end subroutine
     Code
       cat(cwrapper)
@@ -311,7 +311,7 @@
         ! manifest end
       
       
-        out = (a /= b) .and. (abs((a - b)) <= 3.0_c_double)
+        out = ((a /= b)) .and. (abs((a - b)) <= 3.0_c_double)
       end subroutine
     Code
       cat(cwrapper)
@@ -390,7 +390,7 @@
         ! manifest end
       
       
-        out = (a /= b) .and. (abs((a - b)) <= 3.0_c_double)
+        out = ((a /= b)) .and. (abs((a - b)) <= 3.0_c_double)
       end subroutine
     Code
       cat(cwrapper)
@@ -441,5 +441,164 @@
         
         UNPROTECT(1);
         return out;
+      }
+
+# parentheses preserve logical precedence
+
+    Code
+      fn
+    Output
+      function(x, y) {
+          declare(type(x = integer(1)), type(y = integer(1)))
+          cond <- (x > 8L || x <= 0L) && (y > 8L || y <= 0L)
+          cond
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, y, cond) bind(c)
+        use iso_c_binding, only: c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: x
+        integer(c_int), intent(in) :: y
+        integer(c_int), intent(out) :: cond ! logical
+        ! manifest end
+      
+      
+        cond = ((x > 8_c_int) .or. (x <= 0_c_int)) .and. ((y > 8_c_int) .or. (y <= 0_c_int))
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const x__, 
+        const int* const y__, 
+        int* const cond__);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != INTSXP) {
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const int* const x__ = INTEGER(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        // y
+        _args = CDR(_args);
+        SEXP y = CAR(_args);
+        if (TYPEOF(y) != INTSXP) {
+          Rf_error("typeof(y) must be 'integer', not '%s'", Rf_type2char(TYPEOF(y)));
+        }
+        const int* const y__ = INTEGER(y);
+        const R_xlen_t y__len_ = Rf_xlength(y);
+        
+        if (x__len_ != 1)
+          Rf_error("length(x) must be 1, not %0.f",
+                    (double)x__len_);
+        if (y__len_ != 1)
+          Rf_error("length(y) must be 1, not %0.f",
+                    (double)y__len_);
+        const R_xlen_t cond__len_ = (1);
+        SEXP cond = PROTECT(Rf_allocVector(LGLSXP, cond__len_));
+        int* cond__ = LOGICAL(cond);
+        
+        fn(x__, y__, cond__);
+        
+        UNPROTECT(1);
+        return cond;
+      }
+
+---
+
+    Code
+      fn
+    Output
+      function(x, y) {
+          declare(type(x = integer(1)), type(y = integer(1)))
+          cond_x <- x > 8L || x <= 0L
+          cond_y <- y > 8L || y <= 0L
+          cond_x && cond_y
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, y, out_) bind(c)
+        use iso_c_binding, only: c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: x
+        integer(c_int), intent(in) :: y
+        integer(c_int), intent(out) :: out_ ! logical
+      
+        ! locals
+        logical :: cond_x ! logical
+        logical :: cond_y ! logical
+        ! manifest end
+      
+      
+        cond_x = (x > 8_c_int) .or. (x <= 0_c_int)
+        cond_y = (y > 8_c_int) .or. (y <= 0_c_int)
+        out_ = cond_x .and. cond_y
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const x__, 
+        const int* const y__, 
+        int* const out___);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != INTSXP) {
+          Rf_error("typeof(x) must be 'integer', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const int* const x__ = INTEGER(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        // y
+        _args = CDR(_args);
+        SEXP y = CAR(_args);
+        if (TYPEOF(y) != INTSXP) {
+          Rf_error("typeof(y) must be 'integer', not '%s'", Rf_type2char(TYPEOF(y)));
+        }
+        const int* const y__ = INTEGER(y);
+        const R_xlen_t y__len_ = Rf_xlength(y);
+        
+        if (x__len_ != 1)
+          Rf_error("length(x) must be 1, not %0.f",
+                    (double)x__len_);
+        if (y__len_ != 1)
+          Rf_error("length(y) must be 1, not %0.f",
+                    (double)y__len_);
+        const R_xlen_t out___len_ = (1);
+        SEXP out_ = PROTECT(Rf_allocVector(LGLSXP, out___len_));
+        int* out___ = LOGICAL(out_);
+        
+        fn(x__, y__, out___);
+        
+        UNPROTECT(1);
+        return out_;
       }
 
