@@ -1,12 +1,16 @@
 # quickr (development version)
 
+- Fixed `[` subsetting scalars with both `drop=TRUE` and `drop=FALSE`, simplifying
+  to Fortran scalars so subsetted scalars in reductions (e.g., `min(m[1, 1], m[2, 1])`)
+  no longer emit `minval` on scalars (#64).
+
 # quickr 0.2.1
 
 - Added support for `!` and unary `-` and `+` (#49, @mns-nordicals)
 
 - Functions can now return multiple arrays in a `list()`, optionally
   named (#49, @mns-nordicals).
-  
+
 - Updates for changes in the R-devel C API (#61)
 
 # quickr 0.2.0
