@@ -425,14 +425,14 @@ r2f_handlers[["["]] <- function(
     )
   }
 
-  idxs <- lapply(idxs, function(subscript) {
+  idxs <- imap(idxs, function(subscript, i) {
     # if (!idx@value@rank %in% 0:1)
     #   stop("all args to x[...] must have rank 0 or 1",
     #        deparse1(as.call(c(quote(`[`,args )))))
     switch(
       paste0(subscript@value@mode, subscript@value@rank),
       logical0 = {
-        Fortran(":", Variable("integer", NA))
+        Fortran(":", Variable("integer", var@value@dims[[i]]))
       },
       logical1 = {
         # we convert to a temp integer vector, doing the equivalent of R's which()

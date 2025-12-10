@@ -272,6 +272,7 @@ return_var_c_defs <- function(var, scope) {
   # allocate the return var.
   name <- var@name
   c_dims <- dims2c(var@dims, scope)
+  names(c_dims) <- NULL
   c_len <- c_dims2c_len(c_dims)
   len_name <- get_size_name(var)
 

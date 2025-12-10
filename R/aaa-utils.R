@@ -231,6 +231,7 @@ zip_lists <- function(...) {
 
 is_missing <- function(x) missing(x) || identical(x, quote(expr = ))
 
+
 is_type_call <- function(e) {
   is.call(e) && identical(e[[1]], quote(type))
 }
