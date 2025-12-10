@@ -119,7 +119,7 @@
         end do
         path = 0
         path(num_steps) = maxloc(trellis(:, num_steps), 1)
-        do step = (num_steps - 1_c_int), 1_c_int, sign(1, 1_c_int-(num_steps - 1_c_int))
+        do step = ((num_steps - 1_c_int)), 1_c_int, sign(1, 1_c_int-((num_steps - 1_c_int)))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
         end do
         out = states(path)

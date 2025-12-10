@@ -247,7 +247,8 @@ r2f_handlers[["Fortran"]] <- function(args, scope = NULL, ...) {
 }
 
 r2f_handlers[["("]] <- function(args, scope, ...) {
-  r2f(args[[1L]], scope, ...)
+  x <- r2f(args[[1L]], scope, ...)
+  Fortran(glue("({x})"), x@value)
 }
 
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {

@@ -105,11 +105,11 @@
           temp(:, 1_c_int) = 0.0_c_double
           temp(:, ny) = 0.0_c_double
           temp_new = temp
-          do i = 2_c_int, (nx - 1_c_int), sign(1, (nx - 1_c_int)-2_c_int)
-            do j = 2_c_int, (ny - 1_c_int), sign(1, (ny - 1_c_int)-2_c_int)
-      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)) / &
-      (dx ** 2.0_c_double)) + (((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int))) / (dy ** &
-      2.0_c_double)))))
+          do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+            do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j))) &
+      / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy ** &
+      2.0_c_double))))))
             end do
           end do
           temp = temp_new

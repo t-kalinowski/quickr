@@ -80,3 +80,31 @@ test_that("logical ops", {
   .[a, b] <- .mapply(c, test_args, NULL)
   expect_quick_identical(fn, list(a, b))
 })
+
+test_that("parentheses preserve logical precedence", {
+  fn_a <- function(x, y) {
+    declare(type(x = integer(1)), type(y = integer(1)))
+    cond <- (x > 8L || x <= 0L) && (y > 8L || y <= 0L)
+    cond
+  }
+
+  fn_b <- function(x, y) {
+    declare(type(x = integer(1)), type(y = integer(1)))
+    cond_x <- x > 8L || x <= 0L
+    cond_y <- y > 8L || y <= 0L
+    cond_x && cond_y
+  }
+
+  cases <- list(
+    list(9L, 1L),
+    list(9L, 9L),
+    list(0L, 9L),
+    list(1L, 0L),
+    list(5L, 5L)
+  )
+
+  expect_translation_snapshots(fn_a)
+  expect_translation_snapshots(fn_b)
+  expect_quick_identical(fn_a, !!!cases)
+  expect_quick_identical(fn_b, !!!cases)
+})

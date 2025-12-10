@@ -51,7 +51,7 @@
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)
-          out(i) = (sum((x(i:((i + n) - 1_c_int):sign(1, ((i + n) - 1_c_int)-i)) * weights)) / real(size(weights), kind=c_double))
+          out(i) = (sum((x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)) * weights)) / real(size(weights), kind=c_double))
         end do
       end subroutine
     Code
