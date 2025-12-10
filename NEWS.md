@@ -1,3 +1,5 @@
+# quickr (development version)
+
 # quickr 0.2.1
 
 - Added support for `!` and unary `-` and `+` (#49, @mns-nordicals)
