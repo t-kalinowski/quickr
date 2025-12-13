@@ -89,8 +89,8 @@
         real(c_double), intent(out) :: temp(nx, ny)
       
         ! locals
-        real(c_double) :: temp_new(nx, ny)
         integer(c_int) :: step
+        real(c_double) :: temp_new(nx, ny)
         integer(c_int) :: i
         integer(c_int) :: j
         ! manifest end

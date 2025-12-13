@@ -101,15 +101,16 @@
         ! args
         real(c_double), intent(in) :: x(3, 4)
         real(c_double), intent(out) :: out(1)
-      
-        ! locals
-        logical :: tmp1_(3, 4) ! logical
         ! manifest end
       
       
         out = 0
-        tmp1_ = (((((x > 0.0_c_double)))))
-        out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+        block
+          logical :: tmp1_(3, 4) ! logical
+      
+          tmp1_ = (((((x > 0.0_c_double)))))
+          out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+        end block
       end subroutine
     Code
       cat(cwrapper)
@@ -181,15 +182,16 @@
         ! args
         real(c_double), intent(in) :: x(3, 4)
         real(c_double), intent(out) :: out(1)
-      
-        ! locals
-        logical :: tmp1_(3, 4) ! logical
         ! manifest end
       
       
         out = 0
-        tmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
-        out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+        block
+          logical :: tmp1_(3, 4) ! logical
+      
+          tmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
+          out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+        end block
       end subroutine
     Code
       cat(cwrapper)

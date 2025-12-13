@@ -34,8 +34,100 @@
 ### to the gfortran/flang-new. This is not a great, since c stack limits are
 ### typically "small" and enforced by the OS.
 
+logical_as_int <- function(var) {
+  stopifnot(inherits(var, Variable))
+  isTRUE(attr(var, "logical_as_int", exact = TRUE))
+}
+
+scope_vars <- function(scope) {
+  vars <- as.list(scope)
+  keep(vars, inherits, what = Variable)
+}
+
+emit_decl_line <- function(
+  var,
+  scope,
+  intent = NULL,
+  assumed_shape = FALSE,
+  allow_allocatable = TRUE
+) {
+  stopifnot(inherits(var, Variable))
+
+  type <- switch(
+    var@mode,
+    double = "real(c_double)",
+    integer = "integer(c_int)",
+    complex = "complex(c_double_complex)",
+    logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
+    raw = "integer(c_int8_t)",
+    stop("unrecognized kind: ", format(var))
+  )
+
+  dims <- if (passes_as_scalar(var)) {
+    NULL
+  } else if (assumed_shape) {
+    sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
+  } else {
+    dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
+  }
+
+  allocatable <- if (
+    allow_allocatable &&
+      !assumed_shape &&
+      !is.null(dims) &&
+      grepl(":", dims, fixed = TRUE)
+  ) {
+    "allocatable"
+  }
+
+  name <- var@name
+  comment <- if (var@mode == "logical") " ! logical"
+
+  glue(
+    '{str_flatten_commas(type, intent, allocatable)} :: {name}{dims}{comment}',
+    .null = ""
+  )
+}
+
+emit_decls <- function(
+  vars,
+  scope,
+  intents = NULL,
+  assumed_shape = FALSE,
+  allow_allocatable = TRUE
+) {
+  stopifnot(is.list(vars))
+  if (is.null(intents)) {
+    intents <- rep(list(NULL), length(vars))
+    names(intents) <- names(vars)
+  }
+  Map(
+    f = emit_decl_line,
+    var = vars,
+    intent = intents,
+    MoreArgs = list(
+      scope = scope,
+      assumed_shape = assumed_shape,
+      allow_allocatable = allow_allocatable
+    )
+  ) |>
+    unlist(use.names = FALSE)
+}
+
+emit_block <- function(decls, stmts) {
+  decls <- unlist(decls, use.names = FALSE)
+  stmts <- unlist(stmts, use.names = FALSE)
+  glue::trim(glue(
+    "
+    block
+    {indent(str_flatten_lines(decls, \"\", stmts))}
+    end block
+    "
+  ))
+}
+
 r2f.scope <- function(scope) {
-  vars <- as.list.environment(scope, all.names = TRUE)
+  vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
     intent_in <- var@name %in% names(formals(scope@closure))
     intent_out <-
@@ -58,7 +150,7 @@ r2f.scope <- function(scope) {
       double = "real(c_double)",
       integer = "integer(c_int)",
       complex = "complex(c_double_complex)",
-      logical = if (intent_in || intent_out) "integer(c_int)" else "logical",
+      logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
       raw = "integer(c_int8_t)",
       stop("unrecognized kind: ", format(var))
     )

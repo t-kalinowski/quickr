@@ -29,3 +29,8 @@ EOF
 - Never disable or skip tests.
 
 - When adding tests, prefer user-facing API tests (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings.
+
+- Before wrapping up, always run:
+```sh
+air format .
+```

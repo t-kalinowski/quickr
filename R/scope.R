@@ -7,6 +7,17 @@ new_ordered_env <- function(parent = emptyenv()) {
 #' @export
 `[[<-.quickr_ordered_env` <- function(x, name, value) {
   attr(x, "ordered_names") <- unique(c(attr(x, "ordered_names", TRUE), name))
+  # Allow scopes to pre-declare which symbols are "return" variables (external
+  # outputs). When logical, quickr represents these using integer storage.
+  if (inherits(value, Variable)) {
+    return_names <- attr(x, "return_names", exact = TRUE)
+    if (!is.null(return_names) && as.character(name) %in% return_names) {
+      value@is_return <- TRUE
+      if (identical(value@mode, "logical")) {
+        attr(value, "logical_as_int") <- TRUE
+      }
+    }
+  }
   assign(name, value, envir = x)
   x
   # NextMethod()
@@ -58,6 +69,9 @@ new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
   class(scope) <- unique(c("quickr_scope", class(scope)))
   attr(scope, "closure") <- closure
+  attr(scope, "kind") <- if (is.null(closure)) "block" else "subroutine"
+  attr(scope, "return_names") <- character()
+  attr(scope, "internal_procs") <- list()
 
   attr(scope, "get_unique_var") <- local({
     i <- 0L
@@ -66,6 +80,14 @@ new_scope <- function(closure, parent = emptyenv()) {
       (scope[[name]] <- Variable(..., name = name))
     }
   })
+
+  attr(scope, "new_child") <- function(kind = c("block", "closure")) {
+    kind <- match.arg(kind)
+    child <- new_scope(closure = NULL, parent = scope)
+    attr(child, "kind") <- kind
+    child
+  }
+
   attr(scope, "assign") <- function(name, value) {
     stopifnot(inherits(value, Variable), is.symbol(name) || is_string(name))
     name <- as.character(name)
@@ -75,6 +97,15 @@ new_scope <- function(closure, parent = emptyenv()) {
     value@name <- name
     assign(name, value, scope)
   }
+
+  attr(scope, "add_internal_proc") <- function(proc) {
+    stopifnot(is.list(proc), is_string(proc$name), is_string(proc$code))
+    procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
+    procs[[proc$name]] <- proc
+    attr(scope, "internal_procs") <- procs
+    invisible(proc)
+  }
+
   scope
 }
 

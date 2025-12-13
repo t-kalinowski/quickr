@@ -40,8 +40,8 @@
         real(c_double), intent(out) :: out(((x__len_ - weights__len_) + 1))
       
         ! locals
-        integer(c_int) :: i
         integer(c_int) :: n
+        integer(c_int) :: i
         ! manifest end
       
       
