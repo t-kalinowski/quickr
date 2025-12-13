@@ -1,5 +1,8 @@
 # quickr (development version)
 
+- Lowered the minimum supported R version to 4.3.0 and added a backport of
+  `declare()` for R < 4.4.0 (#67).
+
 - Fixed `[` subsetting scalars with both `drop=TRUE` and `drop=FALSE`, simplifying
   to Fortran scalars so subsetted scalars in reductions (e.g., `min(m[1, 1], m[2, 1])`)
   no longer emit `minval` on scalars (#64).

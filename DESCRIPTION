@@ -15,7 +15,7 @@ License: MIT + file LICENSE
 URL: https://github.com/t-kalinowski/quickr
 BugReports: https://github.com/t-kalinowski/quickr/issues
 Depends:
-    R (>= 4.4.0)
+    R (>= 4.3.0)
 Imports:
     dotty,
     glue,
