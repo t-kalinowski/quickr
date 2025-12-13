@@ -4,6 +4,9 @@
 #' @importFrom utils gethash hashtab remhash sethash str
 NULL
 
+`%||%` <- function(x, y) if (is.null(x)) y else x
+
+
 # @export
 # This will be exported by S7 next release.
 `:=` <- function(left, right) {
