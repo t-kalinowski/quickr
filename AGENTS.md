@@ -27,3 +27,5 @@ EOF
   - Afterwards always review diffs of updated snapshots to confirm they match expectations.
 
 - Never disable or skip tests.
+
+- When adding tests, prefer user-facing API tests (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings.

@@ -7,6 +7,9 @@
   to Fortran scalars so subsetted scalars in reductions (e.g., `min(m[1, 1], m[2, 1])`)
   no longer emit `minval` on scalars (#64).
 
+- Fixed an issue where subsetting logical arrays could fail when compiling quick
+  functions, e.g. `(x > 0)[2, 3]` (#68).
+
 # quickr 0.2.1
 
 - Added support for `!` and unary `-` and `+` (#49, @mns-nordicals)
