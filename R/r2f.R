@@ -371,7 +371,8 @@ r2f_handlers[["["]] <- function(
   args,
   scope,
   ...,
-  hoist_mask = function(mask) FALSE
+  hoist_mask = function(mask) FALSE,
+  hoist = NULL
 ) {
   # only a subset of R's x[...] features can be translated here. `...` can only be:
   # - a single logical mask, of the same rank as `x`. returns a rank 1 vector.
@@ -468,7 +469,28 @@ r2f_handlers[["["]] <- function(
     idx@value@dims[[1]]
   }))
   outval <- Variable(var@value@mode, dims)
-  Fortran(glue("{var}({str_flatten_commas(idxs)})"), outval)
+
+  # Fortran does not allow subscripting arbitrary parenthesized expressions,
+  # so if the base is an array expression (not a named array designator),
+  # hoist it into a temporary array first.
+  if (
+    !passes_as_scalar(var@value) &&
+      is.null(var@value@name)
+  ) {
+    tmp <- scope@get_unique_var(mode = var@value@mode, dims = var@value@dims)
+    hoist(glue("{tmp@name} = {var}"))
+    var <- Fortran(tmp@name, tmp)
+  }
+
+  # External logicals are passed as integer storage (0/1) and are "booleanized"
+  # during symbol lowering as `(x/=0)`. When indexing, we must subscript the
+  # underlying storage first, then convert the indexed value/section to logical.
+  if (var@value@mode == "logical" && var@value@is_external) {
+    designator <- glue("{var@value@name}({str_flatten_commas(idxs)})")
+    Fortran(glue("({designator} /= 0)"), outval)
+  } else {
+    Fortran(glue("{var}({str_flatten_commas(idxs)})"), outval)
+  }
 }
 
 
@@ -929,9 +951,9 @@ r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   # e <- as.list(e)
 
   stopifnot(is_call(target <- args[[1L]], "["))
-  target <- r2f(target, scope)
+  target <- r2f(target, scope, ...)
 
-  value <- r2f(args[[2L]], scope)
+  value <- r2f(args[[2L]], scope, ...)
   Fortran(glue("{target} = {value}"))
 }
 
