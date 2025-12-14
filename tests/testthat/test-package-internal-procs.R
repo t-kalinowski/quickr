@@ -61,7 +61,7 @@ test_that("package compilation: local closures don't collide across quick functi
   pkg_env <- new.env(parent = baseenv())
   quickr:::collector$activate("quickr.contains.pkg:quick_funcs")
   sys.source(file.path(pkgpath, "R", "pkg.R"), envir = pkg_env)
-  withr::with_dir(pkgpath, quickr:::dump_collected())
+  withr::with_dir(pkgpath, suppressMessages(quickr:::dump_collected()))
 
   build_dir <- withr::local_tempdir(pattern = "quickr-contains-build-")
   file.copy(
