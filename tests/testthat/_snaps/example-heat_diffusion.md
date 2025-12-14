@@ -85,25 +85,23 @@
           block
             real(c_double) :: btmp1_(nx, ny)
       
-            call apply_boundary_conditions(temp, nx, ny, btmp1_)
+            call apply_boundary_conditions(temp, btmp1_)
             temp = btmp1_
           end block
           block
             real(c_double) :: btmp1_(nx, ny)
       
-            call update_temperature(temp, k, dx, dy, dt, nx, ny, btmp1_)
+            call update_temperature(temp, k, dx, dy, dt, btmp1_)
             temp = btmp1_
           end block
         end do
       
         contains
-          subroutine apply_boundary_conditions(temp_in, nx, ny, res)
+          subroutine apply_boundary_conditions(temp_in, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             real(c_double), intent(in) :: temp_in(:, :)
-            integer(c_int), intent(in) :: nx
-            integer(c_int), intent(in) :: ny
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp(nx, ny)
       
@@ -114,7 +112,7 @@
             temp(:, ny) = 0.0_c_double
             res = temp
           end subroutine
-          subroutine update_temperature(temp, k, dx, dy, dt, nx, ny, res)
+          subroutine update_temperature(temp, k, dx, dy, dt, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
@@ -123,8 +121,6 @@
             integer(c_int), intent(in) :: dx
             integer(c_int), intent(in) :: dy
             real(c_double), intent(in) :: dt
-            integer(c_int), intent(in) :: nx
-            integer(c_int), intent(in) :: ny
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp_new(nx, ny)
             integer(c_int) :: i

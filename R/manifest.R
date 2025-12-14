@@ -52,6 +52,9 @@ emit_decl_line <- function(
   allow_allocatable = TRUE
 ) {
   stopifnot(inherits(var, Variable))
+  if (isTRUE(attr(var, "host_associated", exact = TRUE))) {
+    return(NULL)
+  }
 
   type <- switch(
     var@mode,
@@ -262,6 +265,14 @@ dims2f <- function(dims, scope) {
   names(vars) <- syms
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {
+    if (
+      is.call(d) &&
+        length(d) == 2L &&
+        identical(d[[1L]], quote(length)) &&
+        is.symbol(d[[2L]])
+    ) {
+      return(glue("size({as.character(d[[2L]])})"))
+    }
     d <- eval(d, eval_env)
     if (is.symbol(d)) {
       as.character(d)

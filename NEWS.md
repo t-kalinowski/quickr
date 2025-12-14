@@ -3,7 +3,7 @@
 - Added nested compilation scopes with local declaration emission, enabling
   block-scoped temporaries (Fortran 2008 `block ... end block`) and local
   closures (lowered to internal procedures under `contains`), including `sapply()`
-  lowering with explicit captures and support for `simplify = "array"` for
+  lowering with host association for captures and support for `simplify = "array"` for
   higher-rank outputs. Examples:
 
   - Block-scoped temporary for expression subscripting:
@@ -19,7 +19,20 @@
     out <- sapply(seq_along(out), f)
     ```
 
-  This lowering matches R’s “copy-on-modify"  semantics: modifications to the variables from the parent scope trigger a copy in the local closure scope. (Superassignment `<<-` for modify-in-place behavior is not yet supported.)
+  This lowering matches R’s “copy-on-modify" semantics: modifications to the variables from the parent scope trigger a copy in the local closure scope.
+
+- Added support for superassignment (`<<-`) inside local closures (lowered to internal procedures) to explicitly mutate variables in the enclosing quick function scope, including `x[i] <<- ...` subset targets. Example:
+
+  ```r
+  apply_boundary_conditions <- function() {
+    temp[1, ] <<- 0
+    temp[nx, ] <<- 0
+    temp[, 1] <<- 0
+    temp[, ny] <<- 0
+    NULL
+  }
+  apply_boundary_conditions()
+  ```
 
 - Added support for `array(data=..., dim=...)` for shape construction in
   user code and tests.

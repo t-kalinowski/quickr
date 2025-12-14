@@ -58,6 +58,16 @@ logical_as_int_symbol <- function(var) {
     logical_as_int(var)
 }
 
+host_associated <- function(var) {
+  inherits(var, Variable) && isTRUE(attr(var, "host_associated", exact = TRUE))
+}
+
+as_host_associated <- function(var) {
+  stopifnot(inherits(var, Variable))
+  attr(var, "host_associated") <- TRUE
+  var
+}
+
 lang2fortran <- r2f <- function(
   e,
   scope = NULL,
@@ -77,7 +87,25 @@ lang2fortran <- r2f <- function(
     typeof(e),
     language = {
       # a call
-      handler <- get_r2f_handler(callable <- e[[1L]])
+      callable <- e[[1L]]
+
+      if (!is.null(scope) && is.symbol(callable)) {
+        parent_call <- if (length(calls)) last(calls) else NULL
+        closure_obj <- scope[[as.character(callable)]]
+        if (inherits(closure_obj, "quickr_closure")) {
+          if (
+            is.null(parent_call) ||
+              !(parent_call %in% c("{", "for", "while", "repeat", "if"))
+          ) {
+            stop(
+              "local closure calls must be assigned to an existing variable, or used in a recognized lowering pattern"
+            )
+          }
+          return(compile_closure_call_statement(e, scope, ...))
+        }
+      }
+
+      handler <- get_r2f_handler(callable)
 
       match.fun <- attr(handler, "match.fun", TRUE)
       if (is.null(match.fun)) {
@@ -133,6 +161,8 @@ lang2fortran <- r2f <- function(
     double = ,
     complex = ,
     logical = atomic2Fortran(e),
+
+    `NULL` = Fortran("", NULL),
 
     symbol = {
       s <- as.character(e)
@@ -1060,6 +1090,42 @@ find_assigned_symbols <- function(e) {
   assigned
 }
 
+find_superassigned_symbols <- function(e) {
+  assigned <- character()
+
+  walk <- function(x) {
+    if (is.call(x)) {
+      head <- x[[1L]]
+      if (identical(head, quote(`<<-`))) {
+        lhs <- x[[2L]]
+        if (is.symbol(lhs)) {
+          assigned <<- unique(c(assigned, as.character(lhs)))
+        } else if (
+          is.call(lhs) &&
+            is.symbol(lhs[[1L]]) &&
+            as.character(lhs[[1L]]) %in% c("[", "[[", "$") &&
+            is.symbol(lhs[[2L]])
+        ) {
+          assigned <<- unique(c(assigned, as.character(lhs[[2L]])))
+        }
+        walk(x[[3L]])
+        return()
+      }
+
+      for (i in seq_along(x)[-1L]) {
+        walk(x[[i]])
+      }
+    } else if (is.pairlist(x) || is.list(x)) {
+      for (elt in x) {
+        walk(elt)
+      }
+    }
+  }
+
+  walk(e)
+  assigned
+}
+
 closure_capture_names <- function(fun, parent_scope) {
   stopifnot(is.function(fun))
   stopifnot(inherits(parent_scope, "quickr_scope"))
@@ -1090,43 +1156,70 @@ compile_internal_subroutine <- function(
   stopifnot(is_string(proc_name), inherits(closure_obj, "quickr_closure"))
   fun <- closure_obj$fun
   stopifnot(is.function(fun))
+  stopifnot(is.null(res_var) || inherits(res_var, Variable))
 
   formal_names <- names(formals(fun)) %||% character()
-  if (!length(formal_names) || any(!nzchar(formal_names))) {
-    stop("local closures must have at least one named argument")
+  if (length(formal_names) && any(!nzchar(formal_names))) {
+    stop("local closures must have only named arguments")
   }
   stopifnot(is.list(formal_vars))
-  if (!identical(names(formal_vars), formal_names)) {
+  if (!identical((names(formal_vars) %||% character()), formal_names)) {
     stop("internal error: formal vars do not match closure formals")
   }
 
   assigned <- find_assigned_symbols(body(fun))
+  superassigned <- find_superassigned_symbols(body(fun))
   captures <- closure_capture_names(fun, parent_scope)
   mutated <- intersect(captures, assigned)
   if (length(mutated)) {
     stop("local closures must not assign to captured variables")
   }
 
+  if (length(superassigned)) {
+    host_scope <- scope_root(parent_scope)
+
+    bad_formals <- intersect(superassigned, formal_names)
+    if (length(bad_formals)) {
+      stop(
+        "<<- targets must not shadow closure formals: ",
+        str_flatten_commas(bad_formals)
+      )
+    }
+
+    for (nm in superassigned) {
+      if (!inherits(get0(nm, host_scope), Variable)) {
+        stop(
+          "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+          nm
+        )
+      }
+    }
+  }
+
   mutated_formals <- intersect(formal_names, assigned)
 
-  capture_vars <- lapply(captures, function(nm) {
+  # For internal procedures, use Fortran host association for all closure
+  # captures so the internal procedure signature matches the R closure formals
+  # (plus an explicit `res` output argument when needed).
+  host_assoc_vars <- lapply(captures, function(nm) {
     var <- get0(nm, parent_scope)
     if (!inherits(var, Variable)) {
       stop("could not resolve closure capture: ", nm)
     }
-    var_copy <- Variable(mode = var@mode, dims = var@dims, name = var@name)
+    var_copy <- Variable(mode = var@mode, dims = var@dims, name = nm)
     if (identical(var_copy@mode, "integer") && passes_as_scalar(var_copy)) {
       var_copy@r <- as.symbol(nm)
     }
     if (logical_as_int(var)) {
       attr(var_copy, "logical_as_int") <- TRUE
     }
-    var_copy
+    as_host_associated(var_copy)
   })
-  names(capture_vars) <- captures
+  names(host_assoc_vars) <- captures
 
   proc_scope <- new_scope(fun, parent = emptyenv())
   attr(proc_scope, "kind") <- "closure"
+  attr(proc_scope, "host_scope") <- scope_root(parent_scope)
 
   used_arg_names <- character()
   dummy_formals <- setNames(rep("", length(formal_names)), formal_names)
@@ -1180,11 +1273,14 @@ compile_internal_subroutine <- function(
   }
 
   for (nm in captures) {
-    proc_scope[[nm]] <- capture_vars[[nm]]
+    proc_scope[[nm]] <- host_assoc_vars[[nm]]
   }
-  res_name <- "res"
-  res_var@name <- res_name
-  proc_scope[[res_name]] <- res_var
+  res_name <- NULL
+  if (!is.null(res_var)) {
+    res_name <- "res"
+    res_var@name <- res_name
+    proc_scope[[res_name]] <- res_var
+  }
 
   body_expr <- body(fun)
   if (is_call(body_expr, quote(`{`))) {
@@ -1205,45 +1301,56 @@ compile_internal_subroutine <- function(
     prefix_code <- str_flatten_lines(init_stmts, prefix_code)
   }
 
-  h <- new_hoist(proc_scope)
-  expr <- r2f(last_expr, proc_scope, hoist = h)
-  if (is.null(expr@value) || is.null(expr@value@mode)) {
-    stop("could not infer closure return type")
-  }
-  if (!identical(expr@value@mode, res_var@mode)) {
-    stop(
-      "closure result mode (",
-      expr@value@mode,
-      ") does not match output mode (",
-      res_var@mode,
-      ")"
-    )
-  }
-  if (passes_as_scalar(res_var)) {
-    if (!passes_as_scalar(expr@value)) {
-      stop("closure must return a scalar for scalar outputs")
+  assign_code <- ""
+  if (!is.null(res_var)) {
+    h <- new_hoist(proc_scope)
+    expr <- r2f(last_expr, proc_scope, hoist = h)
+    if (is.null(expr@value) || is.null(expr@value@mode)) {
+      stop("could not infer closure return type")
     }
-  } else {
-    if (passes_as_scalar(expr@value)) {
-      stop("closure must return an array for array outputs")
-    }
-    if (expr@value@rank != res_var@rank) {
-      stop("closure result rank does not match output rank")
-    }
-    if (
-      !identical(
-        dims2f(expr@value@dims, proc_scope),
-        dims2f(res_var@dims, proc_scope)
+    if (!identical(expr@value@mode, res_var@mode)) {
+      stop(
+        "closure result mode (",
+        expr@value@mode,
+        ") does not match output mode (",
+        res_var@mode,
+        ")"
       )
-    ) {
-      stop("closure result shape does not match output shape")
+    }
+    if (passes_as_scalar(res_var)) {
+      if (!passes_as_scalar(expr@value)) {
+        stop("closure must return a scalar for scalar outputs")
+      }
+    } else {
+      if (passes_as_scalar(expr@value)) {
+        stop("closure must return an array for array outputs")
+      }
+      if (expr@value@rank != res_var@rank) {
+        stop("closure result rank does not match output rank")
+      }
+      if (
+        !identical(
+          dims2f(expr@value@dims, proc_scope),
+          dims2f(res_var@dims, proc_scope)
+        )
+      ) {
+        stop("closure result shape does not match output shape")
+      }
+    }
+    assign_code <- h$render(glue("{res_name} = {expr}"))
+  } else {
+    if (!is.null(last_expr)) {
+      stop("side-effect local closures must end with `NULL`")
     }
   }
-  assign_code <- h$render(glue("{res_name} = {expr}"))
 
   vars <- scope_vars(proc_scope)
-  arg_names <- c(arg_names, captures, res_name)
-  locals <- vars[setdiff(names(vars), arg_names)]
+  vars_declared <- discard(vars, host_associated)
+  arg_names <- c(arg_names)
+  if (!is.null(res_name)) {
+    arg_names <- c(arg_names, res_name)
+  }
+  locals <- vars_declared[setdiff(names(vars_declared), arg_names)]
 
   if (length(locals)) {
     bad <- map_lgl(locals, function(v) {
@@ -1255,8 +1362,8 @@ compile_internal_subroutine <- function(
     }
   }
 
-  args <- vars[arg_names]
-  in_args <- c(unname(dummy_formals), captures)
+  args <- vars_declared[arg_names]
+  in_args <- c(unname(dummy_formals))
   decls <- c(
     emit_decls(
       args[in_args],
@@ -1265,13 +1372,15 @@ compile_internal_subroutine <- function(
       assumed_shape = TRUE,
       allow_allocatable = FALSE
     ),
-    emit_decls(
-      args[res_name],
-      proc_scope,
-      intents = list("intent(out)"),
-      assumed_shape = TRUE,
-      allow_allocatable = FALSE
-    ),
+    if (!is.null(res_name)) {
+      emit_decls(
+        args[res_name],
+        proc_scope,
+        intents = list("intent(out)"),
+        assumed_shape = TRUE,
+        allow_allocatable = FALSE
+      )
+    },
     if (length(locals)) emit_decls(locals, proc_scope) else character()
   )
 
@@ -1326,10 +1435,62 @@ compile_internal_subroutine <- function(
   list(
     name = proc_name,
     code = proc_code,
-    captures = captures,
+    captures = character(),
     formals = dummy_formals,
     res = res_name
   )
+}
+
+compile_closure_call_statement <- function(call_expr, scope, ...) {
+  stopifnot(
+    is.call(call_expr),
+    is.symbol(call_expr[[1L]])
+  )
+  hoist <- list(...)$hoist
+  if (is.null(hoist)) {
+    hoist <- new_hoist(scope)
+  }
+
+  closure_name <- as.character(call_expr[[1L]])
+  closure_obj <- scope[[closure_name]]
+  if (!inherits(closure_obj, "quickr_closure")) {
+    stop("internal error: expected a quickr_closure")
+  }
+
+  fun <- closure_obj$fun
+  call_expr <- match.call(fun, call_expr)
+  args_expr <- as.list(call_expr)[-1L]
+  formal_names <- names(formals(fun)) %||% character()
+  if (!identical((names(args_expr) %||% character()), formal_names)) {
+    stop("internal error: match.call did not align closure args")
+  }
+
+  args_f <- lapply(args_expr, r2f, scope, ...)
+  formal_vars <- imap(args_f, function(f, nm) {
+    stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
+    v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
+    if (logical_as_int_symbol(f@value)) {
+      attr(v, "logical_as_int") <- TRUE
+    }
+    v
+  })
+  names(formal_vars) <- formal_names
+
+  proc <- compile_internal_subroutine(
+    closure_name,
+    closure_obj,
+    scope,
+    formal_vars = formal_vars,
+    res_var = NULL
+  )
+  scope_root(scope)@add_internal_proc(proc)
+
+  call_args <- unname(args_f)
+  if (length(call_args)) {
+    Fortran(glue("call {proc$name}({str_flatten_commas(call_args)})"))
+  } else {
+    Fortran(glue("call {proc$name}()"))
+  }
 }
 
 compile_closure_call_assignment <- function(
@@ -1368,7 +1529,7 @@ compile_closure_call_assignment <- function(
   call_expr <- match.call(fun, call_expr)
   args_expr <- as.list(call_expr)[-1L]
   formal_names <- names(formals(fun)) %||% character()
-  if (!identical(names(args_expr), formal_names)) {
+  if (!identical((names(args_expr) %||% character()), formal_names)) {
     stop("internal error: match.call did not align closure args")
   }
 
@@ -1407,7 +1568,7 @@ compile_closure_call_assignment <- function(
 
   res_target <- target_name
   post <- character()
-  if (arg_reads_target || target_name %in% proc$captures) {
+  if (arg_reads_target) {
     tmp <- hoist$declare_tmp(mode = target_var@mode, dims = target_var@dims)
     if (logical_as_int(target_var)) {
       attr(tmp, "logical_as_int") <- TRUE
@@ -1418,7 +1579,6 @@ compile_closure_call_assignment <- function(
 
   call_args <- c(
     unname(args_f),
-    proc$captures,
     res_target
   )
 
@@ -1512,9 +1672,11 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   )
   scope_root(scope)@add_internal_proc(proc)
 
+  closure_captures <- closure_capture_names(closure_obj$fun, scope)
+
   out_target <- out_name
   post_stmts <- character()
-  if (out_name %in% proc$captures) {
+  if (out_name %in% closure_captures) {
     tmp_out <- hoist$declare_tmp(mode = out_var@mode, dims = out_var@dims)
     if (logical_as_int(out_var)) {
       attr(tmp_out, "logical_as_int") <- TRUE
@@ -1548,7 +1710,6 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
 
   call_args <- str_flatten_commas(c(
     idx@name,
-    proc$captures,
     res_target
   ))
 
@@ -1655,6 +1816,180 @@ r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   target <- r2f(target, scope, ...)
 
   value <- r2f(args[[2L]], scope, ...)
+  Fortran(glue("{target} = {value}"))
+}
+
+r2f_subset_designator <- function(
+  subset_call,
+  scope,
+  ...,
+  hoist = NULL
+) {
+  stopifnot(is_call(subset_call, "["))
+
+  base <- subset_call[[2L]]
+  if (!is.symbol(base)) {
+    stop("only superassignment to x[...] is supported")
+  }
+  name <- as.character(base)
+
+  base_var <- get0(name, scope)
+  if (!inherits(base_var, Variable)) {
+    stop("could not resolve subset base: ", name)
+  }
+
+  idx_args <- as.list(subset_call)[-1L]
+  idx_args <- idx_args[-1L]
+
+  drop <- idx_args$drop %||% TRUE
+  idx_args$drop <- NULL
+  if (!isTRUE(drop)) {
+    stop("drop = FALSE not supported for superassignment")
+  }
+
+  idxs <- whole_doubles_to_ints(idx_args)
+  idxs <- imap(idxs, function(idx, i) {
+    if (is_missing(idx)) {
+      return(Fortran(":", Variable("integer", base_var@dims[[i]])))
+    }
+
+    sub <- r2f(idx, scope, ..., hoist = hoist)
+
+    if (!inherits(sub@value, Variable) || !passes_as_scalar(sub@value)) {
+      stop("all indices in x[...] <<- must be scalar")
+    }
+
+    if (sub@value@mode == "double") {
+      return(Fortran(
+        glue("int({sub}, kind=c_ptrdiff_t)"),
+        Variable("integer")
+      ))
+    }
+    if (sub@value@mode != "integer") {
+      stop("all indices in x[...] <<- must be integer")
+    }
+
+    sub
+  })
+
+  if (
+    passes_as_scalar(base_var) &&
+      length(idxs) == 1 &&
+      idxs[[1L]]@value@mode == "integer"
+  ) {
+    idx_r <- attr(idxs[[1L]], "r", exact = TRUE)
+    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
+      return(Fortran(name, Variable(base_var@mode)))
+    }
+  }
+
+  if (
+    length(idxs) == 1 &&
+      idxs[[1L]]@value@mode == "integer" &&
+      idxs[[1L]]@value@rank == 0 &&
+      base_var@rank > 1
+  ) {
+    subs <- linear_subscripts_from_1d(name, base_var@rank, idxs[[1L]])
+    return(Fortran(
+      glue("{name}({str_flatten_commas(subs)})"),
+      Variable(base_var@mode)
+    ))
+  }
+
+  if (length(idxs) != base_var@rank) {
+    stop(
+      "number of args to x[...] must match the rank of x, received:",
+      deparse1(subset_call)
+    )
+  }
+
+  Fortran(
+    glue("{name}({str_flatten_commas(idxs)})"),
+    Variable(base_var@mode, NA)
+  )
+}
+
+r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is.null(scope) || !identical(scope@kind, "closure")) {
+    stop("<<- is only supported inside local closures")
+  }
+
+  target <- args[[1L]]
+  if (is.call(target)) {
+    target_callable <- target[[1L]]
+    stopifnot(is.symbol(target_callable))
+    name <- as.symbol(paste0(as.character(target_callable), "<<-"))
+    handler <- get_r2f_handler(name)
+    return(handler(args, scope, ..., hoist = hoist))
+  }
+
+  stopifnot(is.symbol(target))
+  name <- as.character(target)
+
+  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  local_var <- get0(name, scope)
+  if (
+    !is.null(local_var) &&
+      inherits(local_var, Variable) &&
+      !host_associated(local_var)
+  ) {
+    stop("<<- targets must not resolve to a closure local/formal: ", name)
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+
+  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+  check_assignment_compatible(host_var, value@value)
+
+  Fortran(glue("{name} = {value}"))
+}
+
+r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is.null(scope) || !identical(scope@kind, "closure")) {
+    stop("<<- is only supported inside local closures")
+  }
+
+  stopifnot(is_call(target <- args[[1L]], "["))
+  subset_call <- target
+
+  base <- subset_call[[2L]]
+  if (!is.symbol(base)) {
+    stop("only superassignment to x[...] is supported")
+  }
+  name <- as.character(base)
+
+  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  local_var <- get0(name, scope)
+  if (
+    !is.null(local_var) &&
+      inherits(local_var, Variable) &&
+      !host_associated(local_var)
+  ) {
+    stop("<<- targets must not resolve to a closure local/formal: ", name)
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+
+  target <- r2f_subset_designator(subset_call, scope, ..., hoist = hoist)
+  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   Fortran(glue("{target} = {value}"))
 }
 

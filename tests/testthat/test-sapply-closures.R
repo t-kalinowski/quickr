@@ -16,11 +16,11 @@ test_that("sapply lowers scalar-return closures (named + inline)", {
 
   expect_translation_snapshots(
     fn_named,
-    note = "Named local closure lowered to an internal subroutine + explicit captures."
+    note = "Named local closure lowered to an internal subroutine using host association for captures (no capture arguments)."
   )
   expect_translation_snapshots(
     fn_inline,
-    note = "Inline closure lowered to an internal subroutine + explicit captures."
+    note = "Inline closure lowered to an internal subroutine using host association for captures (no capture arguments)."
   )
 
   set.seed(1)

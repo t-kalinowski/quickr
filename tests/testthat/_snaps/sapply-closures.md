@@ -3,7 +3,7 @@
     Code
       cat("# Snapshot note: ", note, "\n", sep = "")
     Output
-      # Snapshot note: Named local closure lowered to an internal subroutine + explicit captures.
+      # Snapshot note: Named local closure lowered to an internal subroutine using host association for captures (no capture arguments).
     Code
       fn
     Output
@@ -38,16 +38,15 @@
         out = 0
       
         do tmp1_ = 1_c_int, size(out)
-          call f(tmp1_, x, out(tmp1_))
+          call f(tmp1_, out(tmp1_))
         end do
       
         contains
-          subroutine f(i, x, res)
+          subroutine f(i, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: i
-            real(c_double), intent(in) :: x(:)
             real(c_double), intent(out) :: res
       
       
@@ -92,7 +91,7 @@
     Code
       cat("# Snapshot note: ", note, "\n", sep = "")
     Output
-      # Snapshot note: Inline closure lowered to an internal subroutine + explicit captures.
+      # Snapshot note: Inline closure lowered to an internal subroutine using host association for captures (no capture arguments).
     Code
       fn
     Output
@@ -126,17 +125,15 @@
       
         out = .false.
         do tmp1_ = 1_c_int, size((out/=0))
-          call closure1_(tmp1_, x, thresh, out(tmp1_))
+          call closure1_(tmp1_, out(tmp1_))
         end do
       
         contains
-          subroutine closure1_(i, x, thresh, res)
+          subroutine closure1_(i, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: i
-            real(c_double), intent(in) :: x(:)
-            real(c_double), intent(in) :: thresh
             integer(c_int), intent(out) :: res ! logical
       
       
@@ -318,16 +315,15 @@
       
         out = 0.0_c_double
         do tmp1_ = 1_c_int, size(x, 2)
-          call closure1_(tmp1_, x, out(:, tmp1_))
+          call closure1_(tmp1_, out(:, tmp1_))
         end do
       
         contains
-          subroutine closure1_(j, x, res)
+          subroutine closure1_(j, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: j
-            real(c_double), intent(in) :: x(:, :)
             real(c_double), intent(out) :: res(:)
       
       
@@ -426,17 +422,15 @@
       
         out = .false.
         do tmp1_ = 1_c_int, size(x, 2)
-          call closure1_(tmp1_, x, thresh, out(:, tmp1_))
+          call closure1_(tmp1_, out(:, tmp1_))
         end do
       
         contains
-          subroutine closure1_(j, x, thresh, res)
+          subroutine closure1_(j, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: j
-            real(c_double), intent(in) :: x(:, :)
-            real(c_double), intent(in) :: thresh
             integer(c_int), intent(out) :: res(:) ! logical
       
       
@@ -549,16 +543,15 @@
       
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
-          call closure1_(tmp1_, x, out(:, :, tmp1_))
+          call closure1_(tmp1_, out(:, :, tmp1_))
         end do
       
         contains
-          subroutine closure1_(t, x, res)
+          subroutine closure1_(t, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: t
-            real(c_double), intent(in) :: x(:, :)
             real(c_double), intent(out) :: res(:, :)
       
       
@@ -680,17 +673,16 @@
       
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, btmp1_(3_c_int)
-            call closure1_(tmp1_, x, out(:, :, tmp1_))
+            call closure1_(tmp1_, out(:, :, tmp1_))
           end do
         end block
       
         contains
-          subroutine closure1_(t, x, res)
+          subroutine closure1_(t, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: t
-            real(c_double), intent(in) :: x(:, :, :)
             real(c_double), intent(out) :: res(:, :)
       
       
@@ -802,17 +794,16 @@
       
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, btmp1_(4_c_int)
-            call closure1_(tmp1_, x, out(:, :, :, tmp1_))
+            call closure1_(tmp1_, out(:, :, :, tmp1_))
           end do
         end block
       
         contains
-          subroutine closure1_(t, x, res)
+          subroutine closure1_(t, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: t
-            real(c_double), intent(in) :: x(:, :, :, :)
             real(c_double), intent(out) :: res(:, :, :)
       
       
@@ -920,16 +911,15 @@
       
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
-          call closure1_(tmp1_, x, out(:, :, :, tmp1_))
+          call closure1_(tmp1_, out(:, :, :, tmp1_))
         end do
       
         contains
-          subroutine closure1_(t, x, res)
+          subroutine closure1_(t, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: t
-            real(c_double), intent(in) :: x(:, :, :)
             real(c_double), intent(out) :: res(:, :, :)
       
       
@@ -1042,16 +1032,15 @@
       
         out = 0
         do tmp1_ = 1_c_int, size(out)
-          call closure1_(tmp1_, x, out(tmp1_))
+          call closure1_(tmp1_, out(tmp1_))
         end do
       
         contains
-          subroutine closure1_(i, x, res)
+          subroutine closure1_(i, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: i
-            real(c_double), intent(in) :: x(:, :)
             real(c_double), intent(out) :: res
       
       
@@ -1146,18 +1135,17 @@
           real(c_double) :: btmp1_(x__dim_1_, x__dim_2_)
       
           do tmp1_ = 1_c_int, size(out, 2)
-            call closure1_(tmp1_, out, btmp1_(:, tmp1_))
+            call closure1_(tmp1_, btmp1_(:, tmp1_))
           end do
           out = btmp1_
         end block
       
         contains
-          subroutine closure1_(j, out, res)
+          subroutine closure1_(j, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
             integer(c_int), intent(in) :: j
-            real(c_double), intent(in) :: out(:, :)
             real(c_double), intent(out) :: res(:)
       
       

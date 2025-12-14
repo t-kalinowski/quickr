@@ -338,6 +338,29 @@ dims2c <- function(dims, scope) {
     return(list(NULL, "1"))
   }
 
+  dims <- lapply(dims, function(d) {
+    if (
+      is.call(d) &&
+        length(d) == 2L &&
+        identical(d[[1L]], quote(length)) &&
+        is.symbol(d[[2L]])
+    ) {
+      nm <- as.character(d[[2L]])
+      var <- get0(nm, scope)
+      if (!inherits(var, Variable)) {
+        stop("could not resolve size: ", nm)
+      }
+      if (var@rank == 1L) {
+        return(var@dims[[1L]])
+      }
+      if (var@rank > 1L) {
+        return(reduce(var@dims, \(d1, d2) call("*", d1, d2)))
+      }
+      return(1L)
+    }
+    d
+  })
+
   syms <- as.character(unique(unlist(lapply(dims, all.vars))))
 
   syms <- mget(syms, scope, ifnotfound = syms) |>
