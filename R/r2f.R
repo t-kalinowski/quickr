@@ -527,7 +527,7 @@ r2f_handlers[["["]] <- function(
     passes_as_scalar(var@value) &&
       length(idxs) == 1 &&
       idxs[[1]]@value@mode == "integer" &&
-      idxs[[1]]@value@rank == 0
+      passes_as_scalar(idxs[[1]]@value)
   ) {
     idx_r <- attr(idxs[[1]], "r", exact = TRUE)
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
@@ -539,7 +539,7 @@ r2f_handlers[["["]] <- function(
   if (
     length(idxs) == 1 &&
       idxs[[1]]@value@mode == "integer" &&
-      idxs[[1]]@value@rank == 0 &&
+      passes_as_scalar(idxs[[1]]@value) &&
       var@value@rank > 1
   ) {
     # Hoist array expressions before subscripting (no invalid (expr)(i)).
@@ -1673,6 +1673,13 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   scope_root(scope)@add_internal_proc(proc)
 
   closure_captures <- closure_capture_names(closure_obj$fun, scope)
+  closure_superassigned <- find_superassigned_symbols(body(closure_obj$fun))
+  if (out_name %in% closure_superassigned) {
+    stop(
+      "sapply() closure must not superassign to its output variable: ",
+      out_name
+    )
+  }
 
   out_target <- out_name
   post_stmts <- character()
@@ -1886,7 +1893,7 @@ r2f_subset_designator <- function(
   if (
     length(idxs) == 1 &&
       idxs[[1L]]@value@mode == "integer" &&
-      idxs[[1L]]@value@rank == 0 &&
+      passes_as_scalar(idxs[[1L]]@value) &&
       base_var@rank > 1
   ) {
     subs <- linear_subscripts_from_1d(name, base_var@rank, idxs[[1L]])
