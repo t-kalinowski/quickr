@@ -1,5 +1,33 @@
 # quickr (development version)
 
+- Added nested compilation scopes with local declaration emission, enabling
+  block-scoped temporaries (Fortran 2008 `block ... end block`) and local
+  closures (lowered to internal procedures under `contains`), including `sapply()`
+  lowering with explicit captures and support for `simplify = "array"` for
+  higher-rank outputs. Examples:
+
+  - Block-scoped temporary for expression subscripting:
+
+    ```r
+    out[1] <- ifelse((x > 0.0)[2, 3], 1.0, 0.0)
+    ```
+
+  - Local closure + `sapply()` lowering:
+
+    ```r
+    f <- function(i) x[i] + 1.0
+    out <- sapply(seq_along(out), f)
+    ```
+
+  This lowering matches R’s “copy-on-modify"  semantics: modifications to the variables from the parent scope trigger a copy in the local closure scope. (Superassignment `<<-` for modify-in-place behavior is not yet supported.)
+
+- Added support for `array(data=..., dim=...)` for shape construction in
+  user code and tests.
+
+- Added extensive tests + snapshots for local closures, `sapply()`,
+  block-scoped temporaries, and package compilation behavior (internal procedure
+  name collisions).
+
 - Lowered the minimum supported R version to 4.3.0 and added a backport of
   `declare()` for R < 4.4.0 (#67).
 

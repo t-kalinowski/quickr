@@ -76,8 +76,23 @@ new_scope <- function(closure, parent = emptyenv()) {
   attr(scope, "get_unique_var") <- local({
     i <- 0L
     function(...) {
-      name <- paste0("tmp", i <<- i + 1L, "_")
+      prefix <- switch(
+        attr(scope, "kind", exact = TRUE) %||% "subroutine",
+        block = "btmp",
+        closure = "ctmp",
+        subroutine = "tmp",
+        "tmp"
+      )
+      name <- paste0(prefix, i <<- i + 1L, "_")
       (scope[[name]] <- Variable(..., name = name))
+    }
+  })
+
+  attr(scope, "get_unique_proc") <- local({
+    i <- 0L
+    function(prefix = "closure") {
+      stopifnot(is_string(prefix))
+      paste0(prefix, i <<- i + 1L, "_")
     }
   })
 

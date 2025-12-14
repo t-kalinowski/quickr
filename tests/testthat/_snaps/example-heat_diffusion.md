@@ -18,38 +18,15 @@
           temp <- matrix(0, nx, ny)
           temp[nx / 2, ny / 2] <- 100 # Initial heat source in the center
       
-          # Boundary conditions
-          # apply_boundary_conditions <- function(temp) {
-          #   temp[1, ] <- 0
-          #   temp[nx, ] <- 0
-          #   temp[, 1] <- 0
-          #   temp[, ny] <- 0
-          #   temp
-          # }
-          #
-          # # Update step using finite differences
-          # update_temperature <- function(temp, k, dx, dy, dt) {
-          #   temp_new <- temp
-          #   for (i in 2:(nx - 1)) {
-          #     for (j in 2:(ny - 1)) {
-          #       temp_new[i, j] <- temp[i, j] + k * dt * ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) / dx ^
-          #                                                  2 +
-          #                                                  (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
-          #     }
-          #   }
-          #   temp_new
-          # }
-      
-          # Time stepping
-          for (step in seq_len(steps)) {
-            # temp <- apply_boundary_conditions(temp)
-            # temp <- update_temperature(temp, k, dx, dy, dt)
-      
+          apply_boundary_conditions <- function(temp) {
             temp[1, ] <- 0
             temp[nx, ] <- 0
             temp[, 1] <- 0
             temp[, ny] <- 0
+            temp
+          }
       
+          update_temperature <- function(temp, k, dx, dy, dt) {
             temp_new <- temp
             for (i in 2:(nx - 1)) {
               for (j in 2:(ny - 1)) {
@@ -61,7 +38,13 @@
                       (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy^2)
               }
             }
-            temp <- temp_new
+            temp_new
+          }
+      
+          # Time stepping
+          for (step in seq_len(steps)) {
+            temp <- apply_boundary_conditions(temp)
+            temp <- update_temperature(temp, k, dx, dy, dt)
           }
       
           temp
@@ -71,7 +54,7 @@
         }
       <environment: 0x0>
     Code
-      cat(fsub <- r2f(diffuse_heat))
+      cat(fsub)
     Output
       subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
         use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
@@ -90,30 +73,73 @@
       
         ! locals
         integer(c_int) :: step
-        real(c_double) :: temp_new(nx, ny)
-        integer(c_int) :: i
-        integer(c_int) :: j
         ! manifest end
       
       
         temp = 0.0_c_double
       temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int, &
       kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
+      
+      
         do step = 1, steps
-          temp(1_c_int, :) = 0.0_c_double
-          temp(nx, :) = 0.0_c_double
-          temp(:, 1_c_int) = 0.0_c_double
-          temp(:, ny) = 0.0_c_double
-          temp_new = temp
-          do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
-            do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
-      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j))) &
-      / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy ** &
-      2.0_c_double))))))
-            end do
-          end do
-          temp = temp_new
+          block
+            real(c_double) :: btmp1_(nx, ny)
+      
+            call apply_boundary_conditions(temp, nx, ny, btmp1_)
+            temp = btmp1_
+          end block
+          block
+            real(c_double) :: btmp1_(nx, ny)
+      
+            call update_temperature(temp, k, dx, dy, dt, nx, ny, btmp1_)
+            temp = btmp1_
+          end block
         end do
+      
+        contains
+          subroutine apply_boundary_conditions(temp_in, nx, ny, res)
+            use iso_c_binding, only: c_double, c_int
+            implicit none
+      
+            real(c_double), intent(in) :: temp_in(:, :)
+            integer(c_int), intent(in) :: nx
+            integer(c_int), intent(in) :: ny
+            real(c_double), intent(out) :: res(:, :)
+            real(c_double) :: temp(nx, ny)
+      
+            temp = temp_in
+            temp(1_c_int, :) = 0.0_c_double
+            temp(nx, :) = 0.0_c_double
+            temp(:, 1_c_int) = 0.0_c_double
+            temp(:, ny) = 0.0_c_double
+            res = temp
+          end subroutine
+          subroutine update_temperature(temp, k, dx, dy, dt, nx, ny, res)
+            use iso_c_binding, only: c_double, c_int
+            implicit none
+      
+            real(c_double), intent(in) :: temp(:, :)
+            real(c_double), intent(in) :: k
+            integer(c_int), intent(in) :: dx
+            integer(c_int), intent(in) :: dy
+            real(c_double), intent(in) :: dt
+            integer(c_int), intent(in) :: nx
+            integer(c_int), intent(in) :: ny
+            real(c_double), intent(out) :: res(:, :)
+            real(c_double) :: temp_new(nx, ny)
+            integer(c_int) :: i
+            integer(c_int) :: j
+      
+            temp_new = temp
+            do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+              do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j))) &
+          / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy ** &
+          2.0_c_double))))))
+              end do
+            end do
+            res = temp_new
+          end subroutine
       end subroutine
     Code
       cat(make_c_bridge(fsub))

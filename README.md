@@ -313,25 +313,30 @@ diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
   temp <- matrix(0, nx, ny)
   temp[nx / 2, ny / 2] <- 100  # Initial heat source in the center
 
-  # Time stepping
-  for (step in seq_len(steps)) {
-    # Apply boundary conditions
+  apply_boundary_conditions <- function(temp) {
     temp[1, ] <- 0
     temp[nx, ] <- 0
     temp[, 1] <- 0
     temp[, ny] <- 0
+    temp
+  }
 
-    # Update using finite differences
+  update_temperature <- function(temp, k, dx, dy, dt) {
     temp_new <- temp
     for (i in 2:(nx - 1)) {
       for (j in 2:(ny - 1)) {
         temp_new[i, j] <- temp[i, j] + k * dt *
-          ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
-             dx ^ 2 + (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
+          ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) / dx ^ 2 +
+             (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
       }
     }
-    temp <- temp_new
+    temp_new
+  }
 
+  # Time stepping
+  for (step in seq_len(steps)) {
+    temp <- apply_boundary_conditions(temp)
+    temp <- update_temperature(temp, k, dx, dy, dt)
   }
 
   temp

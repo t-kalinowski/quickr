@@ -24,12 +24,12 @@
         ! manifest start
         ! args
         integer(c_int), intent(in) :: pred(3, 4) ! logical
-        real(c_double), intent(out) :: out(1)
+        real(c_double), intent(out) :: out
         ! manifest end
       
       
         out = 0
-        out(1_c_int) = merge(1.0_c_double, 0.0_c_double, (pred(2_c_int, 3_c_int) /= 0))
+        out = merge(1.0_c_double, 0.0_c_double, (pred(2_c_int, 3_c_int) /= 0))
       end subroutine
     Code
       cat(cwrapper)
@@ -64,7 +64,7 @@
         if (pred__dim_2_ != 4)
           Rf_error("dim(pred)[2] must be 4, not %0.f",
                     (double)pred__dim_2_);
-        const R_xlen_t out__len_ = 1;
+        const R_xlen_t out__len_ = (1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
@@ -100,16 +100,16 @@
         ! manifest start
         ! args
         real(c_double), intent(in) :: x(3, 4)
-        real(c_double), intent(out) :: out(1)
+        real(c_double), intent(out) :: out
         ! manifest end
       
       
         out = 0
         block
-          logical :: tmp1_(3, 4) ! logical
+          logical :: btmp1_(3, 4) ! logical
       
-          tmp1_ = (((((x > 0.0_c_double)))))
-          out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+          btmp1_ = (((((x > 0.0_c_double)))))
+          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
         end block
       end subroutine
     Code
@@ -145,7 +145,7 @@
         if (x__dim_2_ != 4)
           Rf_error("dim(x)[2] must be 4, not %0.f",
                     (double)x__dim_2_);
-        const R_xlen_t out__len_ = 1;
+        const R_xlen_t out__len_ = (1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
@@ -181,16 +181,16 @@
         ! manifest start
         ! args
         real(c_double), intent(in) :: x(3, 4)
-        real(c_double), intent(out) :: out(1)
+        real(c_double), intent(out) :: out
         ! manifest end
       
       
         out = 0
         block
-          logical :: tmp1_(3, 4) ! logical
+          logical :: btmp1_(3, 4) ! logical
       
-          tmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
-          out(1_c_int) = merge(1.0_c_double, 0.0_c_double, tmp1_(2_c_int, 3_c_int))
+          btmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
+          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
         end block
       end subroutine
     Code
@@ -226,7 +226,7 @@
         if (x__dim_2_ != 4)
           Rf_error("dim(x)[2] must be 4, not %0.f",
                     (double)x__dim_2_);
-        const R_xlen_t out__len_ = 1;
+        const R_xlen_t out__len_ = (1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
@@ -261,7 +261,7 @@
       cat(fsub)
     Output
       subroutine fn(x, y, z, a, out) bind(c)
-        use iso_c_binding, only: c_double, c_int
+        use iso_c_binding, only: c_double
         implicit none
       
         ! manifest start
@@ -270,12 +270,12 @@
         real(c_double), intent(in) :: y(3, 4)
         real(c_double), intent(in) :: z(3, 4)
         real(c_double), intent(in) :: a
-        real(c_double), intent(out) :: out(1)
+        real(c_double), intent(out) :: out
         ! manifest end
       
       
         out = 0
-        out(1_c_int) = sum(((x + y)), mask = (z > a))
+        out = sum(((x + y)), mask = (z > a))
       end subroutine
     Code
       cat(cwrapper)
@@ -371,7 +371,7 @@
         if (a__len_ != 1)
           Rf_error("length(a) must be 1, not %0.f",
                     (double)a__len_);
-        const R_xlen_t out__len_ = 1;
+        const R_xlen_t out__len_ = (1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
