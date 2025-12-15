@@ -168,6 +168,51 @@ test_that("local closure calls can be used in expression position", {
   expect_quick_identical(fn, list(x))
 })
 
+test_that("local closure assignments shadow captured variables", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    f <- function() {
+      x <- x + 1.0
+      sum(x)
+    }
+    a <- f()
+    b <- sum(x)
+    a - b
+  }
+
+  qfn <- quick(fn)
+  x0 <- as.double(1:10)
+  x <- x0
+  out <- qfn(x)
+
+  expect_identical(out, 10)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
+})
+
+test_that("<<- targets the host even when the name is shadowed locally", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    f <- function() {
+      x <- x + 1.0
+      x <<- x + 1.0
+      sum(x)
+    }
+    local_sum <- f()
+    host_sum <- sum(x)
+    host_sum - local_sum
+  }
+
+  qfn <- quick(fn)
+  x0 <- as.double(1:10)
+  x <- x0
+  out <- qfn(x)
+
+  expect_identical(out, 10)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
+})
+
 test_that("sapply() errors if the closure superassigns to the output variable", {
   fn <- function(x) {
     declare(type(x = double(NA)))

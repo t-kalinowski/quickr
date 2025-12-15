@@ -208,7 +208,7 @@ test_that("sapply preserves R semantics when output is also captured", {
   expect_quick_identical(fn, list(x))
 })
 
-test_that("closures may not assign to captured variables", {
+test_that("closures may assign to captured variables (shadowing the host)", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     out <- double(length(x))
@@ -220,11 +220,14 @@ test_that("closures may not assign to captured variables", {
     out
   }
 
-  expect_error(
-    r2f(fn),
-    "must not assign to captured variables",
-    fixed = TRUE
-  )
+  qfn <- quick(fn)
+  x0 <- as.double(1:10)
+  x <- x0
+  out <- qfn(x)
+
+  expect_identical(out, x0 + 1.0)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
 })
 
 test_that("local closures can be called directly with multiple arguments", {

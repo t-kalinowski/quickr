@@ -57,7 +57,7 @@ test_that("sapply + <<- can mutate host and return values", {
   expect_quick_identical(fn, list(x))
 })
 
-test_that("<- cannot assign to captured variables (use <<- instead)", {
+test_that("<- shadows captured variables (use <<- to mutate the host)", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     out <- double(length(x))
@@ -69,7 +69,14 @@ test_that("<- cannot assign to captured variables (use <<- instead)", {
     out
   }
 
-  expect_error(r2f(fn), "must not assign to captured variables", fixed = TRUE)
+  qfn <- quick(fn)
+  x0 <- as.double(1:10)
+  x <- x0
+  out <- qfn(x)
+
+  expect_identical(out, x0 * 2)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
 })
 
 test_that("<<- supports 2D subset targets", {
