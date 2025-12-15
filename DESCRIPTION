@@ -25,7 +25,8 @@ Suggests:
     cli,
     pkgload (>= 1.4.0),
     rlang,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Config/testthat/edition: 3
 Config/testthat/parallel: true
 Config/testthat/start-first: unary-intrinsics, loops

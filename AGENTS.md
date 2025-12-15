@@ -6,6 +6,11 @@ This project is an R package that transpiles R functions to Fortran.
 R -q -e 'devtools::test()'
 ```
 
+- To run the full `R CMD check` locally:
+```sh
+R -q -e 'rcmdcheck::rcmdcheck(error_on = "warning")'
+```
+
 - To run a single test file:
 ```sh
 R -q -e 'devtools::test_active_file("tests/testthat/test-dims2f.R")'
