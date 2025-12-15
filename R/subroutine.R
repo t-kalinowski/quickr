@@ -73,55 +73,13 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
     body_section <- str_flatten_lines(body_section, "", contains_block_indented)
   }
 
-  used_iso_bindings <- unique(unlist(
-    use.names = FALSE,
-    list(
-      lapply(scope_vars(scope), function(var) {
-        list(
-          switch(
-            var@mode,
-            double = "c_double",
-            integer = "c_int",
-            logical = if (var@name %in% fsub_arg_names) {
-              "c_int"
-            },
-            complex = "c_double_complex",
-            raw = "c_int8_t"
-          ),
-          lapply(var@dims, function(size) {
-            syms <- all.vars(size)
-            c(
-              if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
-              if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
-            )
-          })
-        )
-      })
-    )
-  ))
-
-  # check for literal kinds
-  if (!"c_int" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+_c_int\\b", body)) {
-      append(used_iso_bindings) <- "c_int"
-    }
-  }
-  if (!"c_double" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body)) {
-      append(used_iso_bindings) <- "c_double"
-    }
-  }
-  if (!"c_ptrdiff_t" %in% used_iso_bindings) {
-    if (grepl("\\bc_ptrdiff_t\\b", body)) {
-      append(used_iso_bindings) <- "c_ptrdiff_t"
-    }
-  }
-  if (isTRUE(attr(scope@closure, "uses_rng", TRUE))) {
-    used_iso_bindings <- union(used_iso_bindings, "c_double")
-  }
-  used_iso_bindings <- sort(used_iso_bindings, method = "radix")
-
   uses_rng <- isTRUE(attr(scope, 'uses_rng', TRUE))
+  used_iso_bindings <- iso_c_binding_symbols(
+    vars = scope_vars(scope),
+    body_code = body,
+    logical_is_c_int = function(var) var@name %in% fsub_arg_names,
+    uses_rng = uses_rng
+  )
   if (uses_rng) {
     rng_interface <- glue::trim(
       '

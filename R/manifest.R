@@ -44,6 +44,60 @@ scope_vars <- function(scope) {
   keep(vars, inherits, what = Variable)
 }
 
+iso_c_binding_symbols <- function(
+  vars,
+  body_code = "",
+  logical_is_c_int = logical_as_int,
+  uses_rng = FALSE
+) {
+  stopifnot(is.list(vars), is_string(body_code), is.function(logical_is_c_int))
+
+  used_iso_bindings <- unique(unlist(
+    use.names = FALSE,
+    lapply(vars, function(var) {
+      stopifnot(inherits(var, Variable))
+      list(
+        switch(
+          var@mode,
+          double = "c_double",
+          integer = "c_int",
+          complex = "c_double_complex",
+          logical = if (isTRUE(logical_is_c_int(var))) "c_int",
+          raw = "c_int8_t",
+          stop("unrecognized kind: ", format(var))
+        ),
+        lapply(var@dims, function(size) {
+          syms <- all.vars(size)
+          c(
+            if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
+            if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
+          )
+        })
+      )
+    })
+  ))
+
+  # check for literal kinds used in the body
+  if (grepl("\\b[0-9]+_c_int\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_int")
+  }
+  if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
+  if (grepl("\\bc_ptrdiff_t\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_ptrdiff_t")
+  }
+
+  if (isTRUE(uses_rng)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
+
+  used_iso_bindings |>
+    compact() |>
+    unique() |>
+    sort(method = "radix")
+}
+
 emit_decl_line <- function(
   var,
   scope,

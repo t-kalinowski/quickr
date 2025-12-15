@@ -1385,36 +1385,12 @@ compile_internal_subroutine <- function(
   )
 
   body_code <- str_flatten_lines(prefix_code, assign_code)
-  used_iso_bindings <- unique(unlist(
-    use.names = FALSE,
-    c(
-      lapply(vars, function(var) {
-        switch(
-          var@mode,
-          double = "c_double",
-          integer = "c_int",
-          complex = "c_double_complex",
-          logical = if (logical_as_int(var)) "c_int",
-          raw = "c_int8_t"
-        )
-      }),
-      if (grepl("\\bc_ptrdiff_t\\b", body_code)) {
-        "c_ptrdiff_t"
-      }
-    )
-  ))
-  if (
-    !"c_int" %in% used_iso_bindings && grepl("\\b[0-9]+_c_int\\b", body_code)
-  ) {
-    used_iso_bindings <- c(used_iso_bindings, "c_int")
-  }
-  if (
-    !("c_double" %in% used_iso_bindings) &&
-      grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body_code)
-  ) {
-    used_iso_bindings <- c(used_iso_bindings, "c_double")
-  }
-  used_iso_bindings <- sort(compact(used_iso_bindings), method = "radix")
+  used_iso_bindings <- iso_c_binding_symbols(
+    vars = vars_declared,
+    body_code = body_code,
+    logical_is_c_int = logical_as_int,
+    uses_rng = FALSE
+  )
   use_iso <- if (length(used_iso_bindings)) {
     glue("use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}")
   } else {

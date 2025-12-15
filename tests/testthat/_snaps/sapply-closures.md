@@ -130,7 +130,7 @@
       
         contains
           subroutine closure1_(i, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_int
             implicit none
       
             integer(c_int), intent(in) :: i
@@ -427,7 +427,7 @@
       
         contains
           subroutine closure1_(j, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_int
             implicit none
       
             integer(c_int), intent(in) :: j
