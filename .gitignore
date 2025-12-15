@@ -4,3 +4,4 @@ scratch/*
 build/*
 roadmap.md
 /.quarto/
+.tmp

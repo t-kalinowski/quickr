@@ -112,6 +112,24 @@ quick_seq <- quick(function(start, end) \{
 quick_seq(1L, 5L)
 }\if{html}{\out{</div>}}
 }
+
+\subsection{Fortran compiler}{
+
+quickr compiles via \verb{R CMD SHLIB} and will normally use the same toolchain
+that R was built/configured with.
+
+On macOS, quickr will speculatively prefer LLVM flang when it is available on
+\code{PATH} (falling back to R's default toolchain if compilation fails).
+
+In interactive use, you can explicitly control this with:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{options(quickr.prefer_flang = TRUE)
+}\if{html}{\out{</div>}}
+
+To disable the macOS auto-preference, set \code{options(quickr.prefer_flang_auto = FALSE)}
+(or set \code{options(quickr.prefer_flang = FALSE)} to opt out entirely).
+In non-interactive scripts, set \code{Sys.setenv(QUICKR_PREFER_FLANG = "1")}.
+}
 }
 \examples{
 \donttest{

@@ -103,6 +103,24 @@
 #' quick_seq(1L, 5L)
 #' ```
 #'
+#' ## Fortran compiler
+#'
+#' quickr compiles via `R CMD SHLIB` and will normally use the same toolchain
+#' that R was built/configured with.
+#'
+#' On macOS, quickr will speculatively prefer LLVM flang when it is available on
+#' `PATH` (falling back to R's default toolchain if compilation fails).
+#'
+#' In interactive use, you can explicitly control this with:
+#'
+#' ```r
+#' options(quickr.prefer_flang = TRUE)
+#' ```
+#'
+#' To disable the macOS auto-preference, set `options(quickr.prefer_flang_auto = FALSE)`
+#' (or set `options(quickr.prefer_flang = FALSE)` to opt out entirely).
+#' In non-interactive scripts, set `Sys.setenv(QUICKR_PREFER_FLANG = "1")`.
+#'
 #' @returns A quicker R function.
 #' @export
 #' @examples
@@ -191,12 +209,42 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   writeLines(c_wrapper, c_wrapper_path)
 
   suppressWarnings({
+    r_args <- c(
+      "CMD SHLIB --use-LTO",
+      "-o",
+      dll_path,
+      fsub_path,
+      c_wrapper_path
+    )
+    env <- quickr_fcompiler_env(build_dir = build_dir)
     result <- system2(
       R.home("bin/R"),
-      c("CMD SHLIB --use-LTO", "-o", dll_path, fsub_path, c_wrapper_path),
+      r_args,
+      env = env,
       stdout = TRUE,
       stderr = TRUE
     )
+    if (!is.null(attr(result, "status")) && length(env)) {
+      result2 <- system2(
+        R.home("bin/R"),
+        r_args,
+        stdout = TRUE,
+        stderr = TRUE
+      )
+      if (is.null(attr(result2, "status"))) {
+        result <- result2
+      } else {
+        # Prefer to show the flang attempt first, then the fallback attempt.
+        result <- c(
+          "--- flang attempt ---",
+          result,
+          "",
+          "--- fallback attempt ---",
+          result2
+        )
+        attr(result, "status") <- attr(result2, "status")
+      }
+    }
   })
   if (!is.null(status <- attr(result, "status"))) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
