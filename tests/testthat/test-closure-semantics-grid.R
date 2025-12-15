@@ -141,7 +141,7 @@ test_that("<<- errors when targeting a closure formal", {
   expect_error(r2f(fn), "must not shadow closure formals", fixed = TRUE)
 })
 
-test_that("statement local closure calls must end with NULL", {
+test_that("statement local closure calls may ignore return values", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     f <- function() 1
@@ -149,10 +149,12 @@ test_that("statement local closure calls must end with NULL", {
     x
   }
 
-  expect_error(r2f(fn), "must end with `NULL`", fixed = TRUE)
+  set.seed(1)
+  x <- runif(10)
+  expect_quick_identical(fn, list(x))
 })
 
-test_that("local closure calls are rejected in expression position", {
+test_that("local closure calls can be used in expression position", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     f <- function(i) x[i]
@@ -161,7 +163,9 @@ test_that("local closure calls are rejected in expression position", {
     out
   }
 
-  expect_error(r2f(fn), "must be assigned", fixed = TRUE)
+  set.seed(1)
+  x <- runif(10)
+  expect_quick_identical(fn, list(x))
 })
 
 test_that("sapply() errors if the closure superassigns to the output variable", {

@@ -349,6 +349,13 @@ Fortran := new_class(
   }
 )
 
+LocalClosure := new_class(
+  properties = list(
+    name = prop_string(default = NULL, allow_null = TRUE),
+    fun = class_function
+  )
+)
+
 
 FortranSubroutine := new_class(
   Fortran,

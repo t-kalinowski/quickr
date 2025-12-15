@@ -545,7 +545,10 @@ fsub_extern_decl <- function(fsub) {
       }
       glue("const {type} {name}")
     } else {
-      var <- get(name, fsub@scope)
+      var <- get0(name, scope)
+      if (!inherits(var, Variable)) {
+        stop("internal error: could not resolve variable: ", name)
+      }
       glue("{fsub_arg_var_c_type(var)} {var@name}__")
     }
   })

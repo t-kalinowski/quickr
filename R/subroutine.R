@@ -1,4 +1,8 @@
-new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
+new_fortran_subroutine <- function(
+  name,
+  closure,
+  parent = environment(closure)
+) {
   check_all_var_names_valid(closure)
 
   # translate body, and populate scope with variables
@@ -33,7 +37,8 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   # when handling undeclared variables. Either throw better errors from r2f(), or
   # handle all declares first
   for (arg_name in names(formals(closure))) {
-    if (is.null(var <- get0(arg_name, scope))) {
+    var <- get0(arg_name, scope)
+    if (is.null(var) || !inherits(var, Variable)) {
       stop("arg not declared: ", arg_name)
     }
   }

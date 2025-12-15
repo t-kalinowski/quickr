@@ -106,8 +106,9 @@ new_scope <- function(closure, parent = emptyenv()) {
   attr(scope, "assign") <- function(name, value) {
     stopifnot(inherits(value, Variable), is.symbol(name) || is_string(name))
     name <- as.character(name)
-    if (exists(name, scope)) {
-      check_assignment_compatible(get(name, scope), value)
+    existing <- get0(name, scope)
+    if (inherits(existing, Variable)) {
+      check_assignment_compatible(existing, value)
     }
     value@name <- name
     assign(name, value, scope)
