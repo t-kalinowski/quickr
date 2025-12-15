@@ -79,6 +79,58 @@ test_that("<- shadows captured variables (use <<- to mutate the host)", {
   expect_identical(x, x0)
 })
 
+test_that("<<- targets the host when the name is shadowed by <- (vector)", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    f <- function(i) {
+      x <- x + 1.0
+      x[i] <<- x[i] + 1.0
+      NULL
+    }
+    f(1L)
+    x
+  }
+
+  qfn <- quick(fn)
+  x0 <- as.double(1:5)
+  x <- x0
+  out <- qfn(x)
+
+  expected <- x0
+  expected[[1L]] <- x0[[1L]] + 2.0
+  expect_identical(out, expected)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
+})
+
+test_that("<<- targets the host when the name is shadowed by <- (matrix subset)", {
+  fn <- function(x) {
+    declare(type(x = double(3, 4)))
+    i <- 2L
+    j <- 3L
+
+    f <- function() {
+      x <- x + 1.0
+      x[i, j] <<- x[i, j] + 1.0
+      NULL
+    }
+    f()
+    x
+  }
+
+  qfn <- quick(fn)
+  set.seed(1)
+  x0 <- matrix(runif(12), 3, 4)
+  x <- x0
+  out <- qfn(x)
+
+  expected <- x0
+  expected[2, 3] <- x0[2, 3] + 2.0
+  expect_identical(out, expected)
+  expect_identical(out, fn(x0))
+  expect_identical(x, x0)
+})
+
 test_that("<<- supports 2D subset targets", {
   fn <- function(nx, ny, dt) {
     declare(

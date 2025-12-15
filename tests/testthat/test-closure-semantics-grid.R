@@ -213,6 +213,49 @@ test_that("<<- targets the host even when the name is shadowed locally", {
   expect_identical(x, x0)
 })
 
+test_that("captured subset assignments shadow the host", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    f <- function(i) {
+      x[i] <- x[i] + 1.0
+      x[i]
+    }
+    out <- double(1)
+    out <- f(1L)
+    list(out = out, x = x)
+  }
+
+  qfn <- quick(fn)
+  x0 <- as.double(1:5)
+  x <- x0
+  res <- qfn(x)
+
+  expect_identical(res, fn(x0))
+  expect_identical(x, x0)
+})
+
+test_that("shadowed logical captures do not mutate the host", {
+  fn <- function(lgl) {
+    declare(type(lgl = logical(NA)))
+    f <- function() {
+      lgl <- !lgl
+      lgl
+    }
+    out <- logical(length(lgl))
+    out <- f()
+    list(out = out, lgl = lgl)
+  }
+
+  qfn <- quick(fn)
+  set.seed(1)
+  lgl0 <- runif(10) > 0.5
+  lgl <- lgl0
+  res <- qfn(lgl)
+
+  expect_identical(res, fn(lgl0))
+  expect_identical(lgl, lgl0)
+})
+
 test_that("sapply() errors if the closure superassigns to the output variable", {
   fn <- function(x) {
     declare(type(x = double(NA)))

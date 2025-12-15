@@ -230,6 +230,22 @@ test_that("closures may assign to captured variables (shadowing the host)", {
   expect_identical(x, x0)
 })
 
+test_that("shadowed captures are reinitialized for each sapply() iteration", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    out <- double(length(x))
+    out <- sapply(seq_along(out), function(i) {
+      x <- x + as.double(i)
+      sum(x)
+    })
+    out
+  }
+
+  set.seed(1)
+  x <- runif(6)
+  expect_quick_identical(fn, list(x))
+})
+
 test_that("local closures can be called directly with multiple arguments", {
   fn <- function(nx, ny, k, dt, steps) {
     declare(
