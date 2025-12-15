@@ -338,28 +338,6 @@ dims2c <- function(dims, scope) {
     return(list(NULL, "1"))
   }
 
-  resolve_length_call <- function(expr) {
-    if (!is_call(expr, "length") || length(expr) != 2L) {
-      return(expr)
-    }
-    if (!is.symbol(expr[[2L]])) {
-      return(expr)
-    }
-    nm <- as.character(expr[[2L]])
-    var <- get0(nm, scope)
-    if (!inherits(var, Variable)) {
-      stop("could not resolve size: ", nm)
-    }
-    if (var@rank <= 0L) {
-      return(1L)
-    }
-    if (var@rank == 1L) {
-      return(var@dims[[1L]])
-    }
-    reduce(var@dims, \(d1, d2) call("*", d1, d2))
-  }
-  dims <- lapply(dims, resolve_length_call)
-
   syms <- as.character(unique(unlist(lapply(dims, all.vars))))
 
   syms <- mget(syms, scope, ifnotfound = syms) |>
@@ -377,6 +355,27 @@ dims2c <- function(dims, scope) {
     })
 
   eval_env <- list2env(syms, parent = dims2c_eval_base_env)
+  eval_env[["length"]] <- function(x) {
+    expr <- substitute(x)
+    if (!is.symbol(expr)) {
+      stop("length() size expressions must refer to a symbol")
+    }
+
+    nm <- as.character(expr)
+    var <- get0(nm, scope)
+    if (!inherits(var, Variable)) {
+      stop("could not resolve size: ", nm)
+    }
+    if (var@rank <= 0L) {
+      return("1")
+    }
+    if (var@rank == 1L) {
+      return(get_size_name(var))
+    }
+    dims <- map_chr(seq_len(var@rank), \(axis) get_size_name(var, axis))
+    paste0("(", paste0(dims, collapse = " * "), ")")
+  }
+
   c_dims <- lapply(dims, function(d) {
     if (inherits(d, Variable)) {
       return(glue("Rf_asInteger({d@name})"))
