@@ -256,7 +256,37 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   }
 
   # tryCatch(dyn.unload(dll_path), error = identity)
-  dll <- dyn.load(dll_path)
+  dll <- tryCatch(dyn.load(dll_path), error = identity)
+  if (inherits(dll, "error") && length(env)) {
+    # flang may successfully compile/link but produce a dylib that can't be
+    # loaded at runtime (e.g. missing flang runtime symbols). Fall back to the
+    # default toolchain and retry.
+    unlink(list.files(pattern = "\\.(o|mod)$"))
+    unlink(dll_path)
+    result2 <- system2(
+      R.home("bin/R"),
+      r_args,
+      stdout = TRUE,
+      stderr = TRUE
+    )
+    if (!is.null(status2 <- attr(result2, "status"))) {
+      # Prefer to show the flang attempt first, then the fallback attempt.
+      result2 <- c(
+        "--- flang attempt ---",
+        result,
+        "",
+        "--- fallback attempt ---",
+        result2
+      )
+      # Adjust the compiler error so RStudio console formatter doesn't mangle
+      # the actual error message https://github.com/rstudio/rstudio/issues/16365
+      result2 <- gsub("Error: ", "Compiler Error: ", result2, fixed = TRUE)
+      writeLines(result2, stderr())
+      cat("---\nCompiler exit status:", status2, "\n", file = stderr())
+      stop("Compilation Error", call. = FALSE)
+    }
+    dll <- dyn.load(dll_path)
+  }
   c_wrapper_name <- paste0(fsub@name, "_")
   ptr <- getNativeSymbolInfo(c_wrapper_name, dll)$address
 

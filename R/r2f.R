@@ -1384,6 +1384,7 @@ compile_internal_subroutine <- function(
     if (length(locals)) emit_decls(locals, proc_scope) else character()
   )
 
+  body_code <- str_flatten_lines(prefix_code, assign_code)
   used_iso_bindings <- unique(unlist(
     use.names = FALSE,
     c(
@@ -1397,14 +1398,22 @@ compile_internal_subroutine <- function(
           raw = "c_int8_t"
         )
       }),
-      if (
-        grepl("\\bc_ptrdiff_t\\b", prefix_code) ||
-          grepl("\\bc_ptrdiff_t\\b", assign_code)
-      ) {
+      if (grepl("\\bc_ptrdiff_t\\b", body_code)) {
         "c_ptrdiff_t"
       }
     )
   ))
+  if (
+    !"c_int" %in% used_iso_bindings && grepl("\\b[0-9]+_c_int\\b", body_code)
+  ) {
+    used_iso_bindings <- c(used_iso_bindings, "c_int")
+  }
+  if (
+    !("c_double" %in% used_iso_bindings) &&
+      grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body_code)
+  ) {
+    used_iso_bindings <- c(used_iso_bindings, "c_double")
+  }
   used_iso_bindings <- sort(compact(used_iso_bindings), method = "radix")
   use_iso <- if (length(used_iso_bindings)) {
     glue("use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}")
@@ -1826,96 +1835,6 @@ r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   Fortran(glue("{target} = {value}"))
 }
 
-r2f_subset_designator <- function(
-  subset_call,
-  scope,
-  ...,
-  hoist = NULL
-) {
-  stopifnot(is_call(subset_call, "["))
-
-  base <- subset_call[[2L]]
-  if (!is.symbol(base)) {
-    stop("only superassignment to x[...] is supported")
-  }
-  name <- as.character(base)
-
-  base_var <- get0(name, scope)
-  if (!inherits(base_var, Variable)) {
-    stop("could not resolve subset base: ", name)
-  }
-
-  idx_args <- as.list(subset_call)[-1L]
-  idx_args <- idx_args[-1L]
-
-  drop <- idx_args$drop %||% TRUE
-  idx_args$drop <- NULL
-  if (!isTRUE(drop)) {
-    stop("drop = FALSE not supported for superassignment")
-  }
-
-  idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(idxs, function(idx, i) {
-    if (is_missing(idx)) {
-      return(Fortran(":", Variable("integer", base_var@dims[[i]])))
-    }
-
-    sub <- r2f(idx, scope, ..., hoist = hoist)
-
-    if (!inherits(sub@value, Variable) || !passes_as_scalar(sub@value)) {
-      stop("all indices in x[...] <<- must be scalar")
-    }
-
-    if (sub@value@mode == "double") {
-      return(Fortran(
-        glue("int({sub}, kind=c_ptrdiff_t)"),
-        Variable("integer")
-      ))
-    }
-    if (sub@value@mode != "integer") {
-      stop("all indices in x[...] <<- must be integer")
-    }
-
-    sub
-  })
-
-  if (
-    passes_as_scalar(base_var) &&
-      length(idxs) == 1 &&
-      idxs[[1L]]@value@mode == "integer"
-  ) {
-    idx_r <- attr(idxs[[1L]], "r", exact = TRUE)
-    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      return(Fortran(name, Variable(base_var@mode)))
-    }
-  }
-
-  if (
-    length(idxs) == 1 &&
-      idxs[[1L]]@value@mode == "integer" &&
-      passes_as_scalar(idxs[[1L]]@value) &&
-      base_var@rank > 1
-  ) {
-    subs <- linear_subscripts_from_1d(name, base_var@rank, idxs[[1L]])
-    return(Fortran(
-      glue("{name}({str_flatten_commas(subs)})"),
-      Variable(base_var@mode)
-    ))
-  }
-
-  if (length(idxs) != base_var@rank) {
-    stop(
-      "number of args to x[...] must match the rank of x, received:",
-      deparse1(subset_call)
-    )
-  }
-
-  Fortran(
-    glue("{name}({str_flatten_commas(idxs)})"),
-    Variable(base_var@mode, NA)
-  )
-}
-
 r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
   if (is.null(scope) || !identical(scope@kind, "closure")) {
     stop("<<- is only supported inside local closures")
@@ -1968,6 +1887,13 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(is_call(target <- args[[1L]], "["))
   subset_call <- target
 
+  idx_args <- as.list(subset_call)[-1L]
+  idx_args <- idx_args[-1L]
+  drop <- idx_args$drop %||% TRUE
+  if (!isTRUE(drop)) {
+    stop("drop = FALSE not supported for superassignment")
+  }
+
   base <- subset_call[[2L]]
   if (!is.symbol(base)) {
     stop("only superassignment to x[...] is supported")
@@ -1995,7 +1921,7 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
 
-  target <- r2f_subset_designator(subset_call, scope, ..., hoist = hoist)
+  target <- r2f(subset_call, scope, ..., hoist = hoist)
   value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   Fortran(glue("{target} = {value}"))
 }

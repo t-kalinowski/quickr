@@ -183,7 +183,7 @@ test_that("sapply() errors if the closure superassigns to the output variable", 
   )
 })
 
-test_that("<<- errors on non-scalar indices (e.g. x[1:2] <<- ...)", {
+test_that("<<- supports the same subset targets as [<- (e.g. x[1:2] <<- ...)", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     f <- function() {
@@ -194,11 +194,7 @@ test_that("<<- errors on non-scalar indices (e.g. x[1:2] <<- ...)", {
     x
   }
 
-  expect_error(
-    r2f(fn),
-    "all indices in x[...] <<- must be scalar",
-    fixed = TRUE
-  )
+  expect_quick_identical(fn, list(as.double(1:5)))
 })
 
 test_that("<<- errors on drop = FALSE", {
