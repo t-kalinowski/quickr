@@ -13,7 +13,7 @@ quickr_flang_path <- function(which = Sys.which) {
 quickr_flang_runtime_flags <- local({
   cache <- NULL
 
-  function(flang, sysname = Sys.info()[["sysname"]], readlink = Sys.readlink) {
+  function(flang, sysname = Sys.info()[["sysname"]]) {
     stopifnot(is_string(flang))
     if (!nzchar(flang) || sysname != "Darwin") {
       return(character())
@@ -25,7 +25,7 @@ quickr_flang_runtime_flags <- local({
       return(cache)
     }
 
-    resolved <- readlink(flang)
+    resolved <- Sys.readlink(flang)
     if (!nzchar(resolved)) {
       resolved <- flang
     }
