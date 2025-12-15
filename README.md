@@ -137,9 +137,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             475ms 478.22ms      2.09     782KB     3.14
-#> 2 quickr        915µs   1.06ms    943.       782KB    21.3 
-#> 3 c             915µs   1.08ms    921.       782KB    20.2
+#> 1 r          473.88ms 473.88ms      2.11     782KB     8.44
+#> 2 quickr       2.65ms   2.83ms    353.       782KB     6.71
+#> 3 c          918.52µs   1.06ms    934.       782KB    18.8
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -282,8 +282,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   61.21µs  72.04µs    13115.    1.59KB     41.0
-#> 2 quick_viterbi   1.72µs   1.97µs   506574.        0B      0
+#> 1 slow_viterbi   62.57µs     72µs    13163.    1.59KB     36.5
+#> 2 quick_viterbi   1.48µs   1.64µs   584585.        0B      0
 plot(timings)
 ```
 
@@ -367,8 +367,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        90.5   87.1       1        514.      Inf
-#> 2 quick_diffuse_heat   1      1        86.9        1       NaN
+#> 1 diffuse_heat        120.   113.        1       514.      Inf
+#> 2 quick_diffuse_heat    1      1       102.        1       NaN
 plot(timings)
 ```
 
@@ -414,9 +414,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           69.45ms   82.5ms      10.2  124.24MB    29.1 
-#> 2 rcpp         5.87ms   6.19ms     160.     4.45MB     1.98
-#> 3 quickr       2.15ms   2.24ms     431.   781.35KB     3.99
+#> 1 r           72.55ms  72.84ms      9.86  124.24MB    19.7 
+#> 2 rcpp         5.95ms   6.24ms    159.      4.44MB     1.99
+#> 3 quickr       3.15ms   3.25ms    307.    781.35KB     1.99
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -467,6 +467,13 @@ On macOS:
   # curl -LO https://mac.r-project.org/tools/gfortran-12.2-universal.pkg # R 4.4
   curl -LO https://mac.r-project.org/tools/gfortran-14.2-universal.pkg   # R 4.5
   sudo installer -pkg gfortran-12.2-universal.pkg -target /
+  ```
+
+- Optional: install `flang-new` via Homebrew (used by quickr on macOS
+  when available):
+
+  ``` zsh
+  brew install flang
   ```
 
 On Windows:

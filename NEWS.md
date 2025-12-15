@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- On macOS, quickr will use LLVM flang (`flang-new`) for compilation when
+  available (e.g. `brew install flang`). This is optional and can be disabled
+  with `options(quickr.prefer_flang = FALSE)`.
+
 - Added nested compilation scopes with local declaration emission, enabling
   block-scoped temporaries (Fortran 2008 `block ... end block`) and local
   closures (lowered to internal procedures under `contains`), including `sapply()`

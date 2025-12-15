@@ -311,6 +311,13 @@ dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
   glue("mod(int({e1}), int({e2}))")
 }
 dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
+dims2f_eval_base_env[["length"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)})")
+  } else {
+    glue("size({x})")
+  }
+}
 
 
 dims2f <- function(dims, scope) {
@@ -319,14 +326,6 @@ dims2f <- function(dims, scope) {
   names(vars) <- syms
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {
-    if (
-      is.call(d) &&
-        length(d) == 2L &&
-        identical(d[[1L]], quote(length)) &&
-        is.symbol(d[[2L]])
-    ) {
-      return(glue("size({as.character(d[[2L]])})"))
-    }
     d <- eval(d, eval_env)
     if (is.symbol(d)) {
       as.character(d)

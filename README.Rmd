@@ -405,6 +405,12 @@ On macOS:
     sudo installer -pkg gfortran-12.2-universal.pkg -target /
     ```
 
+-   Optional: install `flang-new` via Homebrew (used by quickr on macOS when available):
+
+    ``` zsh
+    brew install flang
+    ```
+
 On Windows:
 
 -   Install the latest version of [Rtools](https://cran.r-project.org/bin/windows/Rtools/)
