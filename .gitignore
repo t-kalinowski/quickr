@@ -5,3 +5,4 @@ build/*
 roadmap.md
 /.quarto/
 .tmp
+check/

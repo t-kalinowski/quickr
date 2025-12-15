@@ -25,24 +25,27 @@ quickr_flang_runtime_flags <- local({
       return(cache)
     }
 
-    resolved <- Sys.readlink(flang)
-    if (!nzchar(resolved)) {
-      resolved <- flang
-    }
-    resolved <- normalizePath(resolved, winslash = "/", mustWork = FALSE)
+    resolved <- normalizePath(flang, winslash = "/", mustWork = FALSE)
 
     prefix <- dirname(dirname(resolved))
-    libdirs <- unique(c(file.path(prefix, "lib"), file.path(prefix, "lib64")))
+    libdirs <- unique(
+      c(
+        file.path(prefix, "lib"),
+        file.path(prefix, "lib64"),
+        Sys.glob(file.path(prefix, "lib", "clang", "*", "lib", "darwin")),
+        Sys.glob(file.path(prefix, "lib64", "clang", "*", "lib", "darwin"))
+      )
+    )
 
     runtime <- "libflang_rt.runtime.dylib"
     libdir <- keep(libdirs, function(d) file.exists(file.path(d, runtime)))
 
     if (!length(libdir)) {
-      cache <- character()
+      cache <<- character()
       return(cache)
     }
 
-    cache <- c(sprintf("-L%s", libdir[[1L]]), "-lflang_rt.runtime")
+    cache <<- c(sprintf("-L%s", libdir[[1L]]), "-lflang_rt.runtime")
     cache
   }
 })
