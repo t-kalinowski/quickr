@@ -1211,10 +1211,7 @@ compile_internal_subroutine <- function(
   assigned <- find_assigned_symbols(body(fun))
   superassigned <- find_superassigned_symbols(body(fun))
   captures <- closure_capture_names(fun, parent_scope)
-  mutated <- intersect(captures, assigned)
-  if (length(mutated)) {
-    stop("local closures must not assign to captured variables")
-  }
+  shadowed_captures <- intersect(captures, assigned)
 
   if (length(superassigned)) {
     host_scope <- scope_root(parent_scope)
@@ -1242,7 +1239,7 @@ compile_internal_subroutine <- function(
   # For internal procedures, use Fortran host association for all closure
   # captures so the internal procedure signature matches the R closure formals
   # (plus an explicit `res` output argument when needed).
-  host_assoc_vars <- lapply(captures, function(nm) {
+  host_assoc_vars <- lapply(setdiff(captures, shadowed_captures), function(nm) {
     var <- get0(nm, parent_scope)
     if (!inherits(var, Variable)) {
       stop("could not resolve closure capture: ", nm)
@@ -1256,7 +1253,7 @@ compile_internal_subroutine <- function(
     }
     as_host_associated(var_copy)
   })
-  names(host_assoc_vars) <- captures
+  names(host_assoc_vars) <- setdiff(captures, shadowed_captures)
 
   proc_scope <- new_scope(fun, parent = parent_scope)
   attr(proc_scope, "kind") <- "closure"
@@ -1313,8 +1310,44 @@ compile_internal_subroutine <- function(
     }
   }
 
+  host_aliases <- list()
   for (nm in captures) {
-    proc_scope[[nm]] <- host_assoc_vars[[nm]]
+    if (nm %in% shadowed_captures) {
+      var <- get0(nm, parent_scope)
+      if (!inherits(var, Variable)) {
+        stop("could not resolve closure capture: ", nm)
+      }
+
+      alias <- make_unique_arg_name(
+        paste0(nm, "__host_"),
+        c(
+          used_arg_names,
+          formal_names,
+          captures,
+          "res",
+          unlist(host_aliases, use.names = FALSE)
+        )
+      )
+      host_aliases[[nm]] <- alias
+
+      alias_var <- Variable(mode = var@mode, dims = var@dims, name = alias)
+      if (logical_as_int(var)) {
+        attr(alias_var, "logical_as_int") <- TRUE
+      }
+      proc_scope[[alias]] <- as_host_associated(alias_var)
+
+      local_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
+      if (logical_as_int(var)) {
+        attr(local_var, "logical_as_int") <- TRUE
+      }
+      proc_scope[[nm]] <- local_var
+      init_stmts <- c(init_stmts, glue("{nm} = {alias}"))
+    } else {
+      proc_scope[[nm]] <- host_assoc_vars[[nm]]
+    }
+  }
+  if (length(host_aliases)) {
+    attr(proc_scope, "host_aliases") <- host_aliases
   }
   res_name <- NULL
   if (!is.null(res_var)) {
@@ -1410,6 +1443,9 @@ compile_internal_subroutine <- function(
 
   args <- vars_declared[arg_names]
   in_args <- c(unname(dummy_formals))
+
+  shadowed_locals <- vars_declared[names(host_aliases)]
+  locals <- locals[setdiff(names(locals), names(host_aliases))]
   decls <- c(
     emit_decls(
       args[in_args],
@@ -1431,6 +1467,21 @@ compile_internal_subroutine <- function(
   )
 
   body_code <- str_flatten_lines(prefix_code, assign_code)
+  if (length(host_aliases)) {
+    assoc_sig <- map_chr(names(host_aliases), function(nm) {
+      glue("{host_aliases[[nm]]} => {nm}")
+    })
+    body_code <- str_flatten_lines(
+      glue("associate({str_flatten_commas(assoc_sig)})"),
+      indent(
+        emit_block(
+          decls = emit_decls(shadowed_locals, proc_scope),
+          stmts = body_code
+        )
+      ),
+      "end associate"
+    )
+  }
   used_iso_bindings <- iso_c_binding_symbols(
     vars = vars_declared,
     body_code = body_code,
@@ -1451,7 +1502,7 @@ compile_internal_subroutine <- function(
 
     {indent(str_flatten_lines(decls), 2)}
 
-    {indent(str_flatten_lines(prefix_code, assign_code), 2)}
+    {indent(body_code, 2)}
     end subroutine
     ",
     .null = ""
@@ -1964,12 +2015,18 @@ r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
   }
 
   local_var <- get0(name, scope)
+  target_name <- name
   if (
     !is.null(local_var) &&
       inherits(local_var, Variable) &&
       !host_associated(local_var)
   ) {
-    stop("<<- targets must not resolve to a closure local/formal: ", name)
+    host_aliases <- attr(scope, "host_aliases", exact = TRUE) %||% list()
+    if (!is.null(host_aliases[[name]])) {
+      target_name <- host_aliases[[name]]
+    } else {
+      stop("<<- targets must not resolve to a closure local/formal: ", name)
+    }
   }
 
   host_var@modified <- TRUE
@@ -1978,7 +2035,7 @@ r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
   value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   check_assignment_compatible(host_var, value@value)
 
-  Fortran(glue("{name} = {value}"))
+  Fortran(glue("{target_name} = {value}"))
 }
 
 r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
@@ -2012,17 +2069,24 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
   }
 
   local_var <- get0(name, scope)
+  target_name <- name
   if (
     !is.null(local_var) &&
       inherits(local_var, Variable) &&
       !host_associated(local_var)
   ) {
-    stop("<<- targets must not resolve to a closure local/formal: ", name)
+    host_aliases <- attr(scope, "host_aliases", exact = TRUE) %||% list()
+    if (!is.null(host_aliases[[name]])) {
+      target_name <- host_aliases[[name]]
+    } else {
+      stop("<<- targets must not resolve to a closure local/formal: ", name)
+    }
   }
 
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
 
+  subset_call[[2L]] <- as.symbol(target_name)
   target <- r2f(subset_call, scope, ..., hoist = hoist)
   value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   Fortran(glue("{target} = {value}"))
