@@ -13,11 +13,7 @@ quickr_flang_path <- function(which = Sys.which) {
 quickr_flang_runtime_flags <- local({
   cache <- NULL
 
-  function(
-    flang,
-    sysname = Sys.info()[["sysname"]],
-    write_lines = writeLines
-  ) {
+  function(flang, sysname = Sys.info()[["sysname"]], readlink = Sys.readlink) {
     stopifnot(is_string(flang))
     if (!nzchar(flang) || sysname != "Darwin") {
       return(character())
@@ -29,41 +25,24 @@ quickr_flang_runtime_flags <- local({
       return(cache)
     }
 
-    tmpdir <- tempfile("quickr-flang-probe-")
-    dir.create(tmpdir, recursive = TRUE, showWarnings = FALSE)
-    src <- file.path(tmpdir, "probe.f90")
-    out <- file.path(tmpdir, "probe.dylib")
-    write_lines("subroutine quickr_flang_probe(); end subroutine", src)
-
-    probe <- tryCatch(
-      suppressWarnings(system2(
-        flang,
-        c("-###", "-shared", "-o", out, src),
-        stdout = TRUE,
-        stderr = TRUE
-      )),
-      error = function(e) character()
-    )
-    probe <- paste(probe, collapse = " ")
-    dirs <- unique(unlist(regmatches(
-      probe,
-      gregexpr("\"?-L[^\" ]+\"?", probe, perl = TRUE)
-    )))
-    dirs <- gsub("^\"?-L", "", dirs)
-    dirs <- gsub("\"$", "", dirs)
-    libdir <- NULL
-    for (d in dirs) {
-      if (file.exists(file.path(d, "libflang_rt.runtime.dylib"))) {
-        libdir <- d
-        break
-      }
+    resolved <- readlink(flang)
+    if (!nzchar(resolved)) {
+      resolved <- flang
     }
-    if (is.null(libdir)) {
+    resolved <- normalizePath(resolved, winslash = "/", mustWork = FALSE)
+
+    prefix <- dirname(dirname(resolved))
+    libdirs <- unique(c(file.path(prefix, "lib"), file.path(prefix, "lib64")))
+
+    runtime <- "libflang_rt.runtime.dylib"
+    libdir <- keep(libdirs, function(d) file.exists(file.path(d, runtime)))
+
+    if (!length(libdir)) {
       cache <- character()
       return(cache)
     }
 
-    cache <- c(sprintf("-L%s", libdir), "-lflang_rt.runtime")
+    cache <- c(sprintf("-L%s", libdir[[1L]]), "-lflang_rt.runtime")
     cache
   }
 })
@@ -108,6 +87,8 @@ quickr_fcompiler_env <- function(
   build_dir,
   which = Sys.which,
   prefer_flang = quickr_prefer_flang(which = which),
+  prefer_flang_force = isTRUE(getOption("quickr.prefer_flang_force")) ||
+    quickr_env_is_true("QUICKR_PREFER_FLANG"),
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]]
 ) {
@@ -121,11 +102,25 @@ quickr_fcompiler_env <- function(
     return(character())
   }
 
-  flang_runtime <- quickr_flang_runtime_flags(
-    flang = flang,
-    sysname = sysname,
-    write_lines = write_lines
-  )
+  flang_runtime <- if (sysname == "Darwin") {
+    quickr_flang_runtime_flags(flang = flang, sysname = sysname)
+  } else {
+    character()
+  }
+  if (sysname == "Darwin" && !length(flang_runtime)) {
+    if (isTRUE(prefer_flang_force)) {
+      stop(
+        "quickr was configured to use flang (",
+        flang,
+        ") but could not locate the flang runtime library (libflang_rt.runtime.dylib) to link against.\n",
+        "Either reinstall flang so the runtime is available, or disable flang selection with:\n",
+        "  options(quickr.prefer_flang = FALSE)\n",
+        "or:\n",
+        "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
+      )
+    }
+    return(character())
+  }
 
   makevars_path <- file.path(build_dir, "Makevars.quickr")
   write_lines(

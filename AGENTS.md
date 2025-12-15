@@ -35,6 +35,8 @@ EOF
 
 - When adding tests, prefer user-facing API tests (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings.
 
+- While troubleshooting and iterating towards a solution, you can run targeted single-file tests; before committing/pushing, always run the full test suite and `rcmdcheck`.
+
 - Before wrapping up, always run:
 ```sh
 air format .
