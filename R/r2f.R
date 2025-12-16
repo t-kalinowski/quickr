@@ -204,8 +204,13 @@ lang2fortran <- r2f <- function(
     `NULL` = Fortran("", NULL),
 
     symbol = {
-      s <- as.character(e)
-      val <- if (is.null(scope)) NULL else get0(as.character(e), scope)
+      r_name <- as.character(e)
+      val <- if (is.null(scope)) NULL else get0(r_name, scope)
+      s <- if (inherits(val, Variable) && !is.null(val@name)) {
+        val@name
+      } else {
+        r_name
+      }
       if (logical_as_int_symbol(val)) {
         # logicals passed via the bind(c) interface are stored as integer(0/1)
         # and must be "booleanized" for Fortran logical operations.
