@@ -220,14 +220,21 @@ test_that("closures may assign to captured variables (shadowing the host)", {
     out
   }
 
-  qfn <- quick(fn)
-  x0 <- as.double(1:10)
-  x <- x0
-  out <- qfn(x)
+  x1 <- c(1, 2, 3)
+  x2 <- c(-1.5, 0.25, 2.0)
 
-  expect_identical(out, x0 + 1.0)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), x1 + 1.0)
+  expect_identical(fn(x2), x2 + 1.0)
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+    expect_identical(out, x0 + 1.0)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("shadowed captures are reinitialized for each sapply() iteration", {

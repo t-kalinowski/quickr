@@ -12,10 +12,10 @@ test_that("min handles scalar arguments without reduction", {
   # fsub <- r2f(fn)
   # expect_no_match(as.character(fsub), "minval\\(")
 
-  qfn <- quick(fn)
-
   m <- matrix(c(5L, 1L, 3L, 9L), ncol = 2, byrow = TRUE)
-  expect_identical(qfn(1L, 2L, m), fn(1L, 2L, m))
+  expect_identical(fn(1L, 1L, m), c(5L, 1L))
+  expect_identical(fn(1L, 2L, m), c(3L, 1L))
+  expect_quick_identical(fn, list(1L, 1L, m), list(1L, 2L, m))
 })
 
 
@@ -32,10 +32,10 @@ test_that("drop = FALSE preserves dims and uses reductions", {
   # fsub <- r2f(fn)
   # expect_match(as.character(fsub), "minval\\(")
 
-  qfn <- quick(fn)
-
   m <- matrix(c(2L, 4L, 1L, 3L), nrow = 2L, byrow = TRUE)
-  expect_identical(qfn(1L, m), fn(1L, m))
+  expect_identical(fn(1L, m), 2L)
+  expect_identical(fn(2L, m), 1L)
+  expect_quick_identical(fn, list(1L, m), list(2L, m))
 })
 
 
@@ -48,8 +48,10 @@ test_that("reductions over vectors still use intrinsics", {
   # fsub <- r2f(fn)
   # expect_match(as.character(fsub), "minval\\(")
 
-  qfn <- quick(fn)
+  x1 <- c(10L, -2L, 5L, 3L)
+  x2 <- c(1L, 2L, 3L)
 
-  x <- c(10L, -2L, 5L, 3L)
-  expect_identical(qfn(x), fn(x))
+  expect_identical(fn(x1), -2L)
+  expect_identical(fn(x2), 1L)
+  expect_quick_identical(fn, x1, x2)
 })

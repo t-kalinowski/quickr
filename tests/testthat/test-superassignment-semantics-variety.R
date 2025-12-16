@@ -61,14 +61,29 @@ test_that("<<- mutating a matrix argument preserves caller copy-on-modify semant
     x
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  x0 <- matrix(runif(12), 3, 4)
-  x <- x0
-  out <- qfn(x)
+  x1 <- matrix(as.double(1:12), 3, 4)
+  x2 <- matrix(as.double(1:6), 2, 3)
 
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expected1 <- x1
+  expected1[1, ] <- 0.0
+  expected1[, 1] <- expected1[, 1] + 1.0
+
+  expected2 <- x2
+  expected2[1, ] <- 0.0
+  expected2[, 1] <- expected2[, 1] + 1.0
+
+  expect_identical(fn(x1), expected1)
+  expect_identical(fn(x2), expected2)
+  expect_quick_identical(fn, x1, x2)
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("<<- supports 3D slice superassignment with missing indices", {
@@ -102,14 +117,21 @@ test_that("sapply + <<- can mutate a matrix host argument and return a matrix", 
     list(x = x, out = out)
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  x0 <- matrix(runif(12), 3, 4)
-  x <- x0
-  out <- qfn(x)
+  x1 <- matrix(as.double(1:12), 3, 4)
+  x2 <- matrix(as.double(1:6), 2, 3)
 
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), list(x = x1 * 2.0, out = x1 * 2.0))
+  expect_identical(fn(x2), list(x = x2 * 2.0, out = x2 * 2.0))
+  expect_quick_identical(fn, x1, x2)
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("sapply + <<- supports host scalar accumulation", {

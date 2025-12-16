@@ -8,9 +8,10 @@ test_that("arithmetic expressions in dimensions compile", {
     length(x) + length(y)
   }
   expect_translation_snapshots(fn)
-  qfn <- quick(fn)
-  expect_identical(qfn(4L), fn(4L))
-  expect_identical(qfn(7L), fn(7L))
+
+  expect_identical(fn(4L), 11L)
+  expect_identical(fn(7L), 20L)
+  expect_quick_identical(fn, 4L, 7L)
 })
 
 
@@ -21,9 +22,10 @@ test_that("integer division and modulus in dimensions compile", {
     length(out)
   }
   expect_translation_snapshots(fn)
-  qfn <- quick(fn)
-  expect_identical(qfn(5L), fn(5L))
-  expect_identical(qfn(8L), fn(8L))
+
+  expect_identical(fn(5L), 3L)
+  expect_identical(fn(8L), 4L)
+  expect_quick_identical(fn, 5L, 8L)
 })
 
 
@@ -34,7 +36,8 @@ test_that("matrix dimension expressions compile", {
     dim(out)
   }
   expect_translation_snapshots(fn)
-  qfn <- quick(fn)
-  expect_identical(qfn(3L), fn(3L))
-  expect_identical(qfn(6L), fn(6L))
+
+  expect_identical(fn(3L), c(4L, 2L))
+  expect_identical(fn(6L), c(7L, 4L))
+  expect_quick_identical(fn, 3L, 6L)
 })

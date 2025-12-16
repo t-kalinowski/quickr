@@ -9,13 +9,20 @@ test_that("direct-call statement closure can host-mutate with x <<- expr", {
     x
   }
 
-  qfn <- quick(fn)
-  x0 <- c(1, 2, 3)
-  x <- x0
-  out <- qfn(x)
+  x1 <- c(1, 2, 3)
+  x2 <- c(-1, 0, 4, 5)
 
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), x1 + 1)
+  expect_identical(fn(x2), x2 + 1)
+  expect_quick_identical(fn, x1, x2)
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("direct-call statement closure supports rank>1 linear x[i] <<- ...", {
@@ -263,13 +270,22 @@ test_that("captured subset assignments shadow the host", {
     list(out = out, x = x)
   }
 
-  qfn <- quick(fn)
-  x0 <- as.double(1:5)
-  x <- x0
-  res <- qfn(x)
+  x1 <- as.double(1:5)
+  x2 <- c(-3.0, 0.0, 4.0)
 
-  expect_identical(res, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), list(out = 2.0, x = x1))
+  expect_identical(fn(x2), list(out = -2.0, x = x2))
+
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    res <- qfn(x)
+
+    expect_identical(res, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("shadowed logical captures do not mutate the host", {
@@ -284,14 +300,21 @@ test_that("shadowed logical captures do not mutate the host", {
     list(out = out, lgl = lgl)
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  lgl0 <- runif(10) > 0.5
-  lgl <- lgl0
-  res <- qfn(lgl)
+  lgl1 <- c(TRUE, FALSE, TRUE)
+  lgl2 <- c(FALSE, FALSE, TRUE)
 
-  expect_identical(res, fn(lgl0))
-  expect_identical(lgl, lgl0)
+  expect_identical(fn(lgl1), list(out = c(FALSE, TRUE, FALSE), lgl = lgl1))
+  expect_identical(fn(lgl2), list(out = c(TRUE, TRUE, FALSE), lgl = lgl2))
+
+  expect_quick_identical(fn, lgl1, lgl2, rep(FALSE, 5))
+
+  qfn <- quick(fn)
+  for (lgl0 in list(lgl1, lgl2)) {
+    lgl <- lgl0
+    res <- qfn(lgl)
+    expect_identical(res, fn(lgl0))
+    expect_identical(lgl, lgl0)
+  }
 })
 
 test_that("sapply() errors if the closure superassigns to the output variable", {

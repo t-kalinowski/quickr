@@ -463,12 +463,31 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
     valout <- Variable(mode = "integer") # integer scalar
 
     if (x@value@mode == "logical") {
-      val <- switch(
+      # R semantics:
+      # - which.max(all FALSE) == 1
+      # - which.min(all TRUE)  == 1
+      # findloc() returns 0 when the value is not found, so implement via
+      # {max|min}loc() over an integer-cast mask to preserve R's tie/default.
+      #
+      # Bench notes (quickr-compiled, n = 20,000,000 logicals ~= 76 MiB):
+      # - maxloc(merge(1_c_int, 0_c_int, (a/=0)), 1) is ~10ms regardless of
+      #   where the first
+      #   .true. occurs (full traversal).
+      # - max(1_c_int, findloc((a/=0), .true., 1, kind=c_int)) can early-exit
+      #   (~1.3ms when the first element is .true.) but is much slower on full
+      #   scans (~55-62ms when
+      #   the last element is .true. or when no .true. exists).
+      # - max(1_c_int, findloc(a, 1_c_int, 1, kind=c_int)) on the underlying
+      #   integer storage is much closer to maxloc on full scans (~14ms) while
+      #   retaining early-exit.
+      # Results are compiler/runtime dependent; the relative pattern was stable.
+      mask_int <- glue("merge(1_c_int, 0_c_int, {x})")
+      intrinsic <- switch(
         last(list(...)$calls),
-        which.max = ".true.",
-        which.min = ".false."
+        which.max = "maxloc",
+        which.min = "minloc"
       )
-      f <- glue("findloc({x}, {val}, 1)")
+      f <- glue("{intrinsic}({mask_int}, 1)")
     } else {
       intrinsic <- switch(
         last(list(...)$calls),

@@ -32,13 +32,20 @@ test_that("<<- mutating a host argument preserves caller copy-on-modify semantic
     x
   }
 
-  qfn <- quick(fn)
-  x0 <- c(1, 2, 3)
-  x <- x0
-  out <- qfn(x)
+  x1 <- c(1, 2, 3)
+  x2 <- c(-1, 0, 4)
 
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), c(2, 2, 3))
+  expect_identical(fn(x2), c(0, 0, 4))
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("sapply + <<- can mutate host and return values", {
@@ -69,14 +76,22 @@ test_that("<- shadows captured variables (use <<- to mutate the host)", {
     out
   }
 
-  qfn <- quick(fn)
-  x0 <- as.double(1:10)
-  x <- x0
-  out <- qfn(x)
+  x1 <- c(1, 2, 3)
+  x2 <- c(-1.5, 0.25, 2.0)
 
-  expect_identical(out, x0 * 2)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expect_identical(fn(x1), x1 * 2)
+  expect_identical(fn(x2), x2 * 2)
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+
+    expect_identical(out, x0 * 2)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("<<- targets the host when the name is shadowed by <- (vector)", {
@@ -91,16 +106,29 @@ test_that("<<- targets the host when the name is shadowed by <- (vector)", {
     x
   }
 
-  qfn <- quick(fn)
-  x0 <- as.double(1:5)
-  x <- x0
-  out <- qfn(x)
+  x1 <- as.double(1:5)
+  x2 <- c(-1.5, 0.25, 2.0)
 
-  expected <- x0
-  expected[[1L]] <- x0[[1L]] + 2.0
-  expect_identical(out, expected)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expected1 <- x1
+  expected1[[1L]] <- x1[[1L]] + 2.0
+  expected2 <- x2
+  expected2[[1L]] <- x2[[1L]] + 2.0
+
+  expect_identical(fn(x1), expected1)
+  expect_identical(fn(x2), expected2)
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+
+    expected <- x0
+    expected[[1L]] <- x0[[1L]] + 2.0
+    expect_identical(out, expected)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("<<- targets the host when the name is shadowed by <- (matrix subset)", {
@@ -118,17 +146,29 @@ test_that("<<- targets the host when the name is shadowed by <- (matrix subset)"
     x
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  x0 <- matrix(runif(12), 3, 4)
-  x <- x0
-  out <- qfn(x)
+  x1 <- matrix(as.double(1:12), 3, 4)
+  x2 <- matrix(as.double(-11:0), 3, 4)
 
-  expected <- x0
-  expected[2, 3] <- x0[2, 3] + 2.0
-  expect_identical(out, expected)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  expected1 <- x1
+  expected1[2, 3] <- x1[2, 3] + 2.0
+  expected2 <- x2
+  expected2[2, 3] <- x2[2, 3] + 2.0
+
+  expect_identical(fn(x1), expected1)
+  expect_identical(fn(x2), expected2)
+  expect_quick_identical(fn, x1, x2)
+
+  qfn <- quick(fn)
+  for (x0 in list(x1, x2)) {
+    x <- x0
+    out <- qfn(x)
+
+    expected <- x0
+    expected[2, 3] <- x0[2, 3] + 2.0
+    expect_identical(out, expected)
+    expect_identical(out, fn(x0))
+    expect_identical(x, x0)
+  }
 })
 
 test_that("<<- supports 2D subset targets", {
