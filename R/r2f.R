@@ -1890,7 +1890,7 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
   value <- r2f(rhs, scope, ...)
 
   # immutable / copy-on-modify usage of Variable()
-  var <- get0(name, scope)
+  var <- get0(name, scope, inherits = FALSE)
   if (is.null(var) || !inherits(var, Variable)) {
     # The var does not exist -> this is a binding to a new symbol
     # Create a fresh Variable carrying only mode/dims and a new name.
@@ -1913,7 +1913,7 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
     assign(name, var, scope)
   }
 
-  Fortran(glue("{name} = {value}"))
+  Fortran(glue("{var@name} = {value}"))
 }
 
 
