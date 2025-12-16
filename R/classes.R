@@ -318,8 +318,22 @@ Variable := new_class(
       getter = function(self) {
         self@rank == 0 || identical(self@dims, list(1L))
       }
-    )
-  )
+    ),
+
+    # When TRUE, Fortran/C interfaces should treat logicals as integer(c_int)
+    # storage (0/1) rather than Fortran LOGICAL.
+    logical_as_int = prop_bool(default = FALSE),
+
+    # TRUE when the variable is available via host association and should not
+    # be redeclared in the local scope.
+    host_associated = prop_bool(default = FALSE)
+  ),
+
+  validator = function(self) {
+    if (isTRUE(self@logical_as_int) && !identical(self@mode, "logical")) {
+      "`logical_as_int` can only be TRUE when `mode` is 'logical'"
+    }
+  }
 )
 
 # method(print, Variable) <- function(x, ...) {

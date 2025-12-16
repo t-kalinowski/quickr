@@ -14,7 +14,7 @@ new_ordered_env <- function(parent = emptyenv()) {
     if (!is.null(return_names) && as.character(name) %in% return_names) {
       value@is_return <- TRUE
       if (identical(value@mode, "logical")) {
-        attr(value, "logical_as_int") <- TRUE
+        value@logical_as_int <- TRUE
       }
     }
   }

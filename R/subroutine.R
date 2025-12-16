@@ -50,7 +50,7 @@ new_fortran_subroutine <- function(
       stopifnot(inherits(var, Variable))
       var@is_return <- TRUE
       if (identical(var@mode, "logical")) {
-        attr(var, "logical_as_int") <- TRUE
+        var@logical_as_int <- TRUE
       }
       scope[[return_name]] <- var
     }

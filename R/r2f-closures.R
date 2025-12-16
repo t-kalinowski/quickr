@@ -144,7 +144,7 @@ compile_internal_subroutine <- function(
 
     arg_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
     if (logical_as_int(var)) {
-      attr(arg_var, "logical_as_int") <- TRUE
+      arg_var@logical_as_int <- TRUE
     }
     formal_scope[[nm]] <- arg_var
     arg_names <- c(arg_names, nm)
@@ -372,7 +372,7 @@ closure_formal_vars <- function(args_f, formal_names) {
     stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
     v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
     if (logical_as_int_symbol(f@value)) {
-      attr(v, "logical_as_int") <- TRUE
+      v@logical_as_int <- TRUE
     }
     v
   })
@@ -514,7 +514,7 @@ compile_closure_call_assignment <- function(
       name = target_name
     )
     if (logical_as_int(target_var)) {
-      attr(out, "logical_as_int") <- TRUE
+      out@logical_as_int <- TRUE
     }
     out
   } else {
@@ -542,11 +542,11 @@ compile_closure_call_assignment <- function(
       identical(inferred_res_var@mode, "logical") &&
         target_name %in% return_names
     ) {
-      attr(target_var, "logical_as_int") <- TRUE
+      target_var@logical_as_int <- TRUE
       # Recompile with the correct storage for the output dummy argument.
       res_var <- Variable(mode = target_var@mode, dims = target_var@dims)
       res_var@name <- target_name
-      attr(res_var, "logical_as_int") <- TRUE
+      res_var@logical_as_int <- TRUE
       proc <- compile_internal_subroutine(
         closure_name,
         closure_obj,
@@ -566,10 +566,11 @@ compile_closure_call_assignment <- function(
   res_target <- target_name
   post <- character()
   if (arg_reads_target) {
-    tmp <- hoist$declare_tmp(mode = target_var@mode, dims = target_var@dims)
-    if (logical_as_int(target_var)) {
-      attr(tmp, "logical_as_int") <- TRUE
-    }
+    tmp <- hoist$declare_tmp(
+      mode = target_var@mode,
+      dims = target_var@dims,
+      logical_as_int = logical_as_int(target_var)
+    )
     res_target <- tmp@name
     post <- glue("{target_name} = {res_target}")
   }
@@ -656,7 +657,7 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   }
   res_var <- Variable(mode = out_var@mode, dims = res_dims)
   if (logical_as_int(out_var)) {
-    attr(res_var, "logical_as_int") <- TRUE
+    res_var@logical_as_int <- TRUE
   }
 
   formal_vars <- list(Variable(mode = "integer", name = formal_names[[1L]]))
@@ -674,10 +675,11 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   out_target <- out_name
   post_stmts <- character()
   if (out_name %in% all.vars(body(closure_obj@fun), functions = FALSE)) {
-    tmp_out <- hoist$declare_tmp(mode = out_var@mode, dims = out_var@dims)
-    if (logical_as_int(out_var)) {
-      attr(tmp_out, "logical_as_int") <- TRUE
-    }
+    tmp_out <- hoist$declare_tmp(
+      mode = out_var@mode,
+      dims = out_var@dims,
+      logical_as_int = logical_as_int(out_var)
+    )
     out_target <- tmp_out@name
     post_stmts <- glue("{out_name} = {out_target}")
   }
@@ -843,7 +845,7 @@ compile_subscript_lhs <- function(
         shadow <- Variable(mode = parent_base@mode, dims = parent_base@dims)
         shadow@name <- make_shadow_fortran_name(scope, base_name)
         if (logical_as_int(parent_base)) {
-          attr(shadow, "logical_as_int") <- TRUE
+          shadow@logical_as_int <- TRUE
         }
         scope[[base_name]] <- shadow
 

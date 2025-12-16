@@ -21,9 +21,17 @@ new_hoist <- function(scope) {
     block_scope
   }
 
-  declare_tmp <- function(mode, dims) {
-    stopifnot(is_string(mode), is.null(dims) || is.list(dims))
-    ensure_block_scope()@get_unique_var(mode = mode, dims = dims)
+  declare_tmp <- function(mode, dims, logical_as_int = FALSE) {
+    stopifnot(
+      is_string(mode),
+      is.null(dims) || is.list(dims),
+      is_bool(logical_as_int)
+    )
+    ensure_block_scope()@get_unique_var(
+      mode = mode,
+      dims = dims,
+      logical_as_int = logical_as_int
+    )
   }
 
   render <- function(code) {
@@ -337,7 +345,7 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
       var <- type_call_to_var(a)
       var@is_arg <- var@name %in% names(formals(scope@closure))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
-        attr(var, "logical_as_int") <- TRUE
+        var@logical_as_int <- TRUE
       }
       scope[[var@name]] <- var
     } else if (is_call(a, quote(`{`))) {

@@ -36,7 +36,7 @@
 
 logical_as_int <- function(var) {
   stopifnot(inherits(var, Variable))
-  isTRUE(attr(var, "logical_as_int", exact = TRUE))
+  identical(var@mode, "logical") && isTRUE(var@logical_as_int)
 }
 
 scope_vars <- function(scope) {
@@ -106,7 +106,7 @@ emit_decl_line <- function(
   allow_allocatable = TRUE
 ) {
   stopifnot(inherits(var, Variable))
-  if (isTRUE(attr(var, "host_associated", exact = TRUE))) {
+  if (isTRUE(var@host_associated)) {
     return(NULL)
   }
 
