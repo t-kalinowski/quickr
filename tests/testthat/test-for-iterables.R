@@ -70,10 +70,9 @@ test_that("for() supports seq() direction and step", {
 })
 
 test_that("for() iterable errors are clear", {
-  call_iterable <- function(n) {
-    declare(type(n = integer(1)))
+  unsupported_iterable <- function() {
     s <- 0L
-    for (i in rev(1:n)) {
+    for (i in rev(list(1L, 2L))) {
       s <- s + i
     }
     s
@@ -96,8 +95,8 @@ test_that("for() iterable errors are clear", {
   }
 
   expect_error(
-    quick(call_iterable),
-    regexp = "unsupported iterable in for\\(\\): rev\\("
+    quick(unsupported_iterable),
+    regexp = "unsupported iterable in for\\(\\): rev\\(list\\("
   )
   expect_error(
     quick(non_integer_seq),
@@ -107,6 +106,48 @@ test_that("for() iterable errors are clear", {
     quick(non_integer_seq_len),
     regexp = "seq_len\\(\\) expects an integer scalar"
   )
+})
+
+test_that("for() supports rev() on index iterables", {
+  rev_colon <- function(n) {
+    declare(type(n = integer(1)))
+    out <- 0L
+    for (i in rev(1:n)) {
+      out <- out * 10L + i
+    }
+    out
+  }
+
+  rev_seq <- function() {
+    out <- 0L
+    for (i in rev(seq(1L, 6L, by = 2L))) {
+      out <- out * 10L + i
+    }
+    out
+  }
+
+  rev_seq_len <- function(n) {
+    declare(type(n = integer(1)))
+    out <- 0L
+    for (i in rev(seq_len(n))) {
+      out <- out * 10L + i
+    }
+    out
+  }
+
+  rev_seq_along <- function(x) {
+    declare(type(x = double(NA)))
+    out <- 0L
+    for (i in rev(seq_along(x))) {
+      out <- out * 10L + i
+    }
+    out
+  }
+
+  expect_quick_identical(rev_colon, 0L, 1L, 3L, 5L)
+  expect_quick_identical(rev_seq, list())
+  expect_quick_identical(rev_seq_len, 0L, 1L, 5L)
+  expect_quick_identical(rev_seq_along, numeric(), c(1, 2, 3))
 })
 
 test_that("for() supports iterating over a symbol (value iteration)", {
@@ -159,4 +200,27 @@ test_that("for() supports iterating over a symbol (value iteration)", {
   )
   expect_quick_identical(linearize_matrix, matrix(1:6, nrow = 2))
   expect_quick_identical(iterable_hoisted, 1:3, c(1L, 2L, 3L, 4L))
+})
+
+test_that("for() supports rev() for value iteration", {
+  rev_values <- function(x) {
+    declare(type(x = integer(NA)))
+    out <- 0L
+    for (v in rev(x)) {
+      out <- out * 10L + v
+    }
+    out
+  }
+
+  rev_matrix_values <- function(m) {
+    declare(type(m = integer(NA, NA)))
+    out <- 0L
+    for (v in rev(m)) {
+      out <- out * 10L + v
+    }
+    out
+  }
+
+  expect_quick_identical(rev_values, 1:3, c(1L, 2L, 3L, 4L))
+  expect_quick_identical(rev_matrix_values, matrix(1:6, nrow = 2))
 })

@@ -6,7 +6,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   uses_rng <- isTRUE(attr(scope, "uses_rng", TRUE))
 
   fsub_arg_names <- fsub@signature # arg names
-  closure_arg_names <- names(formals(closure))
+  closure_arg_names <- names(formals(closure)) %||% character()
 
   c_body <- character()
 

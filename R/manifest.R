@@ -247,6 +247,9 @@ r2f.scope <- function(scope) {
     lapply(var@dims, all.names, functions = FALSE, unique = TRUE)
   }))) |>
     setdiff(names(formals(scope@closure)))
+  if (is.null(size_names)) {
+    size_names <- character()
+  }
 
   sizes <- lapply(size_names, function(name) {
     kind <- if (endsWith(name, "_len_")) "c_ptrdiff_t" else "c_int"
