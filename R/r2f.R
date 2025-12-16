@@ -1086,25 +1086,36 @@ as_local_closure <- function(fun_expr, env, name = NULL) {
   new_local_closure(eval(fun_expr, envir = env), name = name)
 }
 
-find_assigned_symbols <- function(e) {
+find_assignment_symbols <- function(e) {
   assigned <- character()
+  superassigned <- character()
+
+  add_lhs <- function(lhs, target) {
+    if (is.symbol(lhs)) {
+      return(unique(c(target, as.character(lhs))))
+    }
+    if (
+      is.call(lhs) &&
+        is.symbol(lhs[[1L]]) &&
+        as.character(lhs[[1L]]) %in% c("[", "[[", "$") &&
+        is.symbol(lhs[[2L]])
+    ) {
+      # Handle mutation patterns like `x[i] <- ...`
+      return(unique(c(target, as.character(lhs[[2L]]))))
+    }
+    target
+  }
 
   walk <- function(x) {
     if (is.call(x)) {
       head <- x[[1L]]
       if (identical(head, quote(`<-`)) || identical(head, quote(`=`))) {
-        lhs <- x[[2L]]
-        if (is.symbol(lhs)) {
-          assigned <<- unique(c(assigned, as.character(lhs)))
-        } else if (
-          is.call(lhs) &&
-            is.symbol(lhs[[1L]]) &&
-            as.character(lhs[[1L]]) %in% c("[", "[[", "$") &&
-            is.symbol(lhs[[2L]])
-        ) {
-          # Handle mutation patterns like `x[i] <- ...`
-          assigned <<- unique(c(assigned, as.character(lhs[[2L]])))
-        }
+        assigned <<- add_lhs(x[[2L]], assigned)
+        walk(x[[3L]])
+        return()
+      }
+      if (identical(head, quote(`<<-`))) {
+        superassigned <<- add_lhs(x[[2L]], superassigned)
         walk(x[[3L]])
         return()
       }
@@ -1126,54 +1137,7 @@ find_assigned_symbols <- function(e) {
   }
 
   walk(e)
-  assigned
-}
-
-find_superassigned_symbols <- function(e) {
-  assigned <- character()
-
-  walk <- function(x) {
-    if (is.call(x)) {
-      head <- x[[1L]]
-      if (identical(head, quote(`<<-`))) {
-        lhs <- x[[2L]]
-        if (is.symbol(lhs)) {
-          assigned <<- unique(c(assigned, as.character(lhs)))
-        } else if (
-          is.call(lhs) &&
-            is.symbol(lhs[[1L]]) &&
-            as.character(lhs[[1L]]) %in% c("[", "[[", "$") &&
-            is.symbol(lhs[[2L]])
-        ) {
-          assigned <<- unique(c(assigned, as.character(lhs[[2L]])))
-        }
-        walk(x[[3L]])
-        return()
-      }
-
-      for (i in seq_along(x)[-1L]) {
-        walk(x[[i]])
-      }
-    } else if (is.pairlist(x) || is.list(x)) {
-      for (elt in x) {
-        walk(elt)
-      }
-    }
-  }
-
-  walk(e)
-  assigned
-}
-
-closure_capture_names <- function(fun, parent_scope) {
-  stopifnot(is.function(fun))
-  stopifnot(inherits(parent_scope, "quickr_scope"))
-  formals_names <- names(formals(fun)) %||% character()
-  used <- unique(all.vars(body(fun), functions = FALSE))
-  candidates <- setdiff(used, formals_names)
-  keep(candidates, function(nm) {
-    inherits(get0(nm, parent_scope), Variable)
-  })
+  list(assigned = assigned, superassigned = superassigned)
 }
 
 scope_root <- function(scope) {
@@ -1208,10 +1172,13 @@ compile_internal_subroutine <- function(
     stop("internal error: formal vars do not match closure formals")
   }
 
-  assigned <- find_assigned_symbols(body(fun))
-  superassigned <- find_superassigned_symbols(body(fun))
-  captures <- closure_capture_names(fun, parent_scope)
-  shadowed_captures <- intersect(captures, assigned)
+  assignment_info <- find_assignment_symbols(body(fun))
+  assigned <- assignment_info$assigned
+  superassigned <- assignment_info$superassigned
+  used_names <- unique(all.vars(body(fun), functions = FALSE))
+  shadowed_captures <- keep(setdiff(assigned, formal_names), function(nm) {
+    inherits(get0(nm, parent_scope), Variable)
+  })
 
   if (length(superassigned)) {
     host_scope <- scope_root(parent_scope)
@@ -1235,25 +1202,6 @@ compile_internal_subroutine <- function(
   }
 
   mutated_formals <- intersect(formal_names, assigned)
-
-  # For internal procedures, use Fortran host association for all closure
-  # captures so the internal procedure signature matches the R closure formals
-  # (plus an explicit `res` output argument when needed).
-  host_assoc_vars <- lapply(setdiff(captures, shadowed_captures), function(nm) {
-    var <- get0(nm, parent_scope)
-    if (!inherits(var, Variable)) {
-      stop("could not resolve closure capture: ", nm)
-    }
-    var_copy <- Variable(mode = var@mode, dims = var@dims, name = nm)
-    if (identical(var_copy@mode, "integer") && passes_as_scalar(var_copy)) {
-      var_copy@r <- as.symbol(nm)
-    }
-    if (logical_as_int(var)) {
-      attr(var_copy, "logical_as_int") <- TRUE
-    }
-    as_host_associated(var_copy)
-  })
-  names(host_assoc_vars) <- setdiff(captures, shadowed_captures)
 
   proc_scope <- new_scope(fun, parent = parent_scope)
   attr(proc_scope, "kind") <- "closure"
@@ -1279,7 +1227,7 @@ compile_internal_subroutine <- function(
     if (nm %in% mutated_formals) {
       dummy <- make_unique_arg_name(
         paste0(nm, "_in"),
-        c(used_arg_names, captures, "res")
+        c(used_arg_names, used_names, "res")
       )
       dummy_formals[[nm]] <- dummy
 
@@ -1311,40 +1259,36 @@ compile_internal_subroutine <- function(
   }
 
   host_aliases <- list()
-  for (nm in captures) {
-    if (nm %in% shadowed_captures) {
-      var <- get0(nm, parent_scope)
-      if (!inherits(var, Variable)) {
-        stop("could not resolve closure capture: ", nm)
-      }
-
-      alias <- make_unique_arg_name(
-        paste0(nm, "__host_"),
-        c(
-          used_arg_names,
-          formal_names,
-          captures,
-          "res",
-          unlist(host_aliases, use.names = FALSE)
-        )
-      )
-      host_aliases[[nm]] <- alias
-
-      alias_var <- Variable(mode = var@mode, dims = var@dims, name = alias)
-      if (logical_as_int(var)) {
-        attr(alias_var, "logical_as_int") <- TRUE
-      }
-      proc_scope[[alias]] <- as_host_associated(alias_var)
-
-      local_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
-      if (logical_as_int(var)) {
-        attr(local_var, "logical_as_int") <- TRUE
-      }
-      proc_scope[[nm]] <- local_var
-      init_stmts <- c(init_stmts, glue("{nm} = {alias}"))
-    } else {
-      proc_scope[[nm]] <- host_assoc_vars[[nm]]
+  for (nm in shadowed_captures) {
+    var <- get0(nm, parent_scope)
+    if (!inherits(var, Variable)) {
+      stop("could not resolve closure capture: ", nm)
     }
+
+    alias <- make_unique_arg_name(
+      paste0(nm, "__host_"),
+      c(
+        used_arg_names,
+        formal_names,
+        used_names,
+        "res",
+        unlist(host_aliases, use.names = FALSE)
+      )
+    )
+    host_aliases[[nm]] <- alias
+
+    alias_var <- Variable(mode = var@mode, dims = var@dims, name = alias)
+    if (logical_as_int(var)) {
+      attr(alias_var, "logical_as_int") <- TRUE
+    }
+    proc_scope[[alias]] <- as_host_associated(alias_var)
+
+    local_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
+    if (logical_as_int(var)) {
+      attr(local_var, "logical_as_int") <- TRUE
+    }
+    proc_scope[[nm]] <- local_var
+    init_stmts <- c(init_stmts, glue("{nm} = {alias}"))
   }
   if (length(host_aliases)) {
     attr(proc_scope, "host_aliases") <- host_aliases
@@ -1833,8 +1777,8 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   )
   scope_root(scope)@add_internal_proc(proc)
 
-  closure_captures <- closure_capture_names(closure_obj@fun, scope)
-  closure_superassigned <- find_superassigned_symbols(body(closure_obj@fun))
+  closure_assignments <- find_assignment_symbols(body(closure_obj@fun))
+  closure_superassigned <- closure_assignments$superassigned
   if (out_name %in% closure_superassigned) {
     stop(
       "sapply() closure must not superassign to its output variable: ",
@@ -1844,7 +1788,7 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
 
   out_target <- out_name
   post_stmts <- character()
-  if (out_name %in% closure_captures) {
+  if (out_name %in% all.vars(body(closure_obj@fun), functions = FALSE)) {
     tmp_out <- hoist$declare_tmp(mode = out_var@mode, dims = out_var@dims)
     if (logical_as_int(out_var)) {
       attr(tmp_out, "logical_as_int") <- TRUE
@@ -2014,7 +1958,7 @@ r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  local_var <- get0(name, scope)
+  local_var <- get0(name, scope, inherits = FALSE)
   target_name <- name
   if (
     !is.null(local_var) &&
@@ -2068,7 +2012,7 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  local_var <- get0(name, scope)
+  local_var <- get0(name, scope, inherits = FALSE)
   target_name <- name
   if (
     !is.null(local_var) &&
