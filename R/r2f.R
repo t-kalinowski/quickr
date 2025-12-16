@@ -774,6 +774,50 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
   Fortran(fr, val)
 }
 
+r2f_handlers[["seq_len"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  n <- whole_doubles_to_ints(args[[1L]])
+  n <- r2f(n, scope, ...)
+  if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
+    stop("seq_len() expects an integer scalar")
+  }
+
+  val <- Variable("integer", NA)
+  fr <- switch(
+    list(...)$calls |> drop_last() |> last(),
+    "[" = glue("1:{n}"),
+    "for" = glue("1, {n}"),
+    {
+      i <- scope@get_unique_var("integer")
+      glue("[ ({i}, {i} = 1, {n}) ]")
+    }
+  )
+
+  Fortran(fr, val)
+}
+
+r2f_handlers[["seq_along"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  x <- r2f(args[[1L]], scope, ...)
+  if (is.null(x@value)) {
+    stop("seq_along() argument must have a value")
+  }
+
+  end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
+  val <- Variable("integer", NA)
+  fr <- switch(
+    list(...)$calls |> drop_last() |> last(),
+    "[" = glue("1:{end}"),
+    "for" = glue("1, {end}"),
+    {
+      i <- scope@get_unique_var("integer")
+      glue("[ ({i}, {i} = 1, {end}) ]")
+    }
+  )
+
+  Fortran(fr, val)
+}
+
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
   .[mask, tsource, fsource] <- lapply(args, r2f, scope, ...)
@@ -1600,17 +1644,38 @@ r2f_handlers[["while"]] <- function(args, scope, ...) {
 }
 
 ## ---- for ----
-r2f_iterable <- function(e, scope, ...) {
-  .NotYetImplemented()
-
-  if (is.symbol(e)) {
-    var <- get(e, scope)
-    iterable <- r2f(...)
+r2f_for_iterable <- function(iterable, scope, ...) {
+  while (
+    is_call(iterable, quote(`(`)) &&
+      length(iterable) == 2L
+  ) {
+    iterable <- iterable[[2L]]
   }
 
-  # list(var, iterable, body_prefix)
-}
+  stop_unsupported <- function(x) {
+    stop(
+      "unsupported iterable in for(): ",
+      deparse1(x),
+      "\nSupported: `a:b`, `seq(from, to, by)`, `seq_len(n)`, `seq_along(x)`.",
+      call. = FALSE
+    )
+  }
 
+  if (is.symbol(iterable)) {
+    stop_unsupported(iterable)
+  }
+  if (!is.call(iterable) || !is.symbol(iterable[[1L]])) {
+    stop_unsupported(iterable)
+  }
+
+  name <- as.character(iterable[[1L]])
+  supported <- c(":", "seq", "seq_len", "seq_along")
+  if (!name %in% supported) {
+    stop_unsupported(iterable)
+  }
+
+  r2f(iterable, scope, ...)
+}
 
 r2f_handlers[["for"]] <- function(args, scope, ...) {
   .[var, iterable, body] <- args
@@ -1626,11 +1691,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   }
   scope[[var]] <- Variable(mode = "integer", name = var_name)
 
-  iterable <- r2f_iterable_handlers[[as.character(iterable[[1]])]](
-    iterable,
-    scope,
-    ...
-  )
+  iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
 
   Fortran(glue(
@@ -1639,57 +1700,6 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     end do
     "
   ))
-}
-
-r2f_iterable_handlers := new.env()
-
-r2f_iterable_handlers[["seq_len"]] <- function(e, scope, ...) {
-  x <- as.list(e)[-1]
-  if (length(x) != 1) {
-    stop("too many args to seq_len()")
-  }
-  x <- x[[1]]
-  start <- 1L
-  end <- r2f(x, scope, ...)
-  glue("{start}, {end}")
-}
-
-r2f_iterable_handlers[["seq"]] <- function(e, scope, ...) {
-  ee <- match.call(seq.default, e)
-  ee <- whole_doubles_to_ints(ee)
-
-  start <- r2f(ee$from, scope, ...)
-  end <- r2f(ee$to, scope, ...)
-  step <- if (is.null(ee$by)) {
-    glue("sign(1, {end}-{start})")
-  } else {
-    r2f(ee$by, scope, ...)
-  }
-
-  str_flatten_commas(
-    start,
-    end,
-    step
-  )
-}
-
-r2f_iterable_handlers[[":"]] <- function(e, scope, ...) {
-  ee <- whole_doubles_to_ints(e)
-  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope, ...)
-
-  glue("{start}, {end}, sign(1, {end}-{start})")
-}
-
-
-r2f_iterable_handlers[["seq_along"]] <- function(e, scope, ...) {
-  x <- as.list(e)[-1]
-  if (length(x) != 1) {
-    stop("too many args to seq_along()")
-  }
-  x <- x[[1]]
-  start <- 1
-  end <- sprintf("size(%s)", r2f(x, scope, ...))
-  glue("{start}, {end}")
 }
 
 

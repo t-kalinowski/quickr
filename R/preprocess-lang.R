@@ -67,7 +67,7 @@ whole_doubles_to_ints <- function(x) {
   walker <- function(x) {
     switch(
       typeof(x),
-      double = if (trunc(x) == x) as.integer(x),
+      double = if (trunc(x) == x) as.integer(x) else x,
       language = as.call(lapply(x, walker)),
       list = lapply(x, walker),
       x
