@@ -1206,14 +1206,33 @@ compile_internal_subroutine <- function(
     body_prefix <- str_flatten_lines(body_prefix)
 
     h <- new_hoist(proc_scope)
-    expr <- r2f(last_expr, proc_scope, hoist = h)
-    if (is.null(expr@value)) {
+    expr_error <- NULL
+    expr <- tryCatch(
+      r2f(last_expr, proc_scope, hoist = h),
+      error = function(e) {
+        expr_error <<- e
+        NULL
+      }
+    )
+
+    if (!is.null(expr_error)) {
+      if (!isTRUE(allow_void_return)) {
+        stop(expr_error)
+      }
+      # If `last_expr` is itself a local closure call that returns no value,
+      # compiling in value-position (with `hoist`) fails. Retry compilation in
+      # statement-position.
+      stmt_expr <- r2f(last_expr, proc_scope)
+      if (!is.null(stmt_expr@value)) {
+        stop(expr_error)
+      }
+      assign_code <- as.character(stmt_expr)
+      res_var <- NULL
+    } else if (is.null(expr@value)) {
       if (!isTRUE(allow_void_return)) {
         stop("local closure does not return a value")
       }
-      if (!is.null(last_expr)) {
-        assign_code <- h$render(expr)
-      }
+      assign_code <- h$render(expr)
       res_var <- NULL
     } else if (is.null(expr@value@mode)) {
       stop("could not infer closure return type")
@@ -1366,6 +1385,27 @@ closure_last_expr <- function(fun) {
   }
 }
 
+closure_formal_vars <- function(args_f, formal_names) {
+  stopifnot(is.list(args_f), is.character(formal_names))
+  if (!length(formal_names)) {
+    return(setNames(list(), character()))
+  }
+  if (length(args_f) != length(formal_names)) {
+    stop("internal error: argument values do not match closure formals")
+  }
+  names(args_f) <- formal_names
+  formal_vars <- imap(args_f, function(f, nm) {
+    stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
+    v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
+    if (logical_as_int_symbol(f@value)) {
+      attr(v, "logical_as_int") <- TRUE
+    }
+    v
+  })
+  names(formal_vars) <- formal_names
+  formal_vars
+}
+
 compile_closure_call <- function(
   call_expr,
   closure_obj,
@@ -1394,15 +1434,7 @@ compile_closure_call <- function(
   }
 
   args_f <- lapply(args_expr, r2f, scope, ..., hoist = hoist)
-  formal_vars <- imap(args_f, function(f, nm) {
-    stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
-    v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
-    if (logical_as_int_symbol(f@value)) {
-      attr(v, "logical_as_int") <- TRUE
-    }
-    v
-  })
-  names(formal_vars) <- formal_names
+  formal_vars <- closure_formal_vars(args_f, formal_names)
 
   last_expr <- closure_last_expr(fun)
 
@@ -1498,15 +1530,7 @@ compile_closure_call_assignment <- function(
   }
 
   args_f <- lapply(args_expr, r2f, scope, ...)
-  formal_vars <- imap(args_f, function(f, nm) {
-    stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
-    v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
-    if (logical_as_int_symbol(f@value)) {
-      attr(v, "logical_as_int") <- TRUE
-    }
-    v
-  })
-  names(formal_vars) <- formal_names
+  formal_vars <- closure_formal_vars(args_f, formal_names)
 
   return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
   res_var <- if (target_exists) {

@@ -154,6 +154,24 @@ test_that("statement local closure calls may ignore return values", {
   expect_quick_identical(fn, list(x))
 })
 
+test_that("statement local closure calls support chaining void closures", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    g <- function(i) {
+      x[i] <- x[i] + 1.0
+    }
+    f <- function(i) {
+      g(i)
+    }
+    f(1L)
+    x
+  }
+
+  set.seed(1)
+  x <- runif(10)
+  expect_quick_identical(fn, list(x))
+})
+
 test_that("local closure calls can be used in expression position", {
   fn <- function(x) {
     declare(type(x = double(NA)))
