@@ -191,21 +191,28 @@ test_that("local closure assignments shadow captured variables", {
     declare(type(x = double(NA)))
     f <- function() {
       x <- x + 1.0
-      sum(x)
+      sum(x * x)
     }
     a <- f()
-    b <- sum(x)
-    a - b
+    b <- sum(x * x)
+    diff <- a - b
+    list(diff = diff, host_x = x)
   }
 
   qfn <- quick(fn)
-  x0 <- as.double(1:10)
-  x <- x0
-  out <- qfn(x)
-
-  expect_identical(out, 10)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+  set.seed(1)
+  cases <- list(
+    as.double(1:10),
+    runif(7) - 0.5,
+    c(-1.5, 0.25, 2.0)
+  )
+  for (x0 in cases) {
+    x <- x0
+    res <- qfn(x)
+    expect_identical(res, fn(x0))
+    expect_identical(res$host_x, x0)
+    expect_identical(x, x0)
+  }
 })
 
 test_that("<<- targets the host even when the name is shadowed locally", {
@@ -218,17 +225,35 @@ test_that("<<- targets the host even when the name is shadowed locally", {
     }
     local_sum <- f()
     host_sum <- sum(x)
-    host_sum - local_sum
+    diff <- host_sum - local_sum
+    list(
+      diff = diff,
+      local_sum = local_sum,
+      host_sum = host_sum,
+      host_x = x
+    )
   }
 
   qfn <- quick(fn)
-  x0 <- as.double(1:10)
-  x <- x0
-  out <- qfn(x)
+  set.seed(1)
+  cases <- list(
+    as.double(1:1),
+    as.double(1:3),
+    runif(10),
+    runif(7) - 0.5
+  )
+  for (x0 in cases) {
+    x <- x0
+    res <- qfn(x)
 
-  expect_identical(out, 10)
-  expect_identical(out, fn(x0))
-  expect_identical(x, x0)
+    expect_identical(res, fn(x0))
+    expect_identical(x, x0)
+
+    expect_identical(res$diff, as.double(length(x0)))
+    expect_identical(res$local_sum, sum(x0 + 1.0))
+    expect_identical(res$host_sum, sum(x0 + 2.0))
+    expect_identical(res$host_x, x0 + 2.0)
+  }
 })
 
 test_that("captured subset assignments shadow the host", {
