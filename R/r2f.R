@@ -1186,26 +1186,41 @@ compile_internal_subroutine <- function(
   }
 
   body_expr <- body(fun)
-  if (is_call(body_expr, quote(`{`))) {
-    stmts <- as.list(body_expr)[-1L]
-    if (!length(stmts)) {
-      stop("closure body must not be empty")
-    }
-    last_expr <- last(stmts)
-    prefix <- drop_last(stmts)
+  stmts <- if (is_call(body_expr, quote(`{`))) {
+    as.list(body_expr)[-1L]
   } else {
-    last_expr <- body_expr
-    prefix <- list()
+    list(body_expr)
+  }
+  if (!length(stmts)) {
+    stop("closure body must not be empty")
   }
 
-  prefix_code <- lapply(prefix, function(stmt) r2f(stmt, proc_scope))
-  prefix_code <- str_flatten_lines(prefix_code)
+  body_prefix <- character()
+  assign_code <- character()
+  if (is.null(res_var)) {
+    if (is.null(last(stmts))) {
+      stmts <- drop_last(stmts)
+    }
+    if (length(stmts)) {
+      body_prefix <- lapply(stmts, function(stmt) r2f(stmt, proc_scope))
+      body_prefix <- str_flatten_lines(body_prefix)
+    }
+  } else {
+    last_expr <- last(stmts)
+    prefix <- drop_last(stmts)
 
-  assign_code <- ""
-  if (!is.null(res_var)) {
+    body_prefix <- lapply(prefix, function(stmt) r2f(stmt, proc_scope))
+    body_prefix <- str_flatten_lines(body_prefix)
+
     h <- new_hoist(proc_scope)
     expr <- r2f(last_expr, proc_scope, hoist = h)
-    if (is.null(expr@value) || is.null(expr@value@mode)) {
+    if (is.null(expr@value)) {
+      stop(structure(
+        list(message = "local closure does not return a value"),
+        class = c("quickr_void_closure_return", "error", "condition")
+      ))
+    }
+    if (is.null(expr@value@mode)) {
       stop("could not infer closure return type")
     }
     if (is.null(res_var@mode)) {
@@ -1243,10 +1258,6 @@ compile_internal_subroutine <- function(
       }
     }
     assign_code <- h$render(glue("{res_name} = {expr}"))
-  } else {
-    if (!is.null(last_expr)) {
-      stop("side-effect local closures must end with `NULL`")
-    }
   }
 
   vars_formals <- scope_vars(formal_scope)
@@ -1293,7 +1304,7 @@ compile_internal_subroutine <- function(
     if (length(locals)) emit_decls(locals, proc_scope) else character()
   )
 
-  body_code <- str_flatten_lines(prefix_code, assign_code)
+  body_code <- str_flatten_lines(body_prefix, assign_code)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = vars_declared,
     body_code = body_code,
@@ -1387,7 +1398,9 @@ compile_closure_call <- function(
   })
   names(formal_vars) <- formal_names
 
-  if (is.null(closure_last_expr(fun))) {
+  last_expr <- closure_last_expr(fun)
+
+  if (is.null(last_expr)) {
     if (needs_value) {
       stop("local closure calls that return `NULL` cannot be used as values")
     }
@@ -1407,14 +1420,43 @@ compile_closure_call <- function(
     return(Fortran(glue("call {proc$name}()")))
   }
 
-  proc <- compile_internal_subroutine(
-    proc_name,
-    closure_obj,
-    scope,
-    formal_vars = formal_vars,
-    res_var = Variable()
-  )
+  proc <- if (!needs_value) {
+    tryCatch(
+      compile_internal_subroutine(
+        proc_name,
+        closure_obj,
+        scope,
+        formal_vars = formal_vars,
+        res_var = Variable()
+      ),
+      quickr_void_closure_return = function(e) {
+        compile_internal_subroutine(
+          proc_name,
+          closure_obj,
+          scope,
+          formal_vars = formal_vars,
+          res_var = NULL
+        )
+      }
+    )
+  } else {
+    compile_internal_subroutine(
+      proc_name,
+      closure_obj,
+      scope,
+      formal_vars = formal_vars,
+      res_var = Variable()
+    )
+  }
   scope_root(scope)@add_internal_proc(proc)
+
+  if (!needs_value && is.null(proc$res)) {
+    call_args <- unname(args_f)
+    if (length(call_args)) {
+      return(Fortran(glue("call {proc$name}({str_flatten_commas(call_args)})")))
+    }
+    return(Fortran(glue("call {proc$name}()")))
+  }
 
   res_var <- proc$res_var
   if (is.null(res_var@mode)) {
