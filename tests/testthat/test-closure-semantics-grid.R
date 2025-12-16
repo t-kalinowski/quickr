@@ -199,20 +199,16 @@ test_that("local closure assignments shadow captured variables", {
     list(diff = diff, host_x = x)
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  cases <- list(
-    as.double(1:10),
-    runif(7) - 0.5,
-    c(-1.5, 0.25, 2.0)
-  )
-  for (x0 in cases) {
-    x <- x0
-    res <- qfn(x)
-    expect_identical(res, fn(x0))
-    expect_identical(res$host_x, x0)
-    expect_identical(x, x0)
-  }
+  x1 <- c(0, 0, 0)
+  x2 <- c(1, 2, 3)
+
+  expect_identical(fn(x1)$diff, 3)
+  expect_identical(fn(x2)$diff, 15)
+
+  expect_identical(fn(x1)$host_x, x1)
+  expect_identical(fn(x2)$host_x, x2)
+
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
 })
 
 test_that("<<- targets the host even when the name is shadowed locally", {
@@ -234,26 +230,25 @@ test_that("<<- targets the host even when the name is shadowed locally", {
     )
   }
 
-  qfn <- quick(fn)
-  set.seed(1)
-  cases <- list(
-    as.double(1:1),
-    as.double(1:3),
-    runif(10),
-    runif(7) - 0.5
-  )
-  for (x0 in cases) {
-    x <- x0
-    res <- qfn(x)
+  x1 <- c(0)
+  x2 <- c(1, 2, 3)
 
-    expect_identical(res, fn(x0))
-    expect_identical(x, x0)
+  res1 <- fn(x1)
+  res2 <- fn(x2)
 
-    expect_identical(res$diff, as.double(length(x0)))
-    expect_identical(res$local_sum, sum(x0 + 1.0))
-    expect_identical(res$host_sum, sum(x0 + 2.0))
-    expect_identical(res$host_x, x0 + 2.0)
-  }
+  expect_identical(res1$diff, 1)
+  expect_identical(res2$diff, 3)
+
+  expect_identical(res1$local_sum, 1)
+  expect_identical(res2$local_sum, 9)
+
+  expect_identical(res1$host_sum, 2)
+  expect_identical(res2$host_sum, 12)
+
+  expect_identical(res1$host_x, x1 + 2.0)
+  expect_identical(res2$host_x, x2 + 2.0)
+
+  expect_quick_identical(fn, x1, x2, as.double(seq(-10, 10)))
 })
 
 test_that("captured subset assignments shadow the host", {
