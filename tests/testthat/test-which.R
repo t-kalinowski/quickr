@@ -46,6 +46,42 @@ test_that("which.max", {
   expect_quick_identical(fn, lgl1, lgl2, lgl3)
 })
 
+test_that("which.max/which.min on local logical arrays", {
+  fn_max <- function(x) {
+    declare(type(x = double(NA)))
+
+    lgl <- x > 0
+    out <- which.max(lgl)
+    out
+  }
+
+  x1 <- c(-1, -2, -3)
+  x2 <- c(-1, 2, 3)
+  x3 <- c(-1, 0, 2)
+
+  expect_identical(fn_max(x1), 1L)
+  expect_identical(fn_max(x2), 2L)
+  expect_identical(fn_max(x3), 3L)
+  expect_quick_identical(fn_max, x1, x2, x3)
+
+  fn_min <- function(x) {
+    declare(type(x = double(NA)))
+
+    lgl <- x > 0
+    out <- which.min(lgl)
+    out
+  }
+
+  y1 <- c(1, 2, 3) # all TRUE -> 1 (R semantics)
+  y2 <- c(1, -1, 2)
+  y3 <- c(1, 2, -1)
+
+  expect_identical(fn_min(y1), 1L)
+  expect_identical(fn_min(y2), 2L)
+  expect_identical(fn_min(y3), 3L)
+  expect_quick_identical(fn_min, y1, y2, y3)
+})
+
 #   qfn_find_loc_int <- quick("fn", fn)
 #   qfn_find_loc_lgl <- quick("fn", fn)
 #
