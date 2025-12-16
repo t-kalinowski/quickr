@@ -1656,7 +1656,7 @@ r2f_for_iterable <- function(iterable, scope, ...) {
     stop(
       "unsupported iterable in for(): ",
       deparse1(x),
-      "\nSupported: `a:b`, `seq(from, to, by)`, `seq_len(n)`, `seq_along(x)`.",
+      "\nSupported: `<symbol>`, `a:b`, `seq(from, to, by)`, `seq_len(n)`, `seq_along(x)`.",
       call. = FALSE
     )
   }
@@ -1689,6 +1689,102 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   } else {
     var
   }
+
+  iterable_unwrapped <- iterable
+  while (
+    is_call(iterable_unwrapped, quote(`(`)) &&
+      length(iterable_unwrapped) == 2L
+  ) {
+    iterable_unwrapped <- iterable_unwrapped[[2L]]
+  }
+
+  # Value iteration: `for (x in foo) { ... }`
+  if (is.symbol(iterable_unwrapped)) {
+    iterable_name <- as.character(iterable_unwrapped)
+    iterable_var <- get0(iterable_name, scope)
+    if (!inherits(iterable_var, Variable)) {
+      stop(
+        "could not resolve iterable in for(): ",
+        iterable_name,
+        call. = FALSE
+      )
+    }
+    if (is.null(iterable_var@mode)) {
+      stop(
+        "could not infer iterable type in for(): ",
+        iterable_name,
+        call. = FALSE
+      )
+    }
+
+    if (inherits(existing, Variable) && !passes_as_scalar(existing)) {
+      stop(
+        "for-loop variable must be scalar when iterating values: ",
+        var,
+        call. = FALSE
+      )
+    }
+
+    loop_var <- existing %||% Variable(mode = iterable_var@mode)
+    loop_var@name <- var_name
+    if (identical(loop_var@mode, "logical") && !inherits(existing, Variable)) {
+      loop_var@logical_as_int <- logical_as_int(iterable_var)
+    }
+    loop_var@modified <- TRUE
+    scope[[var]] <- loop_var
+
+    iterable_tmp <- scope@get_unique_var(
+      mode = iterable_var@mode,
+      dims = iterable_var@dims,
+      logical_as_int = logical_as_int(iterable_var)
+    )
+    iterable_tmp_assign <- glue("{iterable_tmp@name} = {iterable_var@name}")
+
+    idx <- scope@get_unique_var("integer")
+    end <- if (passes_as_scalar(iterable_var)) {
+      "1_c_int"
+    } else {
+      glue("size({iterable_tmp@name})")
+    }
+
+    element_designator <- if (passes_as_scalar(iterable_var)) {
+      iterable_tmp@name
+    } else if (iterable_var@rank == 1L) {
+      glue("{iterable_tmp@name}({idx@name})")
+    } else {
+      subs <- linear_subscripts_from_1d(
+        iterable_tmp@name,
+        iterable_var@rank,
+        Fortran(idx@name, idx)
+      )
+      glue("{iterable_tmp@name}({str_flatten_commas(subs)})")
+    }
+
+    element_expr <- element_designator
+    if (identical(loop_var@mode, "logical")) {
+      element_is_int <- logical_as_int(iterable_tmp)
+      target_is_int <- logical_as_int(loop_var)
+      if (target_is_int && !element_is_int) {
+        element_expr <- glue("merge(1_c_int, 0_c_int, {element_expr})")
+      } else if (!target_is_int && element_is_int) {
+        element_expr <- glue("({element_expr} /= 0)")
+      }
+    }
+
+    body <- r2f(body, scope, ...)
+    loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
+
+    return(Fortran(glue(
+      "
+      {iterable_tmp_assign}
+      do {idx@name} = 1_c_int, {end}
+      {indent(loop_stmts)}
+      end do
+      "
+    )))
+  }
+
+  # Index iteration: `for (i in 1:n) { ... }`
   scope[[var]] <- Variable(mode = "integer", name = var_name)
 
   iterable <- r2f_for_iterable(iterable, scope, ...)

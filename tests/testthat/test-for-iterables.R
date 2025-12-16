@@ -70,15 +70,6 @@ test_that("for() supports seq() direction and step", {
 })
 
 test_that("for() iterable errors are clear", {
-  sym_iterable <- function(x) {
-    declare(type(x = integer(NA)))
-    s <- 0L
-    for (i in x) {
-      s <- s + i
-    }
-    s
-  }
-
   call_iterable <- function(n) {
     declare(type(n = integer(1)))
     s <- 0L
@@ -105,10 +96,6 @@ test_that("for() iterable errors are clear", {
   }
 
   expect_error(
-    quick(sym_iterable),
-    regexp = "unsupported iterable in for\\(\\): x"
-  )
-  expect_error(
     quick(call_iterable),
     regexp = "unsupported iterable in for\\(\\): rev\\("
   )
@@ -120,4 +107,56 @@ test_that("for() iterable errors are clear", {
     quick(non_integer_seq_len),
     regexp = "seq_len\\(\\) expects an integer scalar"
   )
+})
+
+test_that("for() supports iterating over a symbol (value iteration)", {
+  sum_values <- function(x) {
+    declare(type(x = double(NA)))
+    s <- 0
+    for (v in x) {
+      s <- s + v
+    }
+    s
+  }
+
+  count_true <- function(x) {
+    declare(type(x = logical(NA)))
+    n <- 0L
+    for (v in x) {
+      if (v) n <- n + 1L
+    }
+    n
+  }
+
+  linearize_matrix <- function(m) {
+    declare(type(m = integer(NA, NA)))
+    out <- integer(length(m))
+    j <- 1L
+    for (v in m) {
+      out[j] <- v
+      j <- j + 1L
+    }
+    out
+  }
+
+  iterable_hoisted <- function(x) {
+    declare(type(x = integer(NA)))
+    y <- x
+    out <- 0L
+    for (v in y) {
+      out <- out * 10L + v
+      y[length(y)] <- 9L
+    }
+    out
+  }
+
+  expect_quick_identical(sum_values, numeric(), c(1, 2, 3))
+  expect_quick_identical(
+    count_true,
+    logical(),
+    c(TRUE, FALSE, TRUE),
+    c(FALSE, FALSE)
+  )
+  expect_quick_identical(linearize_matrix, matrix(1:6, nrow = 2))
+  expect_quick_identical(iterable_hoisted, 1:3, c(1L, 2L, 3L, 4L))
 })
