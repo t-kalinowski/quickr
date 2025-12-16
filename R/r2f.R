@@ -1130,12 +1130,14 @@ compile_internal_subroutine <- function(
   parent_scope,
   formal_vars,
   res_var,
+  allow_void_return = FALSE,
   forbid_superassign = character()
 ) {
   stopifnot(is_string(proc_name), inherits(closure_obj, LocalClosure))
   fun <- closure_obj@fun
   stopifnot(is.function(fun))
   stopifnot(is.null(res_var) || inherits(res_var, Variable))
+  stopifnot(is_bool(allow_void_return))
   stopifnot(is.character(forbid_superassign))
   forbid_superassign <- unique(forbid_superassign)
   if (length(forbid_superassign) && any(!nzchar(forbid_superassign))) {
@@ -1175,15 +1177,6 @@ compile_internal_subroutine <- function(
   }
 
   res_name <- NULL
-  if (!is.null(res_var)) {
-    res_name <- "res"
-    while (res_name %in% c(formal_names, used_names)) {
-      res_name <- paste0(res_name, "_")
-    }
-    res_var@name <- res_name
-    proc_scope[[res_name]] <- res_var
-    arg_names <- c(arg_names, res_name)
-  }
 
   body_expr <- body(fun)
   stmts <- if (is_call(body_expr, quote(`{`))) {
@@ -1215,49 +1208,62 @@ compile_internal_subroutine <- function(
     h <- new_hoist(proc_scope)
     expr <- r2f(last_expr, proc_scope, hoist = h)
     if (is.null(expr@value)) {
-      stop(structure(
-        list(message = "local closure does not return a value"),
-        class = c("quickr_void_closure_return", "error", "condition")
-      ))
-    }
-    if (is.null(expr@value@mode)) {
+      if (!isTRUE(allow_void_return)) {
+        stop("local closure does not return a value")
+      }
+      if (!is.null(last_expr)) {
+        assign_code <- h$render(expr)
+      }
+      res_var <- NULL
+    } else if (is.null(expr@value@mode)) {
       stop("could not infer closure return type")
-    }
-    if (is.null(res_var@mode)) {
-      res_var@mode <- expr@value@mode
-      res_var@dims <- expr@value@dims
-      proc_scope[[res_name]] <- res_var
-    }
-    if (!identical(expr@value@mode, res_var@mode)) {
-      stop(
-        "closure result mode (",
-        expr@value@mode,
-        ") does not match output mode (",
-        res_var@mode,
-        ")"
-      )
-    }
-    if (passes_as_scalar(res_var)) {
-      if (!passes_as_scalar(expr@value)) {
-        stop("closure must return a scalar for scalar outputs")
-      }
     } else {
-      if (passes_as_scalar(expr@value)) {
-        stop("closure must return an array for array outputs")
+      res_name <- "res"
+      while (res_name %in% c(formal_names, used_names)) {
+        res_name <- paste0(res_name, "_")
       }
-      if (expr@value@rank != res_var@rank) {
-        stop("closure result rank does not match output rank")
-      }
-      if (
-        !identical(
-          dims2f(expr@value@dims, proc_scope),
-          dims2f(res_var@dims, proc_scope)
-        )
-      ) {
-        stop("closure result shape does not match output shape")
-      }
+      res_var@name <- res_name
+      proc_scope[[res_name]] <- res_var
+      arg_names <- c(arg_names, res_name)
     }
-    assign_code <- h$render(glue("{res_name} = {expr}"))
+
+    if (!is.null(res_var)) {
+      if (is.null(res_var@mode)) {
+        res_var@mode <- expr@value@mode
+        res_var@dims <- expr@value@dims
+        proc_scope[[res_name]] <- res_var
+      }
+      if (!identical(expr@value@mode, res_var@mode)) {
+        stop(
+          "closure result mode (",
+          expr@value@mode,
+          ") does not match output mode (",
+          res_var@mode,
+          ")"
+        )
+      }
+      if (passes_as_scalar(res_var)) {
+        if (!passes_as_scalar(expr@value)) {
+          stop("closure must return a scalar for scalar outputs")
+        }
+      } else {
+        if (passes_as_scalar(expr@value)) {
+          stop("closure must return an array for array outputs")
+        }
+        if (expr@value@rank != res_var@rank) {
+          stop("closure result rank does not match output rank")
+        }
+        if (
+          !identical(
+            dims2f(expr@value@dims, proc_scope),
+            dims2f(res_var@dims, proc_scope)
+          )
+        ) {
+          stop("closure result shape does not match output shape")
+        }
+      }
+      assign_code <- h$render(glue("{res_name} = {expr}"))
+    }
   }
 
   vars_formals <- scope_vars(formal_scope)
@@ -1420,34 +1426,14 @@ compile_closure_call <- function(
     return(Fortran(glue("call {proc$name}()")))
   }
 
-  proc <- if (!needs_value) {
-    tryCatch(
-      compile_internal_subroutine(
-        proc_name,
-        closure_obj,
-        scope,
-        formal_vars = formal_vars,
-        res_var = Variable()
-      ),
-      quickr_void_closure_return = function(e) {
-        compile_internal_subroutine(
-          proc_name,
-          closure_obj,
-          scope,
-          formal_vars = formal_vars,
-          res_var = NULL
-        )
-      }
-    )
-  } else {
-    compile_internal_subroutine(
-      proc_name,
-      closure_obj,
-      scope,
-      formal_vars = formal_vars,
-      res_var = Variable()
-    )
-  }
+  proc <- compile_internal_subroutine(
+    proc_name,
+    closure_obj,
+    scope,
+    formal_vars = formal_vars,
+    res_var = Variable(),
+    allow_void_return = !needs_value
+  )
   scope_root(scope)@add_internal_proc(proc)
 
   if (!needs_value && is.null(proc$res)) {
