@@ -97,20 +97,20 @@
         end do
       
         contains
-          subroutine apply_boundary_conditions(temp_in, res)
+          subroutine apply_boundary_conditions(temp, res)
             use iso_c_binding, only: c_double, c_int
             implicit none
       
-            real(c_double), intent(in) :: temp_in(:, :)
+            real(c_double), intent(in) :: temp(:, :)
             real(c_double), intent(out) :: res(:, :)
-            real(c_double) :: temp(nx, ny)
+            real(c_double) :: temp__local_(nx, ny)
       
-            temp = temp_in
-            temp(1_c_int, :) = 0.0_c_double
-            temp(nx, :) = 0.0_c_double
-            temp(:, 1_c_int) = 0.0_c_double
-            temp(:, ny) = 0.0_c_double
-            res = temp
+            temp__local_ = temp
+            temp__local_(1_c_int, :) = 0.0_c_double
+            temp__local_(nx, :) = 0.0_c_double
+            temp__local_(:, 1_c_int) = 0.0_c_double
+            temp__local_(:, ny) = 0.0_c_double
+            res = temp__local_
           end subroutine
           subroutine update_temperature(temp, k, dx, dy, dt, res)
             use iso_c_binding, only: c_double, c_int

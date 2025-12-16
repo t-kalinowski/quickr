@@ -58,14 +58,36 @@ logical_as_int_symbol <- function(var) {
     logical_as_int(var)
 }
 
-host_associated <- function(var) {
-  inherits(var, Variable) && isTRUE(attr(var, "host_associated", exact = TRUE))
+scope_is_closure <- function(scope) {
+  inherits(scope, "quickr_scope") && identical(scope@kind, "closure")
 }
 
-as_host_associated <- function(var) {
-  stopifnot(inherits(var, Variable))
-  attr(var, "host_associated") <- TRUE
-  var
+scope_fortran_names <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  out <- character()
+  while (inherits(scope, "quickr_scope")) {
+    vars <- scope_vars(scope)
+    out <- c(out, map_chr(vars, \(v) v@name %||% ""))
+    scope <- parent.env(scope)
+  }
+  unique(out[nzchar(out)])
+}
+
+make_shadow_fortran_name <- function(scope, base, suffix = "__local_") {
+  stopifnot(inherits(scope, "quickr_scope"), is_string(base), is_string(suffix))
+  used <- scope_fortran_names(scope)
+  candidate <- paste0(base, suffix)
+  if (!candidate %in% used) {
+    return(candidate)
+  }
+  i <- 1L
+  repeat {
+    candidate <- paste0(base, suffix, i, "_")
+    if (!candidate %in% used) {
+      return(candidate)
+    }
+    i <- i + 1L
+  }
 }
 
 lang2fortran <- r2f <- function(
@@ -1091,60 +1113,6 @@ as_local_closure <- function(fun_expr, env, name = NULL) {
   new_local_closure(eval(fun_expr, envir = env), name = name)
 }
 
-find_assignment_symbols <- function(e) {
-  assigned <- character()
-  superassigned <- character()
-
-  add_lhs <- function(lhs, target) {
-    if (is.symbol(lhs)) {
-      return(unique(c(target, as.character(lhs))))
-    }
-    if (
-      is.call(lhs) &&
-        is.symbol(lhs[[1L]]) &&
-        as.character(lhs[[1L]]) %in% c("[", "[[", "$") &&
-        is.symbol(lhs[[2L]])
-    ) {
-      # Handle mutation patterns like `x[i] <- ...`
-      return(unique(c(target, as.character(lhs[[2L]]))))
-    }
-    target
-  }
-
-  walk <- function(x) {
-    if (is.call(x)) {
-      head <- x[[1L]]
-      if (identical(head, quote(`<-`)) || identical(head, quote(`=`))) {
-        assigned <<- add_lhs(x[[2L]], assigned)
-        walk(x[[3L]])
-        return()
-      }
-      if (identical(head, quote(`<<-`))) {
-        superassigned <<- add_lhs(x[[2L]], superassigned)
-        walk(x[[3L]])
-        return()
-      }
-      if (identical(head, as.symbol("for"))) {
-        var <- x[[2L]]
-        if (is.symbol(var)) {
-          assigned <<- unique(c(assigned, as.character(var)))
-        }
-      }
-
-      for (i in seq_along(x)[-1L]) {
-        walk(x[[i]])
-      }
-    } else if (is.pairlist(x) || is.list(x)) {
-      for (elt in x) {
-        walk(elt)
-      }
-    }
-  }
-
-  walk(e)
-  list(assigned = assigned, superassigned = superassigned)
-}
-
 scope_root <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
   while (
@@ -1161,12 +1129,18 @@ compile_internal_subroutine <- function(
   closure_obj,
   parent_scope,
   formal_vars,
-  res_var
+  res_var,
+  forbid_superassign = character()
 ) {
   stopifnot(is_string(proc_name), inherits(closure_obj, LocalClosure))
   fun <- closure_obj@fun
   stopifnot(is.function(fun))
   stopifnot(is.null(res_var) || inherits(res_var, Variable))
+  stopifnot(is.character(forbid_superassign))
+  forbid_superassign <- unique(forbid_superassign)
+  if (length(forbid_superassign) && any(!nzchar(forbid_superassign))) {
+    stop("forbid_superassign must contain only non-empty names")
+  }
 
   formal_names <- names(formals(fun)) %||% character()
   if (length(formal_names) && any(!nzchar(formal_names))) {
@@ -1177,132 +1151,38 @@ compile_internal_subroutine <- function(
     stop("internal error: formal vars do not match closure formals")
   }
 
-  assignment_info <- find_assignment_symbols(body(fun))
-  assigned <- assignment_info$assigned
-  superassigned <- assignment_info$superassigned
   used_names <- unique(all.vars(body(fun), functions = FALSE))
-  shadowed_captures <- keep(setdiff(assigned, formal_names), function(nm) {
-    inherits(get0(nm, parent_scope), Variable)
-  })
 
-  if (length(superassigned)) {
-    host_scope <- scope_root(parent_scope)
+  formal_scope <- new_scope(closure = NULL, parent = parent_scope)
+  attr(formal_scope, "kind") <- "closure_formals"
 
-    bad_formals <- intersect(superassigned, formal_names)
-    if (length(bad_formals)) {
-      stop(
-        "<<- targets must not shadow closure formals: ",
-        str_flatten_commas(bad_formals)
-      )
-    }
-
-    for (nm in superassigned) {
-      if (!inherits(get0(nm, host_scope), Variable)) {
-        stop(
-          "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-          nm
-        )
-      }
-    }
-  }
-
-  mutated_formals <- intersect(formal_names, assigned)
-
-  proc_scope <- new_scope(fun, parent = parent_scope)
+  proc_scope <- new_scope(fun, parent = formal_scope)
   attr(proc_scope, "kind") <- "closure"
   attr(proc_scope, "host_scope") <- scope_root(parent_scope)
+  attr(proc_scope, "forbid_superassign") <- forbid_superassign
 
-  used_arg_names <- character()
-  dummy_formals <- setNames(rep("", length(formal_names)), formal_names)
-  init_stmts <- character()
   arg_names <- character()
-
-  make_unique_arg_name <- function(base, used) {
-    name <- base
-    while (name %in% used) {
-      name <- paste0(name, "_")
-    }
-    name
-  }
-
   for (nm in formal_names) {
     var <- formal_vars[[nm]]
     stopifnot(inherits(var, Variable))
 
-    if (nm %in% mutated_formals) {
-      dummy <- make_unique_arg_name(
-        paste0(nm, "_in"),
-        c(used_arg_names, used_names, "res")
-      )
-      dummy_formals[[nm]] <- dummy
-
-      dummy_var <- Variable(mode = var@mode, dims = var@dims, name = dummy)
-      if (logical_as_int(var)) {
-        attr(dummy_var, "logical_as_int") <- TRUE
-      }
-      proc_scope[[dummy]] <- dummy_var
-      used_arg_names <- c(used_arg_names, dummy)
-      arg_names <- c(arg_names, dummy)
-
-      local_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
-      if (logical_as_int(var)) {
-        attr(local_var, "logical_as_int") <- TRUE
-      }
-      proc_scope[[nm]] <- local_var
-      init_stmts <- c(init_stmts, glue("{nm} = {dummy}"))
-    } else {
-      dummy_formals[[nm]] <- nm
-
-      arg_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
-      if (logical_as_int(var)) {
-        attr(arg_var, "logical_as_int") <- TRUE
-      }
-      proc_scope[[nm]] <- arg_var
-      used_arg_names <- c(used_arg_names, nm)
-      arg_names <- c(arg_names, nm)
-    }
-  }
-
-  host_aliases <- list()
-  for (nm in shadowed_captures) {
-    var <- get0(nm, parent_scope)
-    if (!inherits(var, Variable)) {
-      stop("could not resolve closure capture: ", nm)
-    }
-
-    alias <- make_unique_arg_name(
-      paste0(nm, "__host_"),
-      c(
-        used_arg_names,
-        formal_names,
-        used_names,
-        "res",
-        unlist(host_aliases, use.names = FALSE)
-      )
-    )
-    host_aliases[[nm]] <- alias
-
-    alias_var <- Variable(mode = var@mode, dims = var@dims, name = alias)
+    arg_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
     if (logical_as_int(var)) {
-      attr(alias_var, "logical_as_int") <- TRUE
+      attr(arg_var, "logical_as_int") <- TRUE
     }
-    proc_scope[[alias]] <- as_host_associated(alias_var)
+    formal_scope[[nm]] <- arg_var
+    arg_names <- c(arg_names, nm)
+  }
 
-    local_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
-    if (logical_as_int(var)) {
-      attr(local_var, "logical_as_int") <- TRUE
-    }
-    proc_scope[[nm]] <- local_var
-    init_stmts <- c(init_stmts, glue("{nm} = {alias}"))
-  }
-  if (length(host_aliases)) {
-    attr(proc_scope, "host_aliases") <- host_aliases
-  }
   res_name <- NULL
   if (!is.null(res_var)) {
     res_name <- "res"
+    while (res_name %in% c(formal_names, used_names)) {
+      res_name <- paste0(res_name, "_")
+    }
     res_var@name <- res_name
     proc_scope[[res_name]] <- res_var
+    arg_names <- c(arg_names, res_name)
   }
 
   body_expr <- body(fun)
@@ -1320,9 +1200,6 @@ compile_internal_subroutine <- function(
 
   prefix_code <- lapply(prefix, function(stmt) r2f(stmt, proc_scope))
   prefix_code <- str_flatten_lines(prefix_code)
-  if (length(init_stmts)) {
-    prefix_code <- str_flatten_lines(init_stmts, prefix_code)
-  }
 
   assign_code <- ""
   if (!is.null(res_var)) {
@@ -1372,13 +1249,12 @@ compile_internal_subroutine <- function(
     }
   }
 
-  vars <- scope_vars(proc_scope)
-  vars_declared <- discard(vars, host_associated)
-  arg_names <- c(arg_names)
+  vars_formals <- scope_vars(formal_scope)
+  vars_locals <- scope_vars(proc_scope)
+  locals <- vars_locals
   if (!is.null(res_name)) {
-    arg_names <- c(arg_names, res_name)
+    locals <- locals[setdiff(names(locals), res_name)]
   }
-  locals <- vars_declared[setdiff(names(vars_declared), arg_names)]
 
   if (length(locals)) {
     bad <- map_lgl(locals, function(v) {
@@ -1390,23 +1266,25 @@ compile_internal_subroutine <- function(
     }
   }
 
-  args <- vars_declared[arg_names]
-  in_args <- c(unname(dummy_formals))
+  out_arg <- if (is.null(res_name)) {
+    list()
+  } else {
+    setNames(list(proc_scope[[res_name]]), res_name)
+  }
+  vars_declared <- c(vars_formals, out_arg, locals)
 
-  shadowed_locals <- vars_declared[names(host_aliases)]
-  locals <- locals[setdiff(names(locals), names(host_aliases))]
   decls <- c(
     emit_decls(
-      args[in_args],
-      proc_scope,
-      intents = rep(list("intent(in)"), length(in_args)),
+      vars_formals,
+      formal_scope,
+      intents = rep(list("intent(in)"), length(vars_formals)),
       assumed_shape = TRUE,
       allow_allocatable = FALSE
     ),
     if (!is.null(res_name)) {
       emit_decls(
-        args[res_name],
-        proc_scope,
+        out_arg,
+        formal_scope,
         intents = list("intent(out)"),
         assumed_shape = TRUE,
         allow_allocatable = FALSE
@@ -1416,21 +1294,6 @@ compile_internal_subroutine <- function(
   )
 
   body_code <- str_flatten_lines(prefix_code, assign_code)
-  if (length(host_aliases)) {
-    assoc_sig <- map_chr(names(host_aliases), function(nm) {
-      glue("{host_aliases[[nm]]} => {nm}")
-    })
-    body_code <- str_flatten_lines(
-      glue("associate({str_flatten_commas(assoc_sig)})"),
-      indent(
-        emit_block(
-          decls = emit_decls(shadowed_locals, proc_scope),
-          stmts = body_code
-        )
-      ),
-      "end associate"
-    )
-  }
   used_iso_bindings <- iso_c_binding_symbols(
     vars = vars_declared,
     body_code = body_code,
@@ -1467,7 +1330,6 @@ compile_internal_subroutine <- function(
     name = proc_name,
     code = proc_code,
     captures = character(),
-    formals = dummy_formals,
     res = res_name,
     res_var = res_var
   )
@@ -1778,18 +1640,10 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
     closure_obj,
     scope,
     formal_vars,
-    res_var
+    res_var,
+    forbid_superassign = out_name
   )
   scope_root(scope)@add_internal_proc(proc)
-
-  closure_assignments <- find_assignment_symbols(body(closure_obj@fun))
-  closure_superassigned <- closure_assignments$superassigned
-  if (out_name %in% closure_superassigned) {
-    stop(
-      "sapply() closure must not superassign to its output variable: ",
-      out_name
-    )
-  }
 
   out_target <- out_name
   post_stmts <- character()
@@ -1896,7 +1750,14 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
     # Create a fresh Variable carrying only mode/dims and a new name.
     src <- value@value
     var <- Variable(mode = src@mode, dims = src@dims)
-    var@name <- name
+    fortran_name <- if (
+      scope_is_closure(scope) && inherits(get0(name, scope), Variable)
+    ) {
+      make_shadow_fortran_name(scope, name)
+    } else {
+      name
+    }
+    var@name <- fortran_name
     # keep a reference to the R expression assigned, if available
     tryCatch(
       var@r <- attr(value, "r", TRUE),
@@ -1930,11 +1791,33 @@ r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   # ditto for ifelse() ?
   # e <- as.list(e)
 
-  stopifnot(is_call(target <- args[[1L]], "["))
-  target <- r2f(target, scope, ...)
+  stopifnot(is_call(target_call <- args[[1L]], "["))
 
+  pre <- NULL
+  if (scope_is_closure(scope) && is.symbol(base <- target_call[[2L]])) {
+    base_name <- as.character(base)
+    local_base <- get0(base_name, scope, inherits = FALSE)
+    if (is.null(local_base) || !inherits(local_base, Variable)) {
+      parent_base <- get0(base_name, scope)
+      if (!inherits(parent_base, Variable)) {
+        stop("could not resolve symbol: ", base_name)
+      }
+
+      shadow <- Variable(mode = parent_base@mode, dims = parent_base@dims)
+      shadow@name <- make_shadow_fortran_name(scope, base_name)
+      if (logical_as_int(parent_base)) {
+        attr(shadow, "logical_as_int") <- TRUE
+      }
+      scope[[base_name]] <- shadow
+
+      pre <- glue("{shadow@name} = {parent_base@name}")
+    }
+  }
+
+  target <- r2f(target_call, scope, ...)
   value <- r2f(args[[2L]], scope, ...)
-  Fortran(glue("{target} = {value}"))
+
+  Fortran(str_flatten_lines(pre, glue("{target} = {value}")))
 }
 
 r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
@@ -1954,6 +1837,16 @@ r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(is.symbol(target))
   name <- as.character(target)
 
+  formal_names <- names(formals(scope@closure)) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
   host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
   host_var <- get0(name, host_scope)
   if (!inherits(host_var, Variable)) {
@@ -1963,28 +1856,13 @@ r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  local_var <- get0(name, scope, inherits = FALSE)
-  target_name <- name
-  if (
-    !is.null(local_var) &&
-      inherits(local_var, Variable) &&
-      !host_associated(local_var)
-  ) {
-    host_aliases <- attr(scope, "host_aliases", exact = TRUE) %||% list()
-    if (!is.null(host_aliases[[name]])) {
-      target_name <- host_aliases[[name]]
-    } else {
-      stop("<<- targets must not resolve to a closure local/formal: ", name)
-    }
-  }
-
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
 
   value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   check_assignment_compatible(host_var, value@value)
 
-  Fortran(glue("{target_name} = {value}"))
+  Fortran(glue("{host_var@name} = {value}"))
 }
 
 r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
@@ -2008,6 +1886,16 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
   }
   name <- as.character(base)
 
+  formal_names <- names(formals(scope@closure)) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
   host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
   host_var <- get0(name, host_scope)
   if (!inherits(host_var, Variable)) {
@@ -2017,26 +1905,25 @@ r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  local_var <- get0(name, scope, inherits = FALSE)
-  target_name <- name
-  if (
-    !is.null(local_var) &&
-      inherits(local_var, Variable) &&
-      !host_associated(local_var)
-  ) {
-    host_aliases <- attr(scope, "host_aliases", exact = TRUE) %||% list()
-    if (!is.null(host_aliases[[name]])) {
-      target_name <- host_aliases[[name]]
-    } else {
-      stop("<<- targets must not resolve to a closure local/formal: ", name)
-    }
-  }
-
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
 
-  subset_call[[2L]] <- as.symbol(target_name)
-  target <- r2f(subset_call, scope, ..., hoist = hoist)
+  target_scope <- scope@new_child("block")
+  alias <- paste0(name, "__hostref_")
+  while (exists(alias, target_scope, inherits = TRUE)) {
+    alias <- paste0(alias, "_")
+  }
+  proxy <- Variable(
+    mode = host_var@mode,
+    dims = host_var@dims,
+    name = host_var@name
+  )
+  if (logical_as_int(host_var)) {
+    attr(proxy, "logical_as_int") <- TRUE
+  }
+  target_scope[[alias]] <- proxy
+  subset_call[[2L]] <- as.symbol(alias)
+  target <- r2f(subset_call, target_scope, ..., hoist = hoist)
   value <- r2f(args[[2L]], scope, ..., hoist = hoist)
   Fortran(glue("{target} = {value}"))
 }
@@ -2361,16 +2248,25 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   .[var, iterable, body] <- args
   stopifnot(is.symbol(var))
   var <- as.character(var)
-  scope[[var]] <- Variable(mode = "integer", name = var)
+  existing <- get0(var, scope, inherits = FALSE)
+  var_name <- if (inherits(existing, Variable) && !is.null(existing@name)) {
+    existing@name
+  } else if (scope_is_closure(scope) && inherits(get0(var, scope), Variable)) {
+    make_shadow_fortran_name(scope, var)
+  } else {
+    var
+  }
+  scope[[var]] <- Variable(mode = "integer", name = var_name)
 
   iterable <- r2f_iterable_handlers[[as.character(iterable[[1]])]](
     iterable,
-    scope
+    scope,
+    ...
   )
   body <- r2f(body, scope, ...)
 
   Fortran(glue(
-    "do {var} = {iterable}
+    "do {var_name} = {iterable}
     {indent(body)}
     end do
     "
@@ -2386,20 +2282,20 @@ r2f_iterable_handlers[["seq_len"]] <- function(e, scope, ...) {
   }
   x <- x[[1]]
   start <- 1L
-  end <- r2f(x)
+  end <- r2f(x, scope, ...)
   glue("{start}, {end}")
 }
 
-r2f_iterable_handlers[["seq"]] <- function(e, scope) {
+r2f_iterable_handlers[["seq"]] <- function(e, scope, ...) {
   ee <- match.call(seq.default, e)
   ee <- whole_doubles_to_ints(ee)
 
-  start <- r2f(ee$from, scope)
-  end <- r2f(ee$to, scope)
+  start <- r2f(ee$from, scope, ...)
+  end <- r2f(ee$to, scope, ...)
   step <- if (is.null(ee$by)) {
     glue("sign(1, {end}-{start})")
   } else {
-    r2f(ee$by, scope)
+    r2f(ee$by, scope, ...)
   }
 
   str_flatten_commas(
@@ -2409,22 +2305,22 @@ r2f_iterable_handlers[["seq"]] <- function(e, scope) {
   )
 }
 
-r2f_iterable_handlers[[":"]] <- function(e, scope) {
+r2f_iterable_handlers[[":"]] <- function(e, scope, ...) {
   ee <- whole_doubles_to_ints(e)
-  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope)
+  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope, ...)
 
   glue("{start}, {end}, sign(1, {end}-{start})")
 }
 
 
-r2f_iterable_handlers[["seq_along"]] <- function(e, scope) {
+r2f_iterable_handlers[["seq_along"]] <- function(e, scope, ...) {
   x <- as.list(e)[-1]
   if (length(x) != 1) {
     stop("too many args to seq_along()")
   }
   x <- x[[1]]
   start <- 1
-  end <- sprintf("size(%s)", r2f(x, scope))
+  end <- sprintf("size(%s)", r2f(x, scope, ...))
   glue("{start}, {end}")
 }
 
