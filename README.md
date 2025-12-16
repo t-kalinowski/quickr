@@ -137,9 +137,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             1.04s    1.04s     0.957     782KB    0.957
-#> 2 quickr       4.85ms   5.03ms   198.        782KB    3.61 
-#> 3 c            4.88ms   5.06ms   197.        782KB    4.13
+#> 1 r             478ms 478.44ms      2.09     782KB     6.27
+#> 2 quickr        933µs   1.06ms    946.       782KB    18.5 
+#> 3 c             947µs   1.06ms    939.       782KB    18.1
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -162,17 +162,18 @@ In the case of `convolve()`, `quick()` returns a function approximately
 
 <!-- -->
 
-    #>  [1] -         :         !=        (         [         [<-       {        
-    #>  [8] *         /         &         &&        %/%       %%        ^        
-    #> [15] +         <         <-        <=        =         ==        >        
-    #> [22] >=        |         ||        Arg       Conj      Fortran   Im       
-    #> [29] Mod       Re        abs       acos      as.double asin      atan     
-    #> [36] break     c         cat       cbind     ceiling   character cos      
-    #> [43] declare   dim       double    exp       floor     for       if       
-    #> [50] ifelse    integer   length    log       log10     logical   matrix   
-    #> [57] max       min       ncol      next      nrow      numeric   print    
-    #> [64] prod      raw       repeat    runif     seq       sin       sqrt     
-    #> [71] sum       tan       which.max which.min while
+    #>  [1] -         :         !         !=        (         [         [<-      
+    #>  [8] [<<-      {         *         /         &         &&        %/%      
+    #> [15] %%        ^         +         <         <-        <<-       <=       
+    #> [22] =         ==        >         >=        |         ||        Arg      
+    #> [29] Conj      Fortran   Im        Mod       Re        abs       acos     
+    #> [36] array     as.double asin      atan      break     c         cat      
+    #> [43] cbind     ceiling   character cos       declare   dim       double   
+    #> [50] exp       floor     for       if        ifelse    integer   length   
+    #> [57] log       log10     logical   matrix    max       min       ncol     
+    #> [64] next      nrow      numeric   print     prod      raw       repeat   
+    #> [71] runif     seq       sin       sqrt      sum       tan       which.max
+    #> [78] which.min while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -281,8 +282,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi  147.12µs 162.33µs     5957.    1.59KB     16.8
-#> 2 quick_viterbi   2.48µs   2.62µs   367468.        0B      0
+#> 1 slow_viterbi    61.5µs  71.75µs    13166.    1.59KB     36.1
+#> 2 quick_viterbi   1.72µs   1.89µs   509601.        0B      0
 plot(timings)
 ```
 
@@ -313,25 +314,31 @@ diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
   temp <- matrix(0, nx, ny)
   temp[nx / 2, ny / 2] <- 100  # Initial heat source in the center
 
-  # Time stepping
-  for (step in seq_len(steps)) {
-    # Apply boundary conditions
-    temp[1, ] <- 0
-    temp[nx, ] <- 0
-    temp[, 1] <- 0
-    temp[, ny] <- 0
+  # Local helper that updates `temp` in-place.
+  apply_boundary_conditions <- function() {
+    temp[1, ] <<- 0
+    temp[nx, ] <<- 0
+    temp[, 1] <<- 0
+    temp[, ny] <<- 0
+    NULL
+  }
 
-    # Update using finite differences
+  update_temperature <- function(temp, k, dx, dy, dt) {
     temp_new <- temp
     for (i in 2:(nx - 1)) {
       for (j in 2:(ny - 1)) {
         temp_new[i, j] <- temp[i, j] + k * dt *
-          ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) /
-             dx ^ 2 + (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
+          ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) / dx ^ 2 +
+             (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
       }
     }
-    temp <- temp_new
+    temp_new
+  }
 
+  # Time stepping
+  for (step in seq_len(steps)) {
+    apply_boundary_conditions()
+    temp <- update_temperature(temp, k, dx, dy, dt)
   }
 
   temp
@@ -360,8 +367,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        131.   127.        1      1011.      Inf
-#> 2 quick_diffuse_heat    1      1       127.        1       NaN
+#> 1 diffuse_heat        96.2   91.4       1        514.      Inf
+#> 2 quick_diffuse_heat   1      1        91.1        1       NaN
 plot(timings)
 ```
 
@@ -407,9 +414,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           114.2ms 132.75ms      5.66  124.24MB     9.44
-#> 2 rcpp        19.35ms  19.58ms     50.9     4.44MB     0   
-#> 3 quickr       6.73ms   6.87ms    142.    781.35KB     1.98
+#> 1 r           66.49ms  74.39ms      13.6  124.24MB    25.3 
+#> 2 rcpp         5.89ms   6.26ms     157.     4.44MB     1.99
+#> 3 quickr       2.16ms   2.26ms     434.   781.35KB     5.99
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -460,6 +467,13 @@ On macOS:
   # curl -LO https://mac.r-project.org/tools/gfortran-12.2-universal.pkg # R 4.4
   curl -LO https://mac.r-project.org/tools/gfortran-14.2-universal.pkg   # R 4.5
   sudo installer -pkg gfortran-12.2-universal.pkg -target /
+  ```
+
+- Optional: install `flang-new` via Homebrew (used by quickr on macOS
+  when available):
+
+  ``` zsh
+  brew install flang
   ```
 
 On Windows:

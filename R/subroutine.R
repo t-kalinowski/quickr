@@ -1,4 +1,8 @@
-new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
+new_fortran_subroutine <- function(
+  name,
+  closure,
+  parent = environment(closure)
+) {
   check_all_var_names_valid(closure)
 
   # translate body, and populate scope with variables
@@ -15,6 +19,9 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   # body <- rlang::zap_srcref(body)
 
   scope <- new_scope(closure, parent)
+  attr(scope, "return_names") <- unique(unname(closure_return_var_names(
+    closure
+  )))
 
   # inject symbols for var sizes in declare calls, so like:
   #   declare(type(foo = integer(nr, NA)),
@@ -30,83 +37,54 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   # when handling undeclared variables. Either throw better errors from r2f(), or
   # handle all declares first
   for (arg_name in names(formals(closure))) {
-    if (is.null(var <- get0(arg_name, scope))) {
+    var <- get0(arg_name, scope)
+    if (is.null(var) || !inherits(var, Variable)) {
       stop("arg not declared: ", arg_name)
     }
   }
 
-  # figure out the return variable(s).
-  last_expr <- last(body(closure))
-  if (is.symbol(last_expr)) {
-    return_var <- get(last_expr, scope)
-    return_var@is_return <- TRUE
-    scope[[as.character(last_expr)]] <- return_var
-  } else if (is_call(last_expr, quote(list))) {
-    args <- as.list(last_expr)[-1L]
-    for (arg in args) {
-      var <- get(arg, scope)
+  # Ensure return vars are marked (primarily to mark logical outputs as integer
+  # storage for bind(c) and to support early "external-ness" checks).
+  for (return_name in attr(scope, "return_names", exact = TRUE)) {
+    if (!is.null(var <- get0(return_name, scope))) {
+      stopifnot(inherits(var, Variable))
       var@is_return <- TRUE
-      scope[[as.character(arg)]] <- var
+      if (identical(var@mode, "logical")) {
+        var@logical_as_int <- TRUE
+      }
+      scope[[return_name]] <- var
     }
-  } else {
-    # lots we can still do here, just not implemented yet.
-    stop(
-      "last expression in the function must be a bare symbol or list of symbols"
-    )
   }
 
   manifest <- r2f.scope(scope)
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
-  used_iso_bindings <- unique(unlist(
-    use.names = FALSE,
-    list(
-      lapply(scope, function(var) {
-        list(
-          switch(
-            var@mode,
-            double = "c_double",
-            integer = "c_int",
-            logical = if (var@name %in% fsub_arg_names) {
-              "c_int"
-            },
-            complex = "c_double_complex",
-            raw = "c_int8_t"
-          ),
-          lapply(var@dims, function(size) {
-            syms <- all.vars(size)
-            c(
-              if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
-              if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
-            )
-          })
-        )
-      })
-    )
-  ))
-
-  # check for literal kinds
-  if (!"c_int" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+_c_int\\b", body)) {
-      append(used_iso_bindings) <- "c_int"
-    }
+  internal_procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
+  contains_block <- if (length(internal_procs)) {
+    procs_code <- lapply(internal_procs, `[[`, "code") |>
+      unlist(use.names = FALSE) |>
+      str_flatten_lines()
+    str_flatten_lines("contains", indent(procs_code))
+  } else {
+    NULL
   }
-  if (!"c_double" %in% used_iso_bindings) {
-    if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body)) {
-      append(used_iso_bindings) <- "c_double"
-    }
+  contains_block_indented <- if (is.null(contains_block)) {
+    NULL
+  } else {
+    indent(contains_block)
   }
-  if (!"c_ptrdiff_t" %in% used_iso_bindings) {
-    if (grepl("\\bc_ptrdiff_t\\b", body)) {
-      append(used_iso_bindings) <- "c_ptrdiff_t"
-    }
+  body_section <- indent(body)
+  if (!is.null(contains_block_indented)) {
+    body_section <- str_flatten_lines(body_section, "", contains_block_indented)
   }
-  if (isTRUE(attr(scope@closure, "uses_rng", TRUE))) {
-    used_iso_bindings <- union(used_iso_bindings, "c_double")
-  }
-  used_iso_bindings <- sort(used_iso_bindings, method = "radix")
 
   uses_rng <- isTRUE(attr(scope, 'uses_rng', TRUE))
+  used_iso_bindings <- iso_c_binding_symbols(
+    vars = scope_vars(scope),
+    body_code = body,
+    logical_is_c_int = function(var) var@name %in% fsub_arg_names,
+    uses_rng = uses_rng
+  )
   if (uses_rng) {
     rng_interface <- glue::trim(
       '
@@ -123,16 +101,17 @@ new_fortran_subroutine <- function(name, closure, parent = emptyenv()) {
   }
   subroutine <- glue(
     "
-    subroutine {name}({str_flatten_commas(fsub_arg_names)}) bind(c)
-      use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}
-      implicit none
+subroutine {name}({str_flatten_commas(fsub_arg_names)}) bind(c)
+  use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}
+  implicit none
 
-    {indent(manifest)}
+{indent(manifest)}
 
-    {indent(body)}
-    end subroutine
+{body_section}
+end subroutine
     "
   )
+  subroutine <- glue::trim(subroutine)
 
   subroutine <- insert_fortran_line_continuations(subroutine)
 

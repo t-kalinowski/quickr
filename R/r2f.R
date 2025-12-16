@@ -1,6 +1,103 @@
 # Take parsed R code (anything returnable by base::str2lang()) and returns
 # a Fortran object, which is a string of Fortran code and some attributes
 # describing the value.
+new_hoist <- function(scope) {
+  hoisted <- character()
+  block_scope <- NULL
+
+  emit <- function(...) {
+    hoisted <<- c(
+      hoisted,
+      as.character(unlist(c(character(), ...), use.names = FALSE))
+    )
+  }
+
+  has_block <- function() !is.null(block_scope)
+
+  ensure_block_scope <- function() {
+    if (is.null(block_scope)) {
+      block_scope <<- scope@new_child("block")
+    }
+    block_scope
+  }
+
+  declare_tmp <- function(mode, dims, logical_as_int = FALSE) {
+    stopifnot(
+      is_string(mode),
+      is.null(dims) || is.list(dims),
+      is_bool(logical_as_int)
+    )
+    ensure_block_scope()@get_unique_var(
+      mode = mode,
+      dims = dims,
+      logical_as_int = logical_as_int
+    )
+  }
+
+  render <- function(code) {
+    code <- str_split_lines(code)
+    if (!length(hoisted) && !has_block()) {
+      return(str_flatten_lines(code))
+    }
+
+    stmts <- str_split_lines(hoisted, code)
+
+    if (has_block()) {
+      decls <- emit_decls(scope_vars(block_scope), block_scope)
+      return(str_flatten_lines(emit_block(decls, stmts)))
+    }
+
+    str_flatten_lines(stmts)
+  }
+
+  list2env(
+    list(
+      emit = emit,
+      declare_tmp = declare_tmp,
+      render = render
+    ),
+    parent = emptyenv()
+  )
+}
+
+logical_as_int_symbol <- function(var) {
+  inherits(var, Variable) &&
+    identical(var@mode, "logical") &&
+    logical_as_int(var)
+}
+
+scope_is_closure <- function(scope) {
+  inherits(scope, "quickr_scope") && identical(scope@kind, "closure")
+}
+
+scope_fortran_names <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  out <- character()
+  while (inherits(scope, "quickr_scope")) {
+    vars <- scope_vars(scope)
+    out <- c(out, map_chr(vars, \(v) v@name %||% ""))
+    scope <- parent.env(scope)
+  }
+  unique(out[nzchar(out)])
+}
+
+make_shadow_fortran_name <- function(scope, base, suffix = "__local_") {
+  stopifnot(inherits(scope, "quickr_scope"), is_string(base), is_string(suffix))
+  used <- scope_fortran_names(scope)
+  candidate <- paste0(base, suffix)
+  if (!candidate %in% used) {
+    return(candidate)
+  }
+  i <- 1L
+  repeat {
+    candidate <- paste0(base, suffix, i, "_")
+    if (!candidate %in% used) {
+      return(candidate)
+    }
+    i <- i + 1L
+  }
+}
+
 lang2fortran <- r2f <- function(
   e,
   scope = NULL,
@@ -8,73 +105,91 @@ lang2fortran <- r2f <- function(
   calls = character(),
   hoist = NULL
 ) {
-  ## 'hoist()' is a function that individual handlers can call to pre-emit some
+  ## 'hoist' is a per-statement context that handlers can use to pre-emit some
   ## Fortran code. E.g., to setup a temporary variable if the generated Fortran
   ## code doesn't neatly translate into a single expression.
-  hoisted <- character()
-  if (is.null(hoist)) {
-    delayedAssign("hoist_connection", textConnection("hoisted", "w", TRUE))
-    hoist <- function(...) {
-      writeLines(as.character(unlist(c(character(), ...))), hoist_connection)
-    }
-    # if performance with textConnection() becomes an issue, maybe switch to an
-    # anonymous file(), though, each hoisting context is typically shortlived and
-    # usually 0 lines are hoisted per context, and if they are hoisted, a small number.
+  render_hoist <- is.null(hoist)
+  if (render_hoist) {
+    hoist <- new_hoist(scope)
   }
 
   fortran <- switch(
     typeof(e),
     language = {
       # a call
-      handler <- get_r2f_handler(callable <- e[[1L]])
-
-      match.fun <- attr(handler, "match.fun", TRUE)
-      if (is.null(match.fun)) {
-        match.fun <- get0(callable, parent.env(globalenv()), mode = "function")
-        # this is a best effort to, eg. resolve `seq.default` from `seq`.
-        # This should likely be moved into attaching the `match.fun` attr
-        # to handlers, for more involved resolution (e.g., with getS3Method())
-        if ("UseMethod" %in% all.names(body(match.fun))) {
-          match.fun <- get0(
-            paste0(callable, ".default"),
-            parent.env(globalenv()),
-            mode = "function",
-            ifnotfound = match.fun
-          )
-        }
-      }
-      if (typeof(match.fun) == "closure") {
-        e <- match.call(match.fun, e)
+      callable <- e[[1L]]
+      callable_unwrapped <- callable
+      while (
+        is_call(callable_unwrapped, quote(`(`)) &&
+          length(callable_unwrapped) == 2L
+      ) {
+        callable_unwrapped <- callable_unwrapped[[2L]]
       }
 
-      if (isTRUE(getOption("quickr.r2f.debug"))) {
-        try(handler(
-          as.list(e)[-1L],
+      if (!is.null(scope)) {
+        maybe_lower_local_closure_call(
+          e,
           scope,
           ...,
-          calls = c(calls, as.character(callable)),
-          hoist = hoist
-        )) -> res
-        if (inherits(res, "try-error")) {
-          debugonce(handler)
-          handler(
-            as.list(e)[-1L],
-            scope,
-            ...,
-            calls = c(calls, as.character(callable)),
-            hoist = hoist
-          )
-        }
+          hoist = hoist,
+          needs_value = !render_hoist
+        ) %||%
+          {
+            handler <- get_r2f_handler(callable_unwrapped)
 
-        res
-      } else {
-        handler(
-          as.list(e)[-1L],
-          scope,
-          ...,
-          calls = c(calls, as.character(callable)),
-          hoist = hoist
-        )
+            match.fun <- attr(handler, "match.fun", TRUE)
+            if (is.null(match.fun)) {
+              match.fun <- get0(
+                callable_unwrapped,
+                parent.env(globalenv()),
+                mode = "function"
+              )
+              # this is a best effort to, eg. resolve `seq.default` from `seq`.
+              # This should likely be moved into attaching the `match.fun` attr
+              # to handlers, for more involved resolution (e.g., with getS3Method())
+              if ("UseMethod" %in% all.names(body(match.fun))) {
+                match.fun <- get0(
+                  paste0(callable_unwrapped, ".default"),
+                  parent.env(globalenv()),
+                  mode = "function",
+                  ifnotfound = match.fun
+                )
+              }
+            }
+            if (typeof(match.fun) == "closure") {
+              e <- match.call(match.fun, e)
+            }
+
+            if (isTRUE(getOption("quickr.r2f.debug"))) {
+              try(handler(
+                as.list(e)[-1L],
+                scope,
+                ...,
+                calls = c(calls, as.character(callable_unwrapped)),
+                hoist = hoist
+              )) -> res
+              if (inherits(res, "try-error")) {
+                debugonce(handler)
+                handler(
+                  as.list(e)[-1L],
+                  scope,
+                  ...,
+                  calls = c(calls, as.character(callable_unwrapped)),
+                  hoist = hoist
+                )
+              }
+
+              res
+            } else {
+              handler(
+                as.list(e)[-1L],
+                scope,
+                ...,
+                calls = c(calls, as.character(callable_unwrapped)),
+                hoist = hoist
+              )
+            }
+          }
       }
     },
 
@@ -83,18 +198,22 @@ lang2fortran <- r2f <- function(
     complex = ,
     logical = atomic2Fortran(e),
 
+    `NULL` = Fortran("", NULL),
+
     symbol = {
-      s <- as.character(e)
-      # logicals that come in from R are passed as integer types,
-      # so for all fortran ops we cast to logical with /=0
-      if (
-        !is.null(scope[[e]] -> val) &&
-          val@mode == "logical" &&
-          val@is_external
-      ) {
+      r_name <- as.character(e)
+      val <- if (is.null(scope)) NULL else get0(r_name, scope)
+      s <- if (inherits(val, Variable) && !is.null(val@name)) {
+        val@name
+      } else {
+        r_name
+      }
+      if (logical_as_int_symbol(val)) {
+        # logicals passed via the bind(c) interface are stored as integer(0/1)
+        # and must be "booleanized" for Fortran logical operations.
         s <- paste0("(", s, "/=0)")
       }
-      Fortran(s, value = scope[[e]])
+      Fortran(s, value = if (inherits(val, Variable)) val else NULL)
     },
 
     ## handling 'object' and 'closure' here are both bad ideas,
@@ -142,14 +261,15 @@ lang2fortran <- r2f <- function(
     stop("Unsupported object type encountered: ", typeof(e))
   )
 
-  if (length(hoisted)) {
-    combined <- str_flatten_lines(c(hoisted, fortran))
-    attributes(combined) <- attributes(fortran)
-    fortran <- combined
-  }
-
   attr(fortran, "r") <- e
-  fortran
+  if (render_hoist) {
+    combined <- hoist$render(fortran)
+    attributes(combined) <- attributes(fortran)
+    attr(combined, "r") <- e
+    combined
+  } else {
+    fortran
+  }
 }
 
 
@@ -224,6 +344,9 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
     if (is_type_call(a)) {
       var <- type_call_to_var(a)
       var@is_arg <- var@name %in% names(formals(scope@closure))
+      if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
+        var@logical_as_int <- TRUE
+      }
       scope[[var@name]] <- var
     } else if (is_call(a, quote(`{`))) {
       Recall(as.list(a)[-1], scope)
@@ -348,12 +471,45 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
     valout <- Variable(mode = "integer") # integer scalar
 
     if (x@value@mode == "logical") {
-      val <- switch(
-        last(list(...)$calls),
-        which.max = ".true.",
-        which.min = ".false."
+      # R semantics:
+      # - which.max(all FALSE) == 1
+      # - which.min(all TRUE)  == 1
+      # findloc() returns 0 when the value is not found, so we wrap it with
+      # max(1, ...) to preserve R's tie/default.
+      #
+      # Performance notes (quickr-compiled, n = 20,000,000 logicals ~= 76 MiB):
+      # - maxloc(merge(1_c_int, 0_c_int, (a/=0)), 1) is ~10ms regardless of
+      #   where the first .true. occurs (full traversal).
+      # - max(1_c_int, findloc((a/=0), .true., 1, kind=c_int)) can early-exit
+      #   (~1.3ms when the first element is .true.) but is much slower on full
+      #   scans (~55-62ms when the last element is .true. or no .true. exists).
+      # - max(1_c_int, findloc(a, 1_c_int, 1, kind=c_int)) on the underlying
+      #   integer storage keeps full-scan performance close to maxloc (~14ms)
+      #   while retaining early-exit.
+      # Results are compiler/runtime dependent; the relative pattern was stable.
+      #
+      call_name <- last(list(...)$calls)
+
+      has_var_name <- inherits(x@value, Variable) && !is.null(x@value@name)
+      use_lgl_storage <- has_var_name && !logical_as_int(x@value)
+
+      # Prefer searching the underlying integer storage directly when available
+      # (external logical arrays are passed as integer(0/1)). If the input is an
+      # actual Fortran logical array, search it directly to avoid unnecessary
+      # casting.
+      haystack <- if (has_var_name) {
+        x@value@name
+      } else {
+        glue("merge(1_c_int, 0_c_int, {x})")
+      }
+      needle <- switch(
+        call_name,
+        which.max = if (use_lgl_storage) ".true." else "1_c_int",
+        which.min = if (use_lgl_storage) ".false." else "0_c_int"
       )
-      f <- glue("findloc({x}, {val}, 1)")
+
+      loc <- glue("findloc({haystack}, {needle}, 1, kind=c_int)")
+      f <- glue("max(1_c_int, {loc})")
     } else {
       intrinsic <- switch(
         last(list(...)$calls),
@@ -365,6 +521,25 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
 
     Fortran(f, valout)
   }
+
+linear_subscripts_from_1d <- function(base_name, rank, idx) {
+  stopifnot(is_string(base_name), is_wholenumber(rank), inherits(idx, Fortran))
+  k <- glue("int({idx}, kind=c_int)")
+  tmp <- glue("({k} - 1_c_int)")
+  subs <- character(rank)
+  if (rank == 1L) {
+    subs[[1L]] <- k
+    return(subs)
+  }
+
+  for (axis in seq_len(rank - 1L)) {
+    dim_size <- glue("size({base_name}, {axis})")
+    subs[[axis]] <- glue("(mod({tmp}, {dim_size}) + 1_c_int)")
+    tmp <- glue("({tmp} / {dim_size})")
+  }
+  subs[[rank]] <- glue("({tmp} + 1_c_int)")
+  subs
+}
 
 
 r2f_handlers[["["]] <- function(
@@ -418,6 +593,45 @@ r2f_handlers[["["]] <- function(
       glue("pack({var}, {mask})"),
       Variable(var@value@mode, dims = NA)
     ))
+  }
+
+  # Indexing a scalar (rank-1 length-1) with `[1]` is valid in R, but Fortran
+  # scalars cannot be subscripted. Treat it as a no-op.
+  if (
+    passes_as_scalar(var@value) &&
+      length(idxs) == 1 &&
+      idxs[[1]]@value@mode == "integer" &&
+      passes_as_scalar(idxs[[1]]@value)
+  ) {
+    idx_r <- attr(idxs[[1]], "r", exact = TRUE)
+    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
+      return(var)
+    }
+  }
+
+  # R-style linear indexing for rank>1 arrays: x[i]
+  if (
+    length(idxs) == 1 &&
+      idxs[[1]]@value@mode == "integer" &&
+      passes_as_scalar(idxs[[1]]@value) &&
+      var@value@rank > 1
+  ) {
+    # Hoist array expressions before subscripting (no invalid (expr)(i)).
+    if (!passes_as_scalar(var@value) && is.null(var@value@name)) {
+      tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
+      hoist$emit(glue("{tmp@name} = {var}"))
+      var <- Fortran(tmp@name, tmp)
+    }
+
+    base_name <- var@value@name %||% stop("missing array name for subscripting")
+    subs <- linear_subscripts_from_1d(base_name, var@value@rank, idxs[[1]])
+    outval <- Variable(var@value@mode)
+
+    if (var@value@mode == "logical" && logical_as_int(var@value)) {
+      designator <- glue("{base_name}({str_flatten_commas(subs)})")
+      return(Fortran(glue("({designator} /= 0)"), outval))
+    }
+    return(Fortran(glue("{base_name}({str_flatten_commas(subs)})"), outval))
   }
 
   if (length(idxs) != var@value@rank) {
@@ -477,15 +691,15 @@ r2f_handlers[["["]] <- function(
     !passes_as_scalar(var@value) &&
       is.null(var@value@name)
   ) {
-    tmp <- scope@get_unique_var(mode = var@value@mode, dims = var@value@dims)
-    hoist(glue("{tmp@name} = {var}"))
+    tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
+    hoist$emit(glue("{tmp@name} = {var}"))
     var <- Fortran(tmp@name, tmp)
   }
 
   # External logicals are passed as integer storage (0/1) and are "booleanized"
   # during symbol lowering as `(x/=0)`. When indexing, we must subscript the
   # underlying storage first, then convert the indexed value/section to logical.
-  if (var@value@mode == "logical" && var@value@is_external) {
+  if (var@value@mode == "logical" && logical_as_int(var@value)) {
     designator <- glue("{var@value@name}({str_flatten_commas(idxs)})")
     Fortran(glue("({designator} /= 0)"), outval)
   } else {
@@ -889,7 +1103,6 @@ r2f_handlers[["cbind"]] <- function(e, scope) {
   ncols <- eval(ncols, scope@sizes)
 }
 
-
 r2f_handlers[["<-"]] <- function(args, scope, ...) {
   target <- args[[1]]
   if (is.call(target)) {
@@ -907,16 +1120,49 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
   stopifnot(is.symbol(target))
   name <- as.character(target)
 
-  value <- args[[2]]
-  value <- r2f(value, scope, ...)
+  rhs <- args[[2]]
+
+  # Local closure definition: `f <- function(i) ...`
+  if (is_function_call(rhs)) {
+    scope[[name]] <- as_local_closure(
+      rhs,
+      environment(scope@closure),
+      name = name
+    )
+    return(Fortran(""))
+  }
+
+  # Local closure call: `x <- f(...)` where `f <- function(...) ...` in scope.
+  if (
+    is.call(rhs) &&
+      is.symbol(rhs[[1L]]) &&
+      inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
+  ) {
+    return(compile_closure_call_assignment(name, rhs, scope, ...))
+  }
+
+  # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
+  if (is_sapply_call(rhs)) {
+    return(compile_sapply_assignment(name, rhs, scope, ...))
+  }
+
+  value <- r2f(rhs, scope, ...)
 
   # immutable / copy-on-modify usage of Variable()
-  if (is.null(var <- get0(name, scope))) {
+  var <- get0(name, scope, inherits = FALSE)
+  if (is.null(var) || !inherits(var, Variable)) {
     # The var does not exist -> this is a binding to a new symbol
     # Create a fresh Variable carrying only mode/dims and a new name.
     src <- value@value
     var <- Variable(mode = src@mode, dims = src@dims)
-    var@name <- name
+    fortran_name <- if (
+      scope_is_closure(scope) && inherits(get0(name, scope), Variable)
+    ) {
+      make_shadow_fortran_name(scope, name)
+    } else {
+      name
+    }
+    var@name <- fortran_name
     # keep a reference to the R expression assigned, if available
     tryCatch(
       var@r <- attr(value, "r", TRUE),
@@ -933,7 +1179,7 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
     assign(name, var, scope)
   }
 
-  Fortran(glue("{name} = {value}"))
+  Fortran(glue("{var@name} = {value}"))
 }
 
 
@@ -950,11 +1196,104 @@ r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   # ditto for ifelse() ?
   # e <- as.list(e)
 
-  stopifnot(is_call(target <- args[[1L]], "["))
-  target <- r2f(target, scope, ...)
+  stopifnot(is_call(target_call <- args[[1L]], "["))
 
+  lhs <- compile_subscript_lhs(target_call, scope, ..., target = "local")
   value <- r2f(args[[2L]], scope, ...)
-  Fortran(glue("{target} = {value}"))
+
+  Fortran(str_flatten_lines(lhs$pre, glue("{lhs$lhs} = {value}")))
+}
+
+r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is.null(scope) || !identical(scope@kind, "closure")) {
+    stop("<<- is only supported inside local closures")
+  }
+
+  target <- args[[1L]]
+  if (is.call(target)) {
+    target_callable <- target[[1L]]
+    stopifnot(is.symbol(target_callable))
+    name <- as.symbol(paste0(as.character(target_callable), "<<-"))
+    handler <- get_r2f_handler(name)
+    return(handler(args, scope, ..., hoist = hoist))
+  }
+
+  stopifnot(is.symbol(target))
+  name <- as.character(target)
+
+  formal_names <- names(formals(scope@closure)) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
+  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+
+  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+  check_assignment_compatible(host_var, value@value)
+
+  Fortran(glue("{host_var@name} = {value}"))
+}
+
+r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is.null(scope) || !identical(scope@kind, "closure")) {
+    stop("<<- is only supported inside local closures")
+  }
+
+  stopifnot(is_call(target <- args[[1L]], "["))
+  subset_call <- target
+
+  base <- subset_call[[2L]]
+  if (!is.symbol(base)) {
+    stop("only superassignment to x[...] is supported")
+  }
+  name <- as.character(base)
+
+  formal_names <- names(formals(scope@closure)) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
+  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+
+  lhs <- compile_subscript_lhs(
+    subset_call,
+    scope,
+    ...,
+    hoist = hoist,
+    target = "host"
+  )
+  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+  Fortran(glue("{lhs$lhs} = {value}"))
 }
 
 reduce_promoted_mode <- function(...) {
@@ -988,16 +1327,20 @@ r2f_handlers[["="]] <- r2f_handlers[["<-"]]
 r2f_handlers[["logical"]] <- function(args, scope, ...) {
   Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
 }
+attr(r2f_handlers[["logical"]], "match.fun") <- FALSE
 
 r2f_handlers[["integer"]] <- function(args, scope, ...) {
   Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
 }
+attr(r2f_handlers[["integer"]], "match.fun") <- FALSE
 
 r2f_handlers[["double"]] <- function(args, scope, ...) {
   Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
 }
+attr(r2f_handlers[["double"]], "match.fun") <- FALSE
 
 r2f_handlers[["numeric"]] <- r2f_handlers[["double"]]
+attr(r2f_handlers[["numeric"]], "match.fun") <- FALSE
 
 r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
   attr(scope, "uses_rng") <- TRUE
@@ -1048,6 +1391,27 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ...) {
   # TODO: reshape() if !passes_as_scalar(out)
 }
 
+r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
+  args$data %||% stop("array(data=) must be provided, cannot be NA")
+  if (is.null(args$dim)) {
+    stop("array(dim=) must be provided, cannot be NA")
+  }
+  if (!is.null(args$dimnames)) {
+    stop("array(dimnames=) not supported")
+  }
+
+  out <- r2f(args$data, scope, ...)
+  if (!passes_as_scalar(out@value)) {
+    stop("array(data=) must be a scalar for now")
+  }
+
+  out@value <- Variable(
+    mode = out@value@mode,
+    dims = r2dims(args$dim, scope)
+  )
+  out
+}
+
 
 conform <- function(..., mode = NULL) {
   var <- NULL
@@ -1088,7 +1452,10 @@ r2f_handlers[["print"]] <- function(args, scope = NULL, ...) {
   # can do alot more here still, just a POC for now
   stopifnot(length(args) == 1, typeof(args[[1]]) == "symbol")
   name <- args[[1]]
-  var <- get(name, envir = scope)
+  var <- get0(as.character(name), scope)
+  if (!inherits(var, Variable)) {
+    stop("could not resolve symbol: ", as.character(name))
+  }
   name <- as.character(name)
   if (var@mode == "logical") {
     name <- sprintf("(%s/=0)", name)
@@ -1249,16 +1616,25 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   .[var, iterable, body] <- args
   stopifnot(is.symbol(var))
   var <- as.character(var)
-  scope[[var]] <- Variable(mode = "integer", name = var)
+  existing <- get0(var, scope, inherits = FALSE)
+  var_name <- if (inherits(existing, Variable) && !is.null(existing@name)) {
+    existing@name
+  } else if (scope_is_closure(scope) && inherits(get0(var, scope), Variable)) {
+    make_shadow_fortran_name(scope, var)
+  } else {
+    var
+  }
+  scope[[var]] <- Variable(mode = "integer", name = var_name)
 
   iterable <- r2f_iterable_handlers[[as.character(iterable[[1]])]](
     iterable,
-    scope
+    scope,
+    ...
   )
   body <- r2f(body, scope, ...)
 
   Fortran(glue(
-    "do {var} = {iterable}
+    "do {var_name} = {iterable}
     {indent(body)}
     end do
     "
@@ -1274,20 +1650,20 @@ r2f_iterable_handlers[["seq_len"]] <- function(e, scope, ...) {
   }
   x <- x[[1]]
   start <- 1L
-  end <- r2f(x)
+  end <- r2f(x, scope, ...)
   glue("{start}, {end}")
 }
 
-r2f_iterable_handlers[["seq"]] <- function(e, scope) {
+r2f_iterable_handlers[["seq"]] <- function(e, scope, ...) {
   ee <- match.call(seq.default, e)
   ee <- whole_doubles_to_ints(ee)
 
-  start <- r2f(ee$from, scope)
-  end <- r2f(ee$to, scope)
+  start <- r2f(ee$from, scope, ...)
+  end <- r2f(ee$to, scope, ...)
   step <- if (is.null(ee$by)) {
     glue("sign(1, {end}-{start})")
   } else {
-    r2f(ee$by, scope)
+    r2f(ee$by, scope, ...)
   }
 
   str_flatten_commas(
@@ -1297,22 +1673,22 @@ r2f_iterable_handlers[["seq"]] <- function(e, scope) {
   )
 }
 
-r2f_iterable_handlers[[":"]] <- function(e, scope) {
+r2f_iterable_handlers[[":"]] <- function(e, scope, ...) {
   ee <- whole_doubles_to_ints(e)
-  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope)
+  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope, ...)
 
   glue("{start}, {end}, sign(1, {end}-{start})")
 }
 
 
-r2f_iterable_handlers[["seq_along"]] <- function(e, scope) {
+r2f_iterable_handlers[["seq_along"]] <- function(e, scope, ...) {
   x <- as.list(e)[-1]
   if (length(x) != 1) {
     stop("too many args to seq_along()")
   }
   x <- x[[1]]
   start <- 1
-  end <- sprintf("size(%s)", r2f(x, scope))
+  end <- sprintf("size(%s)", r2f(x, scope, ...))
   glue("{start}, {end}")
 }
 

@@ -94,14 +94,14 @@
         integer(c_int), intent(out) :: out(observations__len_)
       
         ! locals
-        integer(c_int) :: current_state
-        integer(c_int) :: num_steps
-        integer(c_int) :: step
-        integer(c_int) :: backpointer(states__len_, observations__len_)
-        real(c_double) :: trellis(states__len_, observations__len_)
         integer(c_int) :: num_states
-        integer(c_int) :: path(observations__len_)
+        integer(c_int) :: num_steps
+        real(c_double) :: trellis(states__len_, observations__len_)
+        integer(c_int) :: backpointer(states__len_, observations__len_)
+        integer(c_int) :: step
+        integer(c_int) :: current_state
         real(c_double) :: probabilities(states__len_)
+        integer(c_int) :: path(observations__len_)
         ! manifest end
       
       
@@ -308,12 +308,12 @@
         integer(c_int), intent(out) :: out(observations__len_)
       
         ! locals
-        integer(c_int) :: current_state
-        integer(c_int) :: step
-        integer(c_int) :: backpointer(states__len_, observations__len_)
         real(c_double) :: trellis(states__len_, observations__len_)
-        integer(c_int) :: path(observations__len_)
+        integer(c_int) :: backpointer(states__len_, observations__len_)
+        integer(c_int) :: step
+        integer(c_int) :: current_state
         real(c_double) :: probabilities(states__len_)
+        integer(c_int) :: path(observations__len_)
         ! manifest end
       
       

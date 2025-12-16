@@ -136,9 +136,9 @@
         integer(c_int), intent(out) :: out ! logical
       
         ! locals
-        logical :: b_gt_a ! logical
         real(c_double) :: delta
         logical :: a_gt_b ! logical
+        logical :: b_gt_a ! logical
         logical :: delta_lt_3 ! logical
         ! manifest end
       

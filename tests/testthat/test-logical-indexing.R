@@ -195,7 +195,11 @@ test_that("logical indexing can be combined with other vector masks and reductio
     out <- double(1)
 
     # build a numeric row, then reduce it; mask combines pred row with x-based mask
-    out[1] <- sum(ifelse(pred[2, ] & (x[2, ] > 0.0), x[2, ] * 2.0, x[2, ] / 2.0))
+    out[1] <- sum(ifelse(
+      pred[2, ] & (x[2, ] > 0.0),
+      x[2, ] * 2.0,
+      x[2, ] / 2.0
+    ))
     out
   }
 

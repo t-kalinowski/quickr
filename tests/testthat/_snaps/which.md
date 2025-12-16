@@ -75,7 +75,7 @@
         ! manifest end
       
       
-        out = findloc((a/=0), .true., 1)
+        out = max(1_c_int, findloc(a, 1_c_int, 1, kind=c_int))
       end subroutine
       
       @r: function (a)
@@ -158,8 +158,8 @@
       
       
       
-      out = [ findloc((lgl1/=0), .false., 1), minloc(int1, 1), minloc(dbl1, 1), findloc((lgl1/=0), .true., 1), maxloc(int1, 1), &
-      maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
+      out = [ max(1_c_int, findloc(lgl1, 0_c_int, 1, kind=c_int)), minloc(int1, 1), minloc(dbl1, 1), max(1_c_int, findloc(lgl1, 1_c_int, &
+      1, kind=c_int)), maxloc(int1, 1), maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
       end subroutine
     Code
       cat(cwrapper)

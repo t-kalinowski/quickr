@@ -120,7 +120,10 @@ r2size <- function(r, scope) {
         if (is_size_name(r)) {
           return(r)
         }
-        var <- get(r, scope)
+        var <- get0(as.character(r), scope)
+        if (!inherits(var, Variable)) {
+          stop("could not resolve size: ", as.character(r))
+        }
         if (var@mode != "integer" || !passes_as_scalar(var)) {
           warning("size is not an integer:", as.character(r))
         }
@@ -159,7 +162,10 @@ r2size <- function(r, scope) {
               cl
             },
             length = {
-              var <- get(r[[2L]], scope)
+              var <- get0(as.character(r[[2L]]), scope)
+              if (!inherits(var, Variable)) {
+                stop("could not resolve size: ", deparse1(r))
+              }
               if (var@rank == 1) {
                 return(var@dims[[1L]])
               }
@@ -171,7 +177,10 @@ r2size <- function(r, scope) {
               if (!is_call(r[[2L]], quote(dim))) {
                 return(NA_integer_)
               }
-              var <- get(r[[2L]][[2L]], scope)
+              var <- get0(as.character(r[[2L]][[2L]]), scope)
+              if (!inherits(var, Variable)) {
+                stop("could not resolve size: ", deparse1(r))
+              }
               axis <- r[[3]]
               if (!is_wholenumber(axis)) {
                 return(NA_integer_)
@@ -185,11 +194,17 @@ r2size <- function(r, scope) {
             #
             # },
             nrow = {
-              var <- get(r[[2L]], scope)
+              var <- get0(as.character(r[[2L]]), scope)
+              if (!inherits(var, Variable)) {
+                stop("could not resolve size: ", deparse1(r))
+              }
               var@dims[[1]]
             },
             ncol = {
-              var <- get(r[[2L]], scope)
+              var <- get0(as.character(r[[2L]]), scope)
+              if (!inherits(var, Variable)) {
+                stop("could not resolve size: ", deparse1(r))
+              }
               var@dims[[2]]
             },
             NA_integer_
@@ -204,7 +219,10 @@ r2dims <- function(r, scope) {
     as.character(r[[1]]) |>
       switch(
         dim = {
-          var <- get(r[[2L]], scope)
+          var <- get0(as.character(r[[2L]]), scope)
+          if (!inherits(var, Variable)) {
+            stop("could not resolve dims: ", deparse1(r))
+          }
           return(var@dims)
         },
         c = {

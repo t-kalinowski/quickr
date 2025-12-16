@@ -18,7 +18,8 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
     prefer_flang = TRUE,
-    which = which
+    which = which,
+    sysname = "Linux"
   )
 
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
@@ -50,7 +51,8 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
     prefer_flang = TRUE,
-    which = which
+    which = which,
+    sysname = "Linux"
   )
 
   expect_true(startsWith(env, "R_MAKEVARS_USER="))

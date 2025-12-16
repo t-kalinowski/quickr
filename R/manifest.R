@@ -34,8 +34,157 @@
 ### to the gfortran/flang-new. This is not a great, since c stack limits are
 ### typically "small" and enforced by the OS.
 
+logical_as_int <- function(var) {
+  stopifnot(inherits(var, Variable))
+  identical(var@mode, "logical") && isTRUE(var@logical_as_int)
+}
+
+scope_vars <- function(scope) {
+  vars <- as.list(scope)
+  keep(vars, inherits, what = Variable)
+}
+
+iso_c_binding_symbols <- function(
+  vars,
+  body_code = "",
+  logical_is_c_int = logical_as_int,
+  uses_rng = FALSE
+) {
+  stopifnot(is.list(vars), is_string(body_code), is.function(logical_is_c_int))
+
+  used_iso_bindings <- unique(unlist(
+    use.names = FALSE,
+    lapply(vars, function(var) {
+      stopifnot(inherits(var, Variable))
+      list(
+        switch(
+          var@mode,
+          double = "c_double",
+          integer = "c_int",
+          complex = "c_double_complex",
+          logical = if (isTRUE(logical_is_c_int(var))) "c_int",
+          raw = "c_int8_t",
+          stop("unrecognized kind: ", format(var))
+        ),
+        lapply(var@dims, function(size) {
+          syms <- all.vars(size)
+          c(
+            if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
+            if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
+          )
+        })
+      )
+    })
+  ))
+
+  # check for literal kinds used in the body
+  if (grepl("\\b[0-9]+_c_int\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_int")
+  }
+  if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
+  if (grepl("\\bc_ptrdiff_t\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_ptrdiff_t")
+  }
+
+  if (isTRUE(uses_rng)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
+
+  used_iso_bindings |>
+    compact() |>
+    unique() |>
+    sort(method = "radix")
+}
+
+emit_decl_line <- function(
+  var,
+  scope,
+  intent = NULL,
+  assumed_shape = FALSE,
+  allow_allocatable = TRUE
+) {
+  stopifnot(inherits(var, Variable))
+  if (isTRUE(var@host_associated)) {
+    return(NULL)
+  }
+
+  type <- switch(
+    var@mode,
+    double = "real(c_double)",
+    integer = "integer(c_int)",
+    complex = "complex(c_double_complex)",
+    logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
+    raw = "integer(c_int8_t)",
+    stop("unrecognized kind: ", format(var))
+  )
+
+  dims <- if (passes_as_scalar(var)) {
+    NULL
+  } else if (assumed_shape) {
+    sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
+  } else {
+    dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
+  }
+
+  allocatable <- if (
+    allow_allocatable &&
+      !assumed_shape &&
+      !is.null(dims) &&
+      grepl(":", dims, fixed = TRUE)
+  ) {
+    "allocatable"
+  }
+
+  name <- var@name
+  comment <- if (var@mode == "logical") " ! logical"
+
+  glue(
+    '{str_flatten_commas(type, intent, allocatable)} :: {name}{dims}{comment}',
+    .null = ""
+  )
+}
+
+emit_decls <- function(
+  vars,
+  scope,
+  intents = NULL,
+  assumed_shape = FALSE,
+  allow_allocatable = TRUE
+) {
+  stopifnot(is.list(vars))
+  if (is.null(intents)) {
+    intents <- rep(list(NULL), length(vars))
+    names(intents) <- names(vars)
+  }
+  Map(
+    f = emit_decl_line,
+    var = vars,
+    intent = intents,
+    MoreArgs = list(
+      scope = scope,
+      assumed_shape = assumed_shape,
+      allow_allocatable = allow_allocatable
+    )
+  ) |>
+    unlist(use.names = FALSE)
+}
+
+emit_block <- function(decls, stmts) {
+  decls <- unlist(decls, use.names = FALSE)
+  stmts <- unlist(stmts, use.names = FALSE)
+  glue::trim(glue(
+    "
+    block
+    {indent(str_flatten_lines(decls, \"\", stmts))}
+    end block
+    "
+  ))
+}
+
 r2f.scope <- function(scope) {
-  vars <- as.list.environment(scope, all.names = TRUE)
+  vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
     intent_in <- var@name %in% names(formals(scope@closure))
     intent_out <-
@@ -58,7 +207,7 @@ r2f.scope <- function(scope) {
       double = "real(c_double)",
       integer = "integer(c_int)",
       complex = "complex(c_double_complex)",
-      logical = if (intent_in || intent_out) "integer(c_int)" else "logical",
+      logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
       raw = "integer(c_int8_t)",
       stop("unrecognized kind: ", format(var))
     )
@@ -162,6 +311,13 @@ dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
   glue("mod(int({e1}), int({e2}))")
 }
 dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
+dims2f_eval_base_env[["length"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)})")
+  } else {
+    glue("size({x})")
+  }
+}
 
 
 dims2f <- function(dims, scope) {

@@ -10,11 +10,14 @@ test_that("which.max", {
 
   expect_snapshot(r2f(fn))
 
-  qfn <- quick(fn)
+  a1 <- c(1.0, 3.0, 2.0)
+  a2 <- c(-1.0, -2.0, -0.5)
+  a3 <- c(1.0, 3.0, 3.0)
 
-  x = sample.int(1000) + runif(1000)
-
-  expect_identical(fn(x), qfn(x))
+  expect_identical(fn(a1), 2L)
+  expect_identical(fn(a2), 3L)
+  expect_identical(fn(a3), 2L)
+  expect_quick_identical(fn, a1, a2, a3)
 
   # bench::mark(fn(x), {anyNA(x); qfn(x)}) -> r; print(r); plot(r);
 
@@ -33,11 +36,50 @@ test_that("which.max", {
 
   expect_snapshot(r2f(fn))
 
-  x <- logical(1000)
-  x[500] <- TRUE
+  lgl1 <- c(FALSE, TRUE, FALSE)
+  lgl2 <- c(FALSE, FALSE, TRUE)
+  lgl3 <- c(FALSE, FALSE, FALSE)
 
-  qfn <- quick(fn)
-  expect_identical(fn(x), qfn(x))
+  expect_identical(fn(lgl1), 2L)
+  expect_identical(fn(lgl2), 3L)
+  expect_identical(fn(lgl3), 1L)
+  expect_quick_identical(fn, lgl1, lgl2, lgl3)
+})
+
+test_that("which.max/which.min on local logical arrays", {
+  fn_max <- function(x) {
+    declare(type(x = double(NA)))
+
+    lgl <- x > 0
+    out <- which.max(lgl)
+    out
+  }
+
+  x1 <- c(-1, -2, -3)
+  x2 <- c(-1, 2, 3)
+  x3 <- c(-1, 0, 2)
+
+  expect_identical(fn_max(x1), 1L)
+  expect_identical(fn_max(x2), 2L)
+  expect_identical(fn_max(x3), 3L)
+  expect_quick_identical(fn_max, x1, x2, x3)
+
+  fn_min <- function(x) {
+    declare(type(x = double(NA)))
+
+    lgl <- x > 0
+    out <- which.min(lgl)
+    out
+  }
+
+  y1 <- c(1, 2, 3) # all TRUE -> 1 (R semantics)
+  y2 <- c(1, -1, 2)
+  y3 <- c(1, 2, -1)
+
+  expect_identical(fn_min(y1), 1L)
+  expect_identical(fn_min(y2), 2L)
+  expect_identical(fn_min(y3), 3L)
+  expect_quick_identical(fn_min, y1, y2, y3)
 })
 
 #   qfn_find_loc_int <- quick("fn", fn)

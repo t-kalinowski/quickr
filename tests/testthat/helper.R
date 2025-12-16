@@ -2,7 +2,11 @@ scrub_environment <- function(x) {
   gsub("environment: 0x[0-9a-f]+", "environment: 0x0", x)
 }
 
-expect_translation_snapshots <- function(fn, name = deparse(substitute(fn)), note = NULL) {
+expect_translation_snapshots <- function(
+  fn,
+  name = deparse(substitute(fn)),
+  note = NULL
+) {
   fn
   fsub <- r2f(fn)
   cwrapper <- make_c_bridge(fsub)
