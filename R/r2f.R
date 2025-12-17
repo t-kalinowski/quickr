@@ -1147,7 +1147,7 @@ r2f_handlers[["cbind"]] <- function(e, scope) {
   ncols <- eval(ncols, scope@sizes)
 }
 
-r2f_handlers[["<-"]] <- function(args, scope, ...) {
+r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
   target <- args[[1]]
   if (is.call(target)) {
     # given a call like `foo(x) <- y`, dispatch to `foo<-`
@@ -1155,7 +1155,7 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
     stopifnot(is.symbol(target_callable))
     name <- as.symbol(paste0(as.character(target_callable), "<-"))
     handler <- get_r2f_handler(name)
-    return(handler(args, scope, ...)) # new hoist target
+    return(handler(args, scope, ..., hoist = hoist)) # new hoist target
   }
 
   # It sure seems like it's be nice if the Fortran() constructor
@@ -1165,6 +1165,37 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
   name <- as.character(target)
 
   rhs <- args[[2]]
+
+  # Fall-through assignment: `a <- b <- expr` (or `a <- (b <- expr)`).
+  # R evaluates this right-to-left and returns the assigned value, i.e.
+  # `a <- (b <- expr)` is equivalent to `b <- expr; a <- b`.
+  rhs_unwrapped <- rhs
+  while (is_call(rhs_unwrapped, "(") && length(rhs_unwrapped) == 2L) {
+    rhs_unwrapped <- rhs_unwrapped[[2L]]
+  }
+  if (
+    (is_call(rhs_unwrapped, "<-") || is_call(rhs_unwrapped, "=")) &&
+      length(rhs_unwrapped) == 3L &&
+      is.symbol(rhs_unwrapped[[2L]])
+  ) {
+    inner_target <- rhs_unwrapped[[2L]]
+    inner_rhs <- rhs_unwrapped[[3L]]
+
+    inner_stmt <- r2f(
+      call("<-", inner_target, inner_rhs),
+      scope,
+      ...,
+      hoist = hoist
+    )
+    outer_stmt <- r2f(
+      call("<-", target, inner_target),
+      scope,
+      ...,
+      hoist = hoist
+    )
+
+    return(Fortran(str_flatten_lines(inner_stmt, outer_stmt)))
+  }
 
   # Local closure definition: `f <- function(i) ...`
   if (is_function_call(rhs)) {
@@ -1182,15 +1213,21 @@ r2f_handlers[["<-"]] <- function(args, scope, ...) {
       is.symbol(rhs[[1L]]) &&
       inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
   ) {
-    return(compile_closure_call_assignment(name, rhs, scope, ...))
+    return(compile_closure_call_assignment(
+      name,
+      rhs,
+      scope,
+      ...,
+      hoist = hoist
+    ))
   }
 
   # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
   if (is_sapply_call(rhs)) {
-    return(compile_sapply_assignment(name, rhs, scope, ...))
+    return(compile_sapply_assignment(name, rhs, scope, ..., hoist = hoist))
   }
 
-  value <- r2f(rhs, scope, ...)
+  value <- r2f(rhs, scope, ..., hoist = hoist)
 
   # immutable / copy-on-modify usage of Variable()
   var <- get0(name, scope, inherits = FALSE)
