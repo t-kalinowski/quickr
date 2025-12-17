@@ -141,74 +141,71 @@ r2size <- function(r, scope) {
         r2size(var@r, scope)
       },
       language = {
-        as.character(r[[1]]) |>
-          switch(
-            `+` = ,
-            `-` = ,
-            `/` = ,
-            `*` = ,
-            `^` = ,
-            `%/%` = ,
-            `%%` = {
-              args <- as.list(r)[-1]
-              args <- lapply(args, r2size, scope)
-              if (anyNA(rapply(args, as.list))) {
-                return(NA_integer_)
-              }
-              cl <- as.call(c(r[[1]], args))
-              if (all(map_lgl(args, is.atomic))) {
-                cl <- eval(cl, baseenv())
-              }
-              cl
-            },
-            length = {
-              var <- get0(as.character(r[[2L]]), scope)
-              if (!inherits(var, Variable)) {
-                stop("could not resolve size: ", deparse1(r))
-              }
-              if (var@rank == 1) {
-                return(var@dims[[1L]])
-              }
-              len <- reduce(var@dims, \(d1, d2) call("*", d1, d2))
-              r2size(len, scope)
-            },
-            `[` = {
-              # [ only works when paired with dim()
-              if (!is_call(r[[2L]], quote(dim))) {
-                return(NA_integer_)
-              }
-              var <- get0(as.character(r[[2L]][[2L]]), scope)
-              if (!inherits(var, Variable)) {
-                stop("could not resolve size: ", deparse1(r))
-              }
-              axis <- r[[3]]
-              if (!is_wholenumber(axis)) {
-                return(NA_integer_)
-              }
-              if (axis > var@rank) {
-                stop("insufficient rank of variable in ", deparse1(r))
-              }
-              var@dims[[axis]]
-            },
-            # dim = {
-            #
-            # },
-            nrow = {
-              var <- get0(as.character(r[[2L]]), scope)
-              if (!inherits(var, Variable)) {
-                stop("could not resolve size: ", deparse1(r))
-              }
-              var@dims[[1]]
-            },
-            ncol = {
-              var <- get0(as.character(r[[2L]]), scope)
-              if (!inherits(var, Variable)) {
-                stop("could not resolve size: ", deparse1(r))
-              }
-              var@dims[[2]]
-            },
-            NA_integer_
-          )
+        op <- as.character(r[[1]])
+
+        if (op %in% c("+", "-", "/", "*", "^", "%/%", "%%")) {
+          args <- as.list(r)[-1]
+          args <- lapply(args, r2size, scope)
+          if (anyNA(rapply(args, as.list))) {
+            return(NA_integer_)
+          }
+          cl <- as.call(c(r[[1]], args))
+          if (all(map_lgl(args, is.atomic))) {
+            cl <- eval(cl, baseenv())
+          }
+          return(cl)
+        }
+
+        switch(
+          op,
+          length = {
+            var <- get0(as.character(r[[2L]]), scope)
+            if (!inherits(var, Variable)) {
+              stop("could not resolve size: ", deparse1(r))
+            }
+            if (var@rank == 1) {
+              return(var@dims[[1L]])
+            }
+            len <- reduce(var@dims, \(d1, d2) call("*", d1, d2))
+            r2size(len, scope)
+          },
+          `[` = {
+            # [ only works when paired with dim()
+            if (!is_call(r[[2L]], quote(dim))) {
+              return(NA_integer_)
+            }
+            var <- get0(as.character(r[[2L]][[2L]]), scope)
+            if (!inherits(var, Variable)) {
+              stop("could not resolve size: ", deparse1(r))
+            }
+            axis <- r[[3]]
+            if (!is_wholenumber(axis)) {
+              return(NA_integer_)
+            }
+            if (axis > var@rank) {
+              stop("insufficient rank of variable in ", deparse1(r))
+            }
+            var@dims[[axis]]
+          },
+          # dim = {
+          #
+          # },
+          nrow = {
+            var <- get0(as.character(r[[2L]]), scope)
+            if (!inherits(var, Variable)) {
+              stop("could not resolve size: ", deparse1(r))
+            }
+            var@dims[[1]]
+          },
+          ncol = {
+            var <- get0(as.character(r[[2L]]), scope)
+            if (!inherits(var, Variable)) {
+              stop("could not resolve size: ", deparse1(r))
+            }
+            var@dims[[2]]
+          },
+          NA_integer_
+        )
       },
       NA_integer_
     )
