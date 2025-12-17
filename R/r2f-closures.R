@@ -168,16 +168,12 @@ compile_internal_subroutine <- function(
     if (is.null(last(stmts))) {
       stmts <- drop_last(stmts)
     }
-    if (length(stmts)) {
-      body_prefix <- lapply(stmts, function(stmt) r2f(stmt, proc_scope))
-      body_prefix <- str_flatten_lines(body_prefix)
-    }
+    body_prefix <- compile_nonreturn_statements(stmts, proc_scope)
   } else {
     last_expr <- last(stmts)
     prefix <- drop_last(stmts)
 
-    body_prefix <- lapply(prefix, function(stmt) r2f(stmt, proc_scope))
-    body_prefix <- str_flatten_lines(body_prefix)
+    body_prefix <- compile_nonreturn_statements(prefix, proc_scope)
 
     h <- new_hoist(proc_scope)
     expr_error <- NULL
