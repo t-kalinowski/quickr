@@ -58,6 +58,9 @@
 - Fixed an issue where subsetting logical arrays could fail when compiling quick
   functions, e.g. `(x > 0)[2, 3]` (#68).
 
+- Fixed a crash when compiling chained / fall-through assignments like
+  `a <- b <- 1` (#60).
+
 # quickr 0.2.1
 
 - Added support for `!` and unary `-` and `+` (#49, @mns-nordicals)
