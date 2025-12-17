@@ -774,6 +774,50 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
   Fortran(fr, val)
 }
 
+r2f_handlers[["seq_len"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  n <- whole_doubles_to_ints(args[[1L]])
+  n <- r2f(n, scope, ...)
+  if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
+    stop("seq_len() expects an integer scalar")
+  }
+
+  val <- Variable("integer", NA)
+  fr <- switch(
+    list(...)$calls |> drop_last() |> last(),
+    "[" = glue("1:{n}"),
+    "for" = glue("1, {n}"),
+    {
+      i <- scope@get_unique_var("integer")
+      glue("[ ({i}, {i} = 1, {n}) ]")
+    }
+  )
+
+  Fortran(fr, val)
+}
+
+r2f_handlers[["seq_along"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 1L)
+  x <- r2f(args[[1L]], scope, ...)
+  if (is.null(x@value)) {
+    stop("seq_along() argument must have a value")
+  }
+
+  end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
+  val <- Variable("integer", NA)
+  fr <- switch(
+    list(...)$calls |> drop_last() |> last(),
+    "[" = glue("1:{end}"),
+    "for" = glue("1, {end}"),
+    {
+      i <- scope@get_unique_var("integer")
+      glue("[ ({i}, {i} = 1, {end}) ]")
+    }
+  )
+
+  Fortran(fr, val)
+}
+
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
   .[mask, tsource, fsource] <- lapply(args, r2f, scope, ...)
@@ -1600,17 +1644,125 @@ r2f_handlers[["while"]] <- function(args, scope, ...) {
 }
 
 ## ---- for ----
-r2f_iterable <- function(e, scope, ...) {
-  .NotYetImplemented()
-
-  if (is.symbol(e)) {
-    var <- get(e, scope)
-    iterable <- r2f(...)
+r2f_unwrap_for_iterable <- function(iterable) {
+  reversed <- FALSE
+  repeat {
+    while (
+      is_call(iterable, quote(`(`)) &&
+        length(iterable) == 2L
+    ) {
+      iterable <- iterable[[2L]]
+    }
+    if (is_call(iterable, quote(rev)) && length(iterable) == 2L) {
+      reversed <- !reversed
+      iterable <- iterable[[2L]]
+      next
+    }
+    break
   }
 
-  # list(var, iterable, body_prefix)
+  list(iterable = iterable, reversed = reversed)
 }
 
+r2f_for_iterable <- function(iterable, scope, ...) {
+  original <- iterable
+  unwrapped <- r2f_unwrap_for_iterable(iterable)
+  iterable <- unwrapped$iterable
+  reversed <- unwrapped$reversed
+
+  stop_unsupported <- function(x) {
+    stop(
+      "unsupported iterable in for(): ",
+      deparse1(x),
+      "\nSupported: `<symbol>`, `a:b`, `seq(from, to, by)`, `seq_len(n)`, `seq_along(x)`.",
+      call. = FALSE
+    )
+  }
+
+  if (is.symbol(iterable)) {
+    stop_unsupported(original)
+  }
+  if (!is.call(iterable) || !is.symbol(iterable[[1L]])) {
+    stop_unsupported(original)
+  }
+
+  name <- as.character(iterable[[1L]])
+  supported <- c(":", "seq", "seq_len", "seq_along")
+  if (!name %in% supported) {
+    stop_unsupported(original)
+  }
+
+  if (!reversed) {
+    return(r2f(iterable, scope, ...))
+  }
+
+  switch(
+    name,
+    `:` = {
+      args <- whole_doubles_to_ints(as.list(iterable)[-1L])
+      if (length(args) != 2L) {
+        stop_unsupported(original)
+      }
+      start <- r2f(args[[1L]], scope, ...)
+      end <- r2f(args[[2L]], scope, ...)
+      step <- glue("sign(1, {start}-{end})")
+      Fortran(glue("{end}, {start}, {step}"), Variable("integer", NA))
+    },
+    seq_len = {
+      args <- as.list(iterable)[-1L]
+      if (length(args) != 1L) {
+        stop_unsupported(original)
+      }
+      n <- whole_doubles_to_ints(args[[1L]])
+      n <- r2f(n, scope, ...)
+      if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
+        stop("seq_len() expects an integer scalar")
+      }
+      Fortran(glue("{n}, 1_c_int, -1_c_int"), Variable("integer", NA))
+    },
+    seq_along = {
+      args <- as.list(iterable)[-1L]
+      if (length(args) != 1L) {
+        stop_unsupported(original)
+      }
+      x <- r2f(args[[1L]], scope, ...)
+      if (is.null(x@value)) {
+        stop("seq_along() argument must have a value")
+      }
+      end <- if (passes_as_scalar(x@value)) "1_c_int" else glue("size({x})")
+      Fortran(glue("{end}, 1_c_int, -1_c_int"), Variable("integer", NA))
+    },
+    seq = {
+      ee <- match.call(seq.default, iterable)
+      ee <- whole_doubles_to_ints(ee)
+
+      from <- r2f(ee$from, scope, ...)
+      to <- r2f(ee$to, scope, ...)
+      by <- if (is.null(ee$by)) {
+        Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
+      } else {
+        r2f(ee$by, scope, ...)
+      }
+
+      if (
+        from@value@mode != "integer" ||
+          to@value@mode != "integer" ||
+          by@value@mode != "integer"
+      ) {
+        stop("non-integer seq()'s not implemented yet.")
+      }
+      if (!passes_as_scalar(from@value) || !passes_as_scalar(to@value)) {
+        stop("seq() iterable bounds must be scalars")
+      }
+      if (!passes_as_scalar(by@value)) {
+        stop("seq() iterable step must be a scalar")
+      }
+
+      last <- glue("{from} + (({to} - {from}) / {by}) * {by}")
+      Fortran(glue("{last}, {from}, (-{by})"), Variable("integer", NA))
+    }
+  )
+}
 
 r2f_handlers[["for"]] <- function(args, scope, ...) {
   .[var, iterable, body] <- args
@@ -1624,13 +1776,107 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   } else {
     var
   }
+
+  iterable_info <- r2f_unwrap_for_iterable(iterable)
+  iterable_unwrapped <- iterable_info$iterable
+  iterable_reversed <- isTRUE(iterable_info$reversed)
+
+  # Value iteration: `for (x in foo) { ... }`
+  if (is.symbol(iterable_unwrapped)) {
+    iterable_name <- as.character(iterable_unwrapped)
+    iterable_var <- get0(iterable_name, scope)
+    if (!inherits(iterable_var, Variable)) {
+      stop(
+        "could not resolve iterable in for(): ",
+        iterable_name,
+        call. = FALSE
+      )
+    }
+    if (is.null(iterable_var@mode)) {
+      stop(
+        "could not infer iterable type in for(): ",
+        iterable_name,
+        call. = FALSE
+      )
+    }
+
+    if (inherits(existing, Variable) && !passes_as_scalar(existing)) {
+      stop(
+        "for-loop variable must be scalar when iterating values: ",
+        var,
+        call. = FALSE
+      )
+    }
+
+    loop_var <- existing %||% Variable(mode = iterable_var@mode)
+    loop_var@name <- var_name
+    if (identical(loop_var@mode, "logical") && !inherits(existing, Variable)) {
+      loop_var@logical_as_int <- logical_as_int(iterable_var)
+    }
+    loop_var@modified <- TRUE
+    scope[[var]] <- loop_var
+
+    iterable_tmp <- scope@get_unique_var(
+      mode = iterable_var@mode,
+      dims = iterable_var@dims,
+      logical_as_int = logical_as_int(iterable_var)
+    )
+    iterable_tmp_assign <- glue("{iterable_tmp@name} = {iterable_var@name}")
+
+    idx <- scope@get_unique_var("integer")
+    end <- if (passes_as_scalar(iterable_var)) {
+      "1_c_int"
+    } else {
+      glue("size({iterable_tmp@name})")
+    }
+
+    element_designator <- if (passes_as_scalar(iterable_var)) {
+      iterable_tmp@name
+    } else if (iterable_var@rank == 1L) {
+      glue("{iterable_tmp@name}({idx@name})")
+    } else {
+      subs <- linear_subscripts_from_1d(
+        iterable_tmp@name,
+        iterable_var@rank,
+        Fortran(idx@name, idx)
+      )
+      glue("{iterable_tmp@name}({str_flatten_commas(subs)})")
+    }
+
+    element_expr <- element_designator
+    if (identical(loop_var@mode, "logical")) {
+      element_is_int <- logical_as_int(iterable_tmp)
+      target_is_int <- logical_as_int(loop_var)
+      if (target_is_int && !element_is_int) {
+        element_expr <- glue("merge(1_c_int, 0_c_int, {element_expr})")
+      } else if (!target_is_int && element_is_int) {
+        element_expr <- glue("({element_expr} /= 0)")
+      }
+    }
+
+    body <- r2f(body, scope, ...)
+    loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
+
+    loop_header <- if (iterable_reversed) {
+      glue("do {idx@name} = {end}, 1_c_int, -1_c_int")
+    } else {
+      glue("do {idx@name} = 1_c_int, {end}")
+    }
+
+    return(Fortran(glue(
+      "
+      {iterable_tmp_assign}
+      {loop_header}
+      {indent(loop_stmts)}
+      end do
+      "
+    )))
+  }
+
+  # Index iteration: `for (i in 1:n) { ... }`
   scope[[var]] <- Variable(mode = "integer", name = var_name)
 
-  iterable <- r2f_iterable_handlers[[as.character(iterable[[1]])]](
-    iterable,
-    scope,
-    ...
-  )
+  iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
 
   Fortran(glue(
@@ -1639,57 +1885,6 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     end do
     "
   ))
-}
-
-r2f_iterable_handlers := new.env()
-
-r2f_iterable_handlers[["seq_len"]] <- function(e, scope, ...) {
-  x <- as.list(e)[-1]
-  if (length(x) != 1) {
-    stop("too many args to seq_len()")
-  }
-  x <- x[[1]]
-  start <- 1L
-  end <- r2f(x, scope, ...)
-  glue("{start}, {end}")
-}
-
-r2f_iterable_handlers[["seq"]] <- function(e, scope, ...) {
-  ee <- match.call(seq.default, e)
-  ee <- whole_doubles_to_ints(ee)
-
-  start <- r2f(ee$from, scope, ...)
-  end <- r2f(ee$to, scope, ...)
-  step <- if (is.null(ee$by)) {
-    glue("sign(1, {end}-{start})")
-  } else {
-    r2f(ee$by, scope, ...)
-  }
-
-  str_flatten_commas(
-    start,
-    end,
-    step
-  )
-}
-
-r2f_iterable_handlers[[":"]] <- function(e, scope, ...) {
-  ee <- whole_doubles_to_ints(e)
-  .[start, end] <- as.list(ee)[-1] |> lapply(r2f, scope, ...)
-
-  glue("{start}, {end}, sign(1, {end}-{start})")
-}
-
-
-r2f_iterable_handlers[["seq_along"]] <- function(e, scope, ...) {
-  x <- as.list(e)[-1]
-  if (length(x) != 1) {
-    stop("too many args to seq_along()")
-  }
-  x <- x[[1]]
-  start <- 1
-  end <- sprintf("size(%s)", r2f(x, scope, ...))
-  glue("{start}, {end}")
 }
 
 

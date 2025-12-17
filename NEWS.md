@@ -4,6 +4,9 @@
   available (e.g. `brew install flang`). This is optional and can be disabled
   with `options(quickr.prefer_flang = FALSE)`.
 
+- Improved `for (... in <iterable>)` lowering, including value iteration
+  (`for (v in x)`) and support for `rev()` wrappers on supported iterables.
+
 - Added nested compilation scopes with local declaration emission, enabling
   block-scoped temporaries (Fortran 2008 `block ... end block`) and local
   closures (lowered to internal procedures under `contains`), including `sapply()`
