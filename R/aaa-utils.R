@@ -116,6 +116,26 @@ drop_nulls <- function(x, i) {
 
 last <- function(x) x[[length(x)]]
 drop_last <- function(x) x[-length(x)]
+
+compile_nonreturn_statements <- function(stmts, scope) {
+  if (!length(stmts)) {
+    return("")
+  }
+
+  compiled <- lapply(stmts, function(stmt) {
+    stmt_f <- r2f(stmt, scope)
+    if (!is.null(stmt_f@value)) {
+      stop(
+        "all expressions except the final return must compile to a statement (no value); found: ",
+        deparse1(stmt),
+        call. = FALSE
+      )
+    }
+    stmt_f
+  })
+
+  str_flatten_lines(compiled)
+}
 # fmt: skip
 {
 is_scalar_na      <- function(x) is.atomic(x)    && !is.object(x) && length(x) == 1L && is.na(x)
