@@ -26,7 +26,7 @@ test_that("dump_collected writes src stubs for collected quick functions", {
   )
 
   testthat::capture_output({
-    result <- withVisible(quickr:::dump_collected())
+    result <- suppressMessages(withVisible(quickr:::dump_collected()))
   })
   expect_false(result$visible)
 
