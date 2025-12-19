@@ -29,7 +29,9 @@
 # }
 
 .onLoad <- function(...) {
-  S7::methods_register()
-  asNamespace("dotty")$dotify()
+  suppressWarnings({
+    S7::methods_register()
+    asNamespace("dotty")$dotify()
+  })
   # on_load_register_.AtNames.default()
 }
