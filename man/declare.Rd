@@ -20,5 +20,14 @@ arguments.
 \details{
 \code{declare()} is provided by the base package starting in R 4.4.0; for older
 versions of R, quickr exports a compatible backport.
+
+\code{declare(parallel())} or \code{declare(omp())} applies an OpenMP \verb{parallel do}
+directive to the next \code{for} loop or \code{sapply()} assignment. Only index
+iterables (\code{1:n}, \code{seq_len()}, \code{seq_along()}, \code{seq()}) are supported.
+
+Control the number of OpenMP threads using environment variables such as
+\code{OMP_NUM_THREADS} (threads per region), \code{OMP_THREAD_LIMIT} (global cap),
+and \code{OMP_DYNAMIC} (disable/enable runtime adjustment). Set them before
+calling a compiled function, e.g. \code{Sys.setenv(OMP_NUM_THREADS = "4")}.
 }
 \keyword{internal}

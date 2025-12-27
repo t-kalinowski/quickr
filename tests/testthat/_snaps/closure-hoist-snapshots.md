@@ -35,7 +35,7 @@
       
       
         out = 0
-        do tmp1_ = 1_c_int, size(out)
+        do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
         end do
       

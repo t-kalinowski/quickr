@@ -341,7 +341,12 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
     if (is_missing(a)) {
       next
     }
-    if (is_type_call(a)) {
+    if (is_parallel_decl_call(a)) {
+      if (has_pending_parallel(scope)) {
+        stop("parallel()/omp() declaration already pending.", call. = FALSE)
+      }
+      set_pending_parallel(scope, parse_parallel_decl(a))
+    } else if (is_type_call(a)) {
       var <- type_call_to_var(a)
       var@is_arg <- var@name %in% names(formals(scope@closure))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
@@ -376,7 +381,13 @@ r2f_handlers[["("]] <- function(args, scope, ...) {
 
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {
   # every top level R-expr / fortran statement gets its own hoist target.
-  x <- lapply(args, r2f, scope, ...)
+  x <- vector("list", length(args))
+  for (i in seq_along(args)) {
+    stmt <- args[[i]]
+    check_pending_parallel_target(stmt, scope)
+    x[[i]] <- r2f(stmt, scope, ...)
+  }
+  check_pending_parallel_consumed(scope)
   code <- str_flatten_lines(x)
 
   # browser()
@@ -776,13 +787,17 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
 
 r2f_handlers[["seq_len"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
-  n <- whole_doubles_to_ints(args[[1L]])
-  n <- r2f(n, scope, ...)
+  n_expr <- whole_doubles_to_ints(args[[1L]])
+  n <- r2f(n_expr, scope, ...)
   if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
     stop("seq_len() expects an integer scalar")
   }
 
-  val <- Variable("integer", NA)
+  size_expr <- r2size(n_expr, scope)
+  if (is_scalar_na(size_expr)) {
+    size_expr <- NA_integer_
+  }
+  val <- Variable("integer", list(size_expr))
   fr <- switch(
     list(...)$calls |> drop_last() |> last(),
     "[" = glue("1:{n}"),
@@ -803,8 +818,18 @@ r2f_handlers[["seq_along"]] <- function(args, scope, ...) {
     stop("seq_along() argument must have a value")
   }
 
+  len_expr <- if (passes_as_scalar(x@value)) {
+    1L
+  } else if (any(map_lgl(x@value@dims, is_scalar_na))) {
+    NA_integer_
+  } else if (x@value@rank == 1L) {
+    x@value@dims[[1L]]
+  } else {
+    reduce(x@value@dims, \(d1, d2) call("*", d1, d2))
+  }
+
   end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
-  val <- Variable("integer", NA)
+  val <- Variable("integer", list(len_expr))
   fr <- switch(
     list(...)$calls |> drop_last() |> last(),
     "[" = glue("1:{end}"),
@@ -1224,7 +1249,17 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
 
   # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
   if (is_sapply_call(rhs)) {
-    return(compile_sapply_assignment(name, rhs, scope, ..., hoist = hoist))
+    parallel <- take_pending_parallel(scope)
+    return(
+      compile_sapply_assignment(
+        name,
+        rhs,
+        scope,
+        ...,
+        hoist = hoist,
+        parallel = parallel
+      )
+    )
   }
 
   value <- r2f(rhs, scope, ..., hoist = hoist)
@@ -1817,9 +1852,16 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   iterable_info <- r2f_unwrap_for_iterable(iterable)
   iterable_unwrapped <- iterable_info$iterable
   iterable_reversed <- isTRUE(iterable_info$reversed)
+  parallel <- take_pending_parallel(scope)
 
   # Value iteration: `for (x in foo) { ... }`
   if (is.symbol(iterable_unwrapped)) {
+    if (!is.null(parallel)) {
+      stop(
+        "parallel()/omp() only supports index iterables (seq_len, seq_along, :, seq()).",
+        call. = FALSE
+      )
+    }
     iterable_name <- as.character(iterable_unwrapped)
     iterable_var <- get0(iterable_name, scope)
     if (!inherits(iterable_var, Variable)) {
@@ -1916,10 +1958,16 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
 
+  directives <- openmp_directives(parallel)
+  if (!is.null(parallel)) {
+    mark_openmp_used(scope)
+  }
+  loop_header <- glue("do {var_name} = {iterable}")
   Fortran(glue(
-    "do {var_name} = {iterable}
+    "{str_flatten_lines(directives$prefix, loop_header)}
     {indent(body)}
     end do
+    {str_flatten_lines(directives$suffix)}
     "
   ))
 }

@@ -93,47 +93,68 @@ quickr_fcompiler_env <- function(
   prefer_flang_force = isTRUE(getOption("quickr.prefer_flang_force")) ||
     quickr_env_is_true("QUICKR_PREFER_FLANG"),
   write_lines = writeLines,
-  sysname = Sys.info()[["sysname"]]
+  sysname = Sys.info()[["sysname"]],
+  use_openmp = FALSE
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
-  if (!isTRUE(prefer_flang)) {
-    return(character())
+  use_openmp <- isTRUE(use_openmp)
+
+  flang <- ""
+  flang_runtime <- character()
+  use_flang <- isTRUE(prefer_flang)
+  if (use_flang) {
+    flang <- quickr_flang_path(which = which)
+    if (!nzchar(flang)) {
+      use_flang <- FALSE
+    }
   }
-  flang <- quickr_flang_path(which = which)
-  if (!nzchar(flang)) {
-    return(character())
+  if (use_openmp && use_flang && !isTRUE(prefer_flang_force)) {
+    use_flang <- FALSE
+    flang <- ""
+  }
+  if (use_flang) {
+    flang_runtime <- if (sysname == "Darwin") {
+      quickr_flang_runtime_flags(flang = flang, sysname = sysname)
+    } else {
+      character()
+    }
+    if (sysname == "Darwin" && !length(flang_runtime)) {
+      if (isTRUE(prefer_flang_force)) {
+        stop(
+          "quickr was configured to use flang (",
+          flang,
+          ") but could not locate the flang runtime library (libflang_rt.runtime.dylib) to link against.\n",
+          "Either reinstall flang so the runtime is available, or disable flang selection with:\n",
+          "  options(quickr.prefer_flang = FALSE)\n",
+          "or:\n",
+          "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
+        )
+      }
+      use_flang <- FALSE
+      flang_runtime <- character()
+    }
   }
 
-  flang_runtime <- if (sysname == "Darwin") {
-    quickr_flang_runtime_flags(flang = flang, sysname = sysname)
-  } else {
-    character()
-  }
-  if (sysname == "Darwin" && !length(flang_runtime)) {
-    if (isTRUE(prefer_flang_force)) {
-      stop(
-        "quickr was configured to use flang (",
-        flang,
-        ") but could not locate the flang runtime library (libflang_rt.runtime.dylib) to link against.\n",
-        "Either reinstall flang so the runtime is available, or disable flang selection with:\n",
-        "  options(quickr.prefer_flang = FALSE)\n",
-        "or:\n",
-        "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
-      )
-    }
+  if (!use_flang && !use_openmp) {
     return(character())
   }
 
   makevars_path <- file.path(build_dir, "Makevars.quickr")
+  makevars_lines <- c(
+    if (use_flang) {
+      c(
+        sprintf("FC=%s", flang),
+        sprintf("F77=%s", flang),
+        if (length(flang_runtime)) {
+          paste(c("FLIBS +=", flang_runtime), collapse = " ")
+        }
+      )
+    },
+    if (use_openmp) openmp_makevars_lines()
+  )
   write_lines(
-    c(
-      sprintf("FC=%s", flang),
-      sprintf("F77=%s", flang),
-      if (length(flang_runtime)) {
-        paste(c("FLIBS +=", flang_runtime), collapse = " ")
-      }
-    ),
+    makevars_lines,
     makevars_path
   )
   sprintf("R_MAKEVARS_USER=%s", makevars_path)
