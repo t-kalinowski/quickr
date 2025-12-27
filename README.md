@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             487ms 487.01ms      2.05     847KB     8.21
-#> 2 quickr        932µs   1.07ms    931.       782KB    15.8 
-#> 3 c             916µs   1.07ms    931.       782KB    15.7
+#> 1 r             489ms 489.79ms      2.04     847KB     3.06
+#> 2 quickr        914µs   1.07ms    934.       782KB    15.3 
+#> 3 c             920µs   1.07ms    927.       782KB    15.7
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -285,8 +285,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   60.56µs  70.44µs    13960.     178KB     37.7
-#> 2 quick_viterbi   1.76µs   2.01µs   478162.        0B      0
+#> 1 slow_viterbi   62.36µs   71.3µs    13731.     178KB     34.6
+#> 2 quick_viterbi   1.76µs   2.05µs   468885.        0B      0
 plot(timings)
 ```
 
@@ -370,8 +370,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        93.7   87.4       1        515.     1   
-#> 2 quick_diffuse_heat   1      1        87.4        1      1.37
+#> 1 diffuse_heat        91.8   87.2       1        515.      Inf
+#> 2 quick_diffuse_heat   1      1        87.3        1       NaN
 plot(timings)
 ```
 
@@ -417,9 +417,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           67.31ms  81.53ms      9.77  124.31MB    23.5 
-#> 2 rcpp         6.23ms   6.33ms    153.      4.44MB     1.98
-#> 3 quickr        2.3ms   2.46ms    402.    781.35KB     3.98
+#> 1 r           64.68ms  74.95ms      9.90  124.31MB    21.8 
+#> 2 rcpp         5.92ms   6.33ms    154.      4.44MB     1.98
+#> 3 quickr       2.15ms   2.42ms    414.    781.35KB     4.00
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -480,10 +480,10 @@ r |>
 
 <img src="man/figures/README-unnamed-chunk-9-1.png" width="100%" />
 
-By default, quickr will set `OMP_NUM_THREADS` to
-`floor(parallel::detectCores(logical = FALSE) * 0.75)` if it is unset,
-so a 16-core machine will use 12 threads. You can override this by
-setting `OMP_NUM_THREADS` before compiling a function.
+quickr does not set OpenMP thread counts. To control threads, set
+`OMP_NUM_THREADS` (and optionally `OMP_THREAD_LIMIT` or `OMP_DYNAMIC`)
+before calling a compiled function,
+e.g. `Sys.setenv(OMP_NUM_THREADS = "4")`.
 
 ## Using `quickr` in an R package
 

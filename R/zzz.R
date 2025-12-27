@@ -29,14 +29,6 @@
 # }
 
 .onLoad <- function(...) {
-  if (!nzchar(Sys.getenv("OMP_NUM_THREADS", unset = ""))) {
-    cores <- parallel::detectCores(logical = FALSE)
-    if (is.na(cores) || cores < 1L) {
-      cores <- 1L
-    }
-    threads <- max(1L, floor(cores * 0.75))
-    Sys.setenv(OMP_NUM_THREADS = as.character(threads))
-  }
   suppressWarnings({
     S7::methods_register()
     asNamespace("dotty")$dotify()
