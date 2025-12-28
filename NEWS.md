@@ -4,6 +4,12 @@
   available (e.g. `brew install flang`). This is optional and can be disabled
   with `options(quickr.prefer_flang = FALSE)`.
 
+- Added OpenMP parallelization via `declare(parallel())`/`declare(omp())` for
+  `for` loops and `sapply()` calls.
+
+- Added support for `abs()` in size expressions used by `declare(type(...))`
+  (e.g. `declare(type(x = integer(abs(end - start) + 1L)))`).
+
 - Improved `for (... in <iterable>)` lowering, including value iteration
   (`for (v in x)`) and support for `rev()` wrappers on supported iterables.
 

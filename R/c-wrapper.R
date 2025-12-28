@@ -335,6 +335,9 @@ dims2c_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
 dims2c_eval_base_env[["/"]] <- function(e1, e2) {
   glue("((double)({e1}) / (double)({e2}))")
 }
+dims2c_eval_base_env[["abs"]] <- function(e1) {
+  glue("(({e1}) < 0 ? -({e1}) : ({e1}))")
+}
 # dividing integers truncates towards 0
 dims2c_eval_base_env[["%/%"]] <- function(e1, e2) {
   glue("((R_xlen_t){e1} / (R_xlen_t){e2})")
