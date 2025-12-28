@@ -78,17 +78,31 @@ test_that("parallel sapply supports seq_len(nrow(x))", {
   expect_quick_identical(row_sums, list(x))
 })
 
-test_that("parallel declarations require supported targets", {
+test_that("parallel for-loops support value iteration", {
   openmp_supported_or_skip()
 
   value_iter <- function(x) {
-    declare(type(x = double(NA)))
+    declare(
+      type(x = double(NA)),
+      type(idx = integer(length(x))),
+      type(out = double(length(x)))
+    )
+    idx <- seq_along(x)
+    out <- double(length(x))
     declare(parallel())
-    for (v in x) {
-      x[1] <- v
+    for (i in idx) {
+      out[i] <- x[i] * 2
     }
-    x
+    out
   }
+
+  set.seed(11)
+  x <- runif(6)
+  expect_quick_identical(value_iter, list(x))
+})
+
+test_that("parallel declarations require supported targets", {
+  openmp_supported_or_skip()
 
   wrong_target <- function(x) {
     declare(type(x = double(1)))
@@ -103,10 +117,6 @@ test_that("parallel declarations require supported targets", {
     x
   }
 
-  expect_error(
-    quick(value_iter),
-    regexp = "parallel\\(\\)/omp\\(\\) only supports index iterables"
-  )
   expect_error(
     quick(wrong_target),
     regexp = "parallel\\(\\)/omp\\(\\) must be followed by a for-loop or sapply\\(\\)"

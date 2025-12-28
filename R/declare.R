@@ -8,8 +8,10 @@
 #' versions of R, quickr exports a compatible backport.
 #'
 #' `declare(parallel())` or `declare(omp())` applies an OpenMP `parallel do`
-#' directive to the next `for` loop or `sapply()` assignment. Only index
-#' iterables (`1:n`, `seq_len()`, `seq_along()`, `seq()`) are supported.
+#' directive to the next `for` loop or `sapply()` assignment. `for` loops can
+#' iterate values over symbols or index iterables (`1:n`, `seq_len()`,
+#' `seq_along()`, `seq()`), and `sapply()` iterates over vector inputs with a
+#' known length.
 #'
 #' Control the number of OpenMP threads using environment variables such as
 #' `OMP_NUM_THREADS` (threads per region), `OMP_THREAD_LIMIT` (global cap),
