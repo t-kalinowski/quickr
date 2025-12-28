@@ -46,6 +46,27 @@ test_that("seq_along() works for scalars", {
   expect_quick_identical(fn, 0, 1, -3)
 })
 
+test_that("for() supports scalar indexing in singleton iterables", {
+  seq_len_scalar <- function(x) {
+    declare(type(x = double(1)))
+    for (i in seq_len(1L)) {
+      x[i] <- x[i] + 1.5
+    }
+    x
+  }
+
+  colon_scalar <- function(x) {
+    declare(type(x = double(1)))
+    for (i in 1:1) {
+      x[i] <- x[i] + 2.0
+    }
+    x
+  }
+
+  expect_quick_identical(seq_len_scalar, 0, 1, -2.5)
+  expect_quick_identical(colon_scalar, 0, 1, -2.5)
+})
+
 test_that("for() supports seq() direction and step", {
   digits_from_seq <- function(a, b) {
     declare(type(a = integer(1)), type(b = integer(1)))

@@ -47,6 +47,38 @@ test_that("sapply supports integer scalar return", {
   expect_quick_identical(fn, list(x))
 })
 
+test_that("sapply iterates over vector values", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    out <- sapply(x, function(v) v * 2)
+    out
+  }
+
+  set.seed(1)
+  x <- runif(8)
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("sapply supports simple sequence inputs", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    out <- sapply(1:n, function(v) as.double(v) + 0.5)
+    out
+  }
+
+  expect_quick_identical(fn, list(5L))
+})
+
+test_that("sapply supports singleton range sizes", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    out <- sapply(1:n, function(v) v + 1L)
+    out
+  }
+
+  expect_quick_identical(fn, list(1L), list(4L))
+})
+
 test_that("sapply supports vector return -> matrix output", {
   fn <- function(x) {
     declare(type(x = double(m, n)))
