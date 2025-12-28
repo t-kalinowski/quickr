@@ -292,6 +292,8 @@ Variable := new_class(
 
     modified = prop_bool(default = FALSE),
 
+    loop_is_singleton = prop_bool(default = FALSE),
+
     r = new_property(
       NULL | class_language | class_atomic,
       setter = function(self, value) {

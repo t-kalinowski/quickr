@@ -618,6 +618,9 @@ r2f_handlers[["["]] <- function(
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
       return(var)
     }
+    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
+      return(var)
+    }
   }
 
   # R-style linear indexing for rank>1 arrays: x[i]
@@ -1736,6 +1739,45 @@ r2f_unwrap_for_iterable <- function(iterable) {
   list(iterable = iterable, reversed = reversed)
 }
 
+iterable_is_singleton_one <- function(iterable, scope) {
+  is_one <- function(x) {
+    is_wholenumber(x) && identical(as.integer(x), 1L)
+  }
+
+  if (is_call(iterable, quote(seq_len)) && length(iterable) == 2L) {
+    arg <- whole_doubles_to_ints(iterable[[2L]])
+    return(is_one(arg))
+  }
+
+  if (is_call(iterable, quote(seq_along)) && length(iterable) == 2L) {
+    arg <- iterable[[2L]]
+    if (is.symbol(arg)) {
+      var <- get0(as.character(arg), scope)
+      if (inherits(var, Variable) && passes_as_scalar(var)) {
+        return(TRUE)
+      }
+    }
+    return(FALSE)
+  }
+
+  if (is_call(iterable, quote(`:`)) && length(iterable) == 3L) {
+    args <- whole_doubles_to_ints(as.list(iterable)[-1L])
+    return(is_one(args[[1L]]) && is_one(args[[2L]]))
+  }
+
+  if (is_call(iterable, quote(seq))) {
+    ee <- match.call(seq.default, iterable)
+    ee <- whole_doubles_to_ints(ee)
+    from <- ee$from
+    to <- ee$to
+    if (!is.null(from) && !is.null(to) && is_one(from) && is_one(to)) {
+      return(TRUE)
+    }
+  }
+
+  FALSE
+}
+
 r2f_for_iterable <- function(iterable, scope, ...) {
   original <- iterable
   unwrapped <- r2f_unwrap_for_iterable(iterable)
@@ -1856,12 +1898,6 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
 
   # Value iteration: `for (x in foo) { ... }`
   if (is.symbol(iterable_unwrapped)) {
-    if (!is.null(parallel)) {
-      stop(
-        "parallel()/omp() only supports index iterables (seq_len, seq_along, :, seq()).",
-        call. = FALSE
-      )
-    }
     iterable_name <- as.character(iterable_unwrapped)
     iterable_var <- get0(iterable_name, scope)
     if (!inherits(iterable_var, Variable)) {
@@ -1942,18 +1978,27 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
+    directives <- openmp_directives(parallel, private = var_name)
+    if (!is.null(parallel)) {
+      mark_openmp_used(scope)
+    }
     return(Fortran(glue(
       "
       {iterable_tmp_assign}
-      {loop_header}
+      {str_flatten_lines(directives$prefix, loop_header)}
       {indent(loop_stmts)}
       end do
+      {str_flatten_lines(directives$suffix)}
       "
     )))
   }
 
   # Index iteration: `for (i in 1:n) { ... }`
-  scope[[var]] <- Variable(mode = "integer", name = var_name)
+  loop_var <- Variable(mode = "integer", name = var_name)
+  if (iterable_is_singleton_one(iterable_unwrapped, scope)) {
+    loop_var@loop_is_singleton <- TRUE
+  }
+  scope[[var]] <- loop_var
 
   iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
