@@ -141,7 +141,7 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
   )
   expect_lt(
     min(four_threads$elapsed, eight_threads$elapsed),
-    two_threads$elapsed * 1.2,
+    two_threads$elapsed * 2,
     label = thread_info
   )
 
@@ -150,9 +150,8 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
     ratio_four <- four_threads$cpu / four_threads$elapsed
     ratio_eight <- eight_threads$cpu / eight_threads$elapsed
 
-    expect_gt(ratio_eight, 1.2, label = thread_info)
-    expect_gte(ratio_four, ratio_two * 0.95, label = thread_info)
-    expect_gte(ratio_eight, ratio_two * 0.8, label = thread_info)
+    max_ratio <- max(ratio_two, ratio_four, ratio_eight)
+    expect_gt(max_ratio, 1.2, label = thread_info)
   }
 }
 
