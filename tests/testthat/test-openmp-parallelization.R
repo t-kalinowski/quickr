@@ -38,7 +38,20 @@ timed_run <- function(fn, ..., reps = 1L) {
 }
 
 check_thread_scaling_subprocess <- function(label, n, iters) {
-  pkg_path <- normalizePath(testthat::test_path("..", ".."), winslash = "/")
+  pkg_path <- normalizePath(
+    testthat::test_path("..", ".."),
+    winslash = "/",
+    mustWork = FALSE
+  )
+  load_snippet <- if (file.exists(file.path(pkg_path, "DESCRIPTION"))) {
+    paste(
+      "suppressPackageStartupMessages(library(pkgload))",
+      sprintf("pkgload::load_all(%s, quiet = TRUE)", shQuote(pkg_path)),
+      sep = "; "
+    )
+  } else {
+    "suppressPackageStartupMessages(library(quickr))"
+  }
   iter_parallel_line <- paste(
     "iter_parallel <- quick(function(x, n, iters) {",
     "declare(type(x = double(n)), type(n = integer(1)),",
@@ -52,8 +65,7 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
     collapse = " "
   )
   code <- paste(
-    "suppressPackageStartupMessages(library(pkgload))",
-    sprintf("pkgload::load_all(%s, quiet = TRUE)", shQuote(pkg_path)),
+    load_snippet,
     iter_parallel_line,
     sprintf("n <- %dL", as.integer(n)),
     sprintf("iters <- %dL", as.integer(iters)),
