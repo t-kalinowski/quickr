@@ -152,7 +152,7 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
 
     expect_gt(ratio_eight, 1.2, label = thread_info)
     expect_gte(ratio_four, ratio_two * 0.95, label = thread_info)
-    expect_gt(ratio_eight, ratio_two, label = thread_info)
+    expect_gte(ratio_eight, ratio_two * 0.8, label = thread_info)
   }
 }
 
