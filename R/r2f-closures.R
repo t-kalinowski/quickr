@@ -704,6 +704,38 @@ compile_sapply_assignment <- function(
         from <- ee$from
         to <- ee$to
         by <- ee$by
+
+        is_scalar_integerish <- function(x) {
+          is_number(x) && !is.na(x) && trunc(x) == x
+        }
+
+        if (!is.null(from) && !is.null(to) && identical(from, to)) {
+          return(1L)
+        }
+
+        if (!is.null(by) && is_scalar_integerish(by)) {
+          by_val <- as.integer(by)
+          if (by_val == 0L) {
+            stop("invalid '(to - from)/by'", call. = FALSE)
+          }
+        }
+
+        if (is_scalar_integerish(from) && is_scalar_integerish(to)) {
+          from_val <- as.integer(from)
+          to_val <- as.integer(to)
+          delta <- to_val - from_val
+          if (delta == 0L) {
+            return(1L)
+          }
+          if (!is.null(by) && is_scalar_integerish(by)) {
+            by_val <- as.integer(by)
+            if (sign(delta) != sign(by_val)) {
+              stop("wrong sign in 'by' argument", call. = FALSE)
+            }
+            return(abs(delta %/% by_val) + 1L)
+          }
+        }
+
         if (is.null(by)) {
           return(call("+", call("abs", call("-", to, from)), 1L))
         }
@@ -832,6 +864,9 @@ compile_sapply_assignment <- function(
   } else {
     subs <- c(rep(":", out_var@rank - 1L), idx@name)
     glue("{out_target}({str_flatten_commas(subs)})")
+  }
+  if (passes_as_scalar(out_var)) {
+    res_target <- out_target
   }
 
   element_designator <- if (index_iterable) {

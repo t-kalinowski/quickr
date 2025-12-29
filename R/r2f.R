@@ -751,6 +751,14 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
   if (!is.null(args$length.out) || !is.null(args$along.with)) {
     stop("seq(length.out=, along.with=) not implemented yet")
   }
+  if (is_scalar_integer(args$by) && identical(args$by, 0L)) {
+    if (
+      is.null(args$from) || is.null(args$to) || !identical(args$from, args$to)
+    ) {
+      stop("invalid '(to - from)/by'", call. = FALSE)
+    }
+    args$by <- NULL
+  }
 
   .[from, to, by] <- lapply(args, r2f, scope, ...)[c("from", "to", "by")]
   by <- by %||% Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
@@ -1655,6 +1663,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 
   # true and false branchs gets their own hoist target.
   true <- r2f(args[[2]], scope, ..., hoist = NULL)
+  check_pending_parallel_consumed(scope)
 
   if (length(args) == 2) {
     Fortran(glue(
@@ -1666,6 +1675,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
     ))
   } else {
     false <- r2f(args[[3]], scope, ..., hoist = NULL)
+    check_pending_parallel_consumed(scope)
     Fortran(glue(
       "
       if ({cond}) then
@@ -1685,6 +1695,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["repeat"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   body <- r2f(args[[1]], scope, ...)
+  check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do
     {indent(body)}
@@ -1710,6 +1721,7 @@ r2f_handlers[["while"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 2L)
   cond <- r2f(args[[1]], scope, ...)
   body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do while ({cond})
     {indent(body)}
@@ -1849,6 +1861,12 @@ r2f_for_iterable <- function(iterable, scope, ...) {
     seq = {
       ee <- match.call(seq.default, iterable)
       ee <- whole_doubles_to_ints(ee)
+      if (is_scalar_integer(ee$by) && identical(ee$by, 0L)) {
+        if (is.null(ee$from) || is.null(ee$to) || !identical(ee$from, ee$to)) {
+          stop("invalid '(to - from)/by'", call. = FALSE)
+        }
+        ee$by <- NULL
+      }
 
       from <- r2f(ee$from, scope, ...)
       to <- r2f(ee$to, scope, ...)
@@ -1970,6 +1988,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     }
 
     body <- r2f(body, scope, ...)
+    check_pending_parallel_consumed(scope)
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
 
     loop_header <- if (iterable_reversed) {
@@ -2002,6 +2021,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
 
   iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
+  check_pending_parallel_consumed(scope)
 
   directives <- openmp_directives(parallel)
   if (!is.null(parallel)) {

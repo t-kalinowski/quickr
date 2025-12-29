@@ -126,3 +126,38 @@ test_that("parallel declarations require supported targets", {
     regexp = "parallel\\(\\)/omp\\(\\) must be followed by a for-loop or sapply\\(\\)"
   )
 })
+
+test_that("parallel declarations do not cross control flow boundaries", {
+  openmp_supported_or_skip()
+
+  if_decl <- function(x) {
+    declare(type(x = double(1)))
+    if (x > 0) {
+      declare(parallel())
+    }
+    for (i in seq_len(1L)) {
+      x <- x + i
+    }
+    x
+  }
+
+  for_body_decl <- function(x) {
+    declare(type(x = double(1)))
+    for (i in seq_len(1L)) {
+      declare(parallel())
+    }
+    for (j in seq_len(1L)) {
+      x <- x + j
+    }
+    x
+  }
+
+  expect_error(
+    quick(if_decl),
+    regexp = "parallel\\(\\)/omp\\(\\) must be followed by a for-loop or sapply\\(\\)"
+  )
+  expect_error(
+    quick(for_body_decl),
+    regexp = "parallel\\(\\)/omp\\(\\) must be followed by a for-loop or sapply\\(\\)"
+  )
+})

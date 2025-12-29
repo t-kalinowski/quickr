@@ -79,6 +79,27 @@ test_that("sapply supports singleton range sizes", {
   expect_quick_identical(fn, list(1L), list(4L))
 })
 
+test_that("sapply seq() validates by sign and zero step", {
+  bad_sign <- function() {
+    out <- sapply(seq(1L, 5L, by = -1L), function(v) v)
+    out
+  }
+
+  bad_zero <- function() {
+    out <- sapply(seq(1L, 2L, by = 0L), function(v) v)
+    out
+  }
+
+  ok_zero <- function() {
+    out <- sapply(seq(2L, 2L, by = 0L), function(v) v + 1L)
+    out
+  }
+
+  expect_error(quick(bad_sign), regexp = "wrong sign in 'by' argument")
+  expect_error(quick(bad_zero), regexp = "invalid '\\(to - from\\)/by'")
+  expect_quick_identical(ok_zero, list())
+})
+
 test_that("sapply supports vector return -> matrix output", {
   fn <- function(x) {
     declare(type(x = double(m, n)))
