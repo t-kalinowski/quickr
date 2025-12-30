@@ -242,20 +242,42 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   fcompiler_env <- quickr_fcompiler_env(build_dir, use_openmp = use_openmp)
 
   suppressWarnings({
+    r_args <- c(
+      "CMD SHLIB --use-LTO",
+      "-o",
+      dll_path,
+      fsub_path,
+      c_wrapper_path,
+      link_flags
+    )
     result <- system2(
       R.home("bin/R"),
-      c(
-        "CMD SHLIB --use-LTO",
-        "-o",
-        dll_path,
-        fsub_path,
-        c_wrapper_path,
-        link_flags
-      ),
+      r_args,
       stdout = TRUE,
       stderr = TRUE,
       env = fcompiler_env
     )
+    if (!is.null(attr(result, "status")) && length(fcompiler_env)) {
+      result2 <- system2(
+        R.home("bin/R"),
+        r_args,
+        stdout = TRUE,
+        stderr = TRUE
+      )
+      if (is.null(attr(result2, "status"))) {
+        result <- result2
+      } else {
+        # Prefer to show the flang attempt first, then the fallback attempt.
+        result <- c(
+          "--- flang attempt ---",
+          result,
+          "",
+          "--- fallback attempt ---",
+          result2
+        )
+        attr(result, "status") <- attr(result2, "status")
+      }
+    }
   })
 
   if (!is.null(status <- attr(result, "status"))) {
