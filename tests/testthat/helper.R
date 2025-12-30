@@ -68,3 +68,34 @@ set_seed_and_call <- function(fun, ...) {
   set.seed(1234)
   fun(...)
 }
+
+openmp_supported_or_skip <- local({
+  supported <- NULL
+  function() {
+    skip_on_cran()
+    skip_if_not_installed("pkgload")
+    if (is.null(supported)) {
+      supported <<- tryCatch(
+        {
+          quick(function(x) {
+            declare(type(x = double(1)))
+            declare(parallel())
+            for (i in seq_len(1L)) {
+              x[i] <- x[i] + 1
+            }
+            x
+          })
+          TRUE
+        },
+        error = function(e) {
+          msg <- conditionMessage(e)
+          if (grepl("OpenMP", msg, fixed = TRUE)) {
+            return(FALSE)
+          }
+          stop(e)
+        }
+      )
+    }
+    skip_if(!isTRUE(supported), "OpenMP unavailable in this toolchain")
+  }
+})

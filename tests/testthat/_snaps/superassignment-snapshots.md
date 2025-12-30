@@ -150,7 +150,7 @@
       
       
       
-        do tmp1_ = 1_c_int, size(x)
+        do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
         end do
       
@@ -380,7 +380,7 @@
       
         out = x
       
-        do tmp1_ = 1_c_int, size(x, 2)
+        do tmp1_ = 1_c_int, x__dim_2_
           call f(tmp1_, out(:, tmp1_))
         end do
       

@@ -4,6 +4,7 @@ editor_options:
   chunk_output_type: console
   markdown:
     wrap: sentence
+    canonical: true
 ---
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
@@ -24,8 +25,8 @@ knitr::opts_chunk$set(
 
 <!-- badges: start -->
 
-[![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml)
-[![Codecov test coverage](https://codecov.io/gh/t-kalinowski/quickr/graph/badge.svg)](https://app.codecov.io/gh/t-kalinowski/quickr)
+[![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml) [![Codecov test coverage](https://codecov.io/gh/t-kalinowski/quickr/graph/badge.svg)](https://app.codecov.io/gh/t-kalinowski/quickr)
+
 <!-- badges: end -->
 
 The goal of quickr is to make your R code run quicker.
@@ -36,33 +37,49 @@ R is an extremely flexible and dynamic language, but that flexibility and dynami
 This package lets you trade back some of that flexibility for some speed, for the context of a single function.
 
 <!-- Programming language design requires some hard decisions and trade-ofs. -->
+
 <!-- When you want to have it all, you typically end up have two (or more!) languages. -->
+
 <!-- An interpreted, dynamic language full of conveniences, and a staticly-typed, explicit, high-performance language. -->
+
 <!-- This is sometimes called the "Two Language Problem". -->
 
 <!-- Like [Numba](https://numba.pydata.org) in Python, or the [Julia](https://julialang.org) language, quickr is a solution to the [two-language problem](https://juliadatascience.io/julia_accomplish). -->
+
 <!-- Unlike those tools however, quickr does not bundle most of LLVM, keeping dependencies lightweight. -->
 
 <!-- Quickr works by translating the R code to Fortran. -->
+
 <!-- Fortran might seem like a surprising choice, but it has many compelling properties: -->
 
 <!-- -   Superb performance. -->
+
 <!--     As a stalwart of the numerical computing community, Fortran has accrued the benefit of countless person-hours from top-tier computer scientists and compiler engineers. -->
+
 <!--     There is a reason that over 20% of R itself, (and numpy, and ...) are still in Fortran, and it's not merely because of legacy. -->
+
 <!--     And this trend of compiler engineers focusing on Fortran is not stopping. -->
 
 <!-- -   Large overlap with R semantics and syntax for numerical computing. -->
+
 <!--     Fortran and R have very similar syntax for operating on arrays. -->
+
 <!--     Like R, Fortran has builtin-in support for nd-arrays, provides vectorized operators on arrays, convenient array slicing semantics that match many capabilities of R's `[` , 1-based indexing, and a well-populated collection of operators for working on those arrays like `min`, `max`, `any` `all`, etc. -->
+
 <!--     This means that it's relatively straightforward to translate R to Fortran, often just a 1:1 mapping of semantics, with some changes to syntax. -->
 
 <!--     This is also why Fortran has such superb performance, and why it attracts compiler engineers to work on it. -->
+
 <!--     Because the language spec guarantees things like, static shapes for nd-arrays, views of those arrays, etc, it provides many opportunities for compiler engineers to do things like generate SIMD instructions, or automatically parallelize code. -->
 
 <!-- -   Excellent support in R. -->
+
 <!--     One of the original motivations for R was to serve as a front-end for Fortran. -->
+
 <!--     Since its inception, R has supported Fortran extensions, and supported them well. -->
+
 <!--     It also means that any computing environment where R build tools are available, Fortran is supported. -->
+
 <!--     The barrier to entry and thorny questions, that, for example, using Rust in CRAN might raise, is non-existent for Fortran. -->
 
 The main exported function is `quick()`, here is how you use it.
@@ -366,14 +383,67 @@ timings$expression <- factor(names(timings$expression), rev(names(timings$expres
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
+## Parallelize loops with OpenMP
+
+Use `declare(parallel())` to annotate the next `for` loop or `sapply()` call for OpenMP parallelization.
+Parallel loops must be order-independent: avoid shared-state updates or inter-iteration dependencies.
+OpenMP adds overhead, so it can be slower for small workloads, but substantially faster for larger ones.
+
+Here is a concrete example using `colSums()`.
+At smaller sizes, the quickr serial version is fastest (even faster than base `colSums()`).
+As sizes grow, the two serial versions converge, and the parallel version pulls ahead.
+However, the speedup is not linear with core count (e.g., with 12 cores, the speedup is closer to \~6x).
+
+```{r}
+colSums_quick_parallel <- quick(function(x) {
+  declare(type(x = double(NA, NA)))
+  declare(parallel())
+  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+})
+
+colSums_quick <- quick(function(x) {
+  declare(type(x = double(NA, NA)))
+  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+})
+
+r <- bench::press(
+  n = 2^(4:14),
+  {
+    m <- array(runif(n * n), c(n, n))
+    bench::mark(
+      parallel = colSums_quick_parallel(m),
+      quick = colSums_quick(m),
+      base = colSums(m),
+    )
+  },
+  .quiet = TRUE
+)
+
+library(ggplot2)
+library(dplyr, warn.conflicts = FALSE)
+
+r |>
+  mutate(.before = 1,
+         desc = attr(expression, "description")) |>
+  select(desc, n, median) |>
+  ggplot(aes(x = n, y = median, color = desc)) +
+  geom_point() + geom_line() +
+  scale_x_log10() + bench::scale_y_bench_time()
+```
+
+quickr does not set OpenMP thread counts. To control threads, set
+`OMP_NUM_THREADS` (and optionally `OMP_THREAD_LIMIT` or `OMP_DYNAMIC`)
+before calling a compiled function, e.g. `Sys.setenv(OMP_NUM_THREADS = "4")`.
+
 ## Using `quickr` in an R package
 
 When called in a package, `quick()` will pre-compile the quick functions and place them in the `./src` directory.
 Run `devtools::load_all()` or `quickr::compile_package()` to ensure that the generated files in `./src` and `./R` are in sync with each other.
 
-In a package, you must provide a function name to `quick()`. For example:
+In a package, you must provide a function name to `quick()`.
+For example:
 
-```r
+``` r
 my_fun <- quick(name = "my_fun", function(x) ....)
 ```
 

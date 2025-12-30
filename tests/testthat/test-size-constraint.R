@@ -41,3 +41,16 @@ test_that("size constraint", {
   expect_identical(qfn(0), fn(0))
   expect_identical(qfn(-0), fn(-0))
 })
+
+test_that("size symbols honor declared argument sizes", {
+  fn <- function(n) {
+    declare(
+      type(n = integer(1)),
+      type(out = double(n))
+    )
+    out <- double(n)
+    out
+  }
+
+  expect_quick_identical(fn, list(5L), list(10L))
+})

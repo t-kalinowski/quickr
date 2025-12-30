@@ -8,6 +8,9 @@
 <!-- badges: start -->
 
 [![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml)
+[![Codecov test
+coverage](https://codecov.io/gh/t-kalinowski/quickr/graph/badge.svg)](https://app.codecov.io/gh/t-kalinowski/quickr)
+
 <!-- badges: end -->
 
 The goal of quickr is to make your R code run quicker.
@@ -137,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             478ms 478.44ms      2.09     782KB     6.27
-#> 2 quickr        933µs   1.06ms    946.       782KB    18.5 
-#> 3 c             947µs   1.06ms    939.       782KB    18.1
+#> 1 r             489ms 489.79ms      2.04     847KB     3.06
+#> 2 quickr        914µs   1.07ms    934.       782KB    15.3 
+#> 3 c             920µs   1.07ms    927.       782KB    15.7
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -172,8 +175,8 @@ In the case of `convolve()`, `quick()` returns a function approximately
     #> [50] exp       floor     for       if        ifelse    integer   length   
     #> [57] log       log10     logical   matrix    max       min       ncol     
     #> [64] next      nrow      numeric   print     prod      raw       repeat   
-    #> [71] runif     seq       sin       sqrt      sum       tan       which.max
-    #> [78] which.min while
+    #> [71] runif     seq       seq_along seq_len   sin       sqrt      sum      
+    #> [78] tan       which.max which.min while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -282,8 +285,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi    61.5µs  71.75µs    13166.    1.59KB     36.1
-#> 2 quick_viterbi   1.72µs   1.89µs   509601.        0B      0
+#> 1 slow_viterbi   62.36µs   71.3µs    13731.     178KB     34.6
+#> 2 quick_viterbi   1.76µs   2.05µs   468885.        0B      0
 plot(timings)
 ```
 
@@ -367,8 +370,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        96.2   91.4       1        514.      Inf
-#> 2 quick_diffuse_heat   1      1        91.1        1       NaN
+#> 1 diffuse_heat        91.8   87.2       1        515.      Inf
+#> 2 quick_diffuse_heat   1      1        87.3        1       NaN
 plot(timings)
 ```
 
@@ -414,15 +417,73 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           66.49ms  74.39ms      13.6  124.24MB    25.3 
-#> 2 rcpp         5.89ms   6.26ms     157.     4.44MB     1.99
-#> 3 quickr       2.16ms   2.26ms     434.   781.35KB     5.99
+#> 1 r           64.68ms  74.95ms      9.90  124.31MB    21.8 
+#> 2 rcpp         5.92ms   6.33ms    154.      4.44MB     1.98
+#> 3 quickr       2.15ms   2.42ms    414.    781.35KB     4.00
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
 <img src="man/figures/README-unnamed-chunk-8-1.png" width="100%" />
+
+## Parallelize loops with OpenMP
+
+Use `declare(parallel())` to annotate the next `for` loop or `sapply()`
+call for OpenMP parallelization. Parallel loops must be
+order-independent: avoid shared-state updates or inter-iteration
+dependencies. OpenMP adds overhead, so it can be slower for small
+workloads, but substantially faster for larger ones.
+
+Here is a concrete example using `colSums()`. At smaller sizes, the
+quickr serial version is fastest (even faster than base `colSums()`). As
+sizes grow, the two serial versions converge, and the parallel version
+pulls ahead. However, the speedup is not linear with core count (e.g.,
+with 12 cores, the speedup is closer to ~6x).
+
+``` r
+colSums_quick_parallel <- quick(function(x) {
+  declare(type(x = double(NA, NA)))
+  declare(parallel())
+  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+})
+
+colSums_quick <- quick(function(x) {
+  declare(type(x = double(NA, NA)))
+  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+})
+
+r <- bench::press(
+  n = 2^(4:14),
+  {
+    m <- array(runif(n * n), c(n, n))
+    bench::mark(
+      parallel = colSums_quick_parallel(m),
+      quick = colSums_quick(m),
+      base = colSums(m),
+    )
+  },
+  .quiet = TRUE
+)
+
+library(ggplot2)
+library(dplyr, warn.conflicts = FALSE)
+
+r |>
+  mutate(.before = 1,
+         desc = attr(expression, "description")) |>
+  select(desc, n, median) |>
+  ggplot(aes(x = n, y = median, color = desc)) +
+  geom_point() + geom_line() +
+  scale_x_log10() + bench::scale_y_bench_time()
+```
+
+<img src="man/figures/README-unnamed-chunk-9-1.png" width="100%" />
+
+quickr does not set OpenMP thread counts. To control threads, set
+`OMP_NUM_THREADS` (and optionally `OMP_THREAD_LIMIT` or `OMP_DYNAMIC`)
+before calling a compiled function,
+e.g. `Sys.setenv(OMP_NUM_THREADS = "4")`.
 
 ## Using `quickr` in an R package
 

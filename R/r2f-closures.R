@@ -589,7 +589,13 @@ compile_closure_call_assignment <- function(
   ))
 }
 
-compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
+compile_sapply_assignment <- function(
+  out_name,
+  call_expr,
+  scope,
+  ...,
+  parallel = NULL
+) {
   stopifnot(is_string(out_name), is_sapply_call(call_expr))
   hoist <- list(...)$hoist
   if (is.null(hoist)) {
@@ -614,16 +620,16 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   }
 
   out_var <- get0(out_name, scope)
-  if (is.null(out_var) || !inherits(out_var, Variable)) {
-    stop("sapply() result must be assigned to an existing variable: ", out_name)
-  }
-  if (out_var@rank < 1L) {
-    stop("sapply() output must be an array: ", out_name)
-  }
-  if (
-    out_var@rank > 2L && (is.null(simplify) || !identical(simplify, "array"))
-  ) {
-    stop('sapply() that returns arrays requires `simplify = "array"`.')
+  target_exists <- inherits(out_var, Variable)
+  if (target_exists) {
+    if (out_var@rank < 1L) {
+      stop("sapply() output must be an array: ", out_name)
+    }
+    if (
+      out_var@rank > 2L && (is.null(simplify) || !identical(simplify, "array"))
+    ) {
+      stop('sapply() that returns arrays requires `simplify = "array"`.')
+    }
   }
 
   env <- environment(scope@closure)
@@ -646,18 +652,130 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
     stop("sapply() FUN must have exactly one named argument")
   }
 
-  res_dims <- if (out_var@rank == 1L) {
-    NULL
-  } else {
-    out_var@dims[seq_len(out_var@rank - 1L)]
+  seq_call_unwrapped <- seq_call
+  while (
+    is_call(seq_call_unwrapped, quote(`(`)) && length(seq_call_unwrapped) == 2L
+  ) {
+    seq_call_unwrapped <- seq_call_unwrapped[[2L]]
   }
-  res_var <- Variable(mode = out_var@mode, dims = res_dims)
-  if (logical_as_int(out_var)) {
-    res_var@logical_as_int <- TRUE
+  index_iterable <- is_call(seq_call_unwrapped, quote(seq_len)) ||
+    is_call(seq_call_unwrapped, quote(seq_along))
+
+  iterable_len_expr <- NULL
+  iterable_tmp <- NULL
+  iterable_tmp_assign <- NULL
+  iterable_value <- NULL
+
+  if (index_iterable) {
+    seq_val <- r2f(seq_call, scope, calls = "for", hoist = hoist)
+    if (!is.null(seq_val@value) && seq_val@value@rank == 1L) {
+      iterable_len_expr <- seq_val@value@dims[[1L]]
+    }
+    formal_vars <- list(
+      Variable(mode = "integer", name = formal_names[[1L]])
+    )
+    names(formal_vars) <- formal_names
+  } else {
+    iterable_val <- r2f(seq_call, scope, calls = "sapply", hoist = hoist)
+    if (is.null(iterable_val@value) || is.null(iterable_val@value@mode)) {
+      stop("sapply() iterable must have a value")
+    }
+    iterable_value <- iterable_val@value
+
+    infer_iterable_len <- function(expr, value) {
+      while (is_call(expr, quote(`(`)) && length(expr) == 2L) {
+        expr <- expr[[2L]]
+      }
+
+      if (passes_as_scalar(value)) {
+        return(1L)
+      }
+
+      if (is_call(expr, quote(`:`)) && length(expr) == 3L) {
+        args <- whole_doubles_to_ints(as.list(expr)[-1L])
+        start <- args[[1L]]
+        end <- args[[2L]]
+        return(call("+", call("abs", call("-", end, start)), 1L))
+      }
+
+      if (is_call(expr, quote(seq))) {
+        ee <- match.call(seq.default, expr)
+        ee <- whole_doubles_to_ints(ee)
+        from <- ee$from
+        to <- ee$to
+        by <- ee$by
+
+        if (!is.null(from) && !is.null(to) && identical(from, to)) {
+          return(1L)
+        }
+
+        if (!is.null(by) && is_scalar_integerish(by)) {
+          by_val <- as.integer(by)
+          if (by_val == 0L) {
+            stop("invalid '(to - from)/by'", call. = FALSE)
+          }
+        }
+
+        if (is_scalar_integerish(from) && is_scalar_integerish(to)) {
+          from_val <- as.integer(from)
+          to_val <- as.integer(to)
+          delta <- to_val - from_val
+          if (delta == 0L) {
+            return(1L)
+          }
+          if (!is.null(by) && is_scalar_integerish(by)) {
+            by_val <- as.integer(by)
+            if (sign(delta) != sign(by_val)) {
+              stop("wrong sign in 'by' argument", call. = FALSE)
+            }
+            return(abs(delta %/% by_val) + 1L)
+          }
+        }
+
+        if (is.null(by)) {
+          return(call("+", call("abs", call("-", to, from)), 1L))
+        }
+        return(call("+", call("abs", call("%/%", call("-", to, from), by)), 1L))
+      }
+
+      dims <- value@dims
+      if (is.null(dims) || any(map_lgl(dims, is_scalar_na))) {
+        return(NA_integer_)
+      }
+      if (value@rank == 1L) {
+        return(dims[[1L]])
+      }
+      reduce(dims, \(d1, d2) call("*", d1, d2))
+    }
+
+    iterable_len_expr <- infer_iterable_len(seq_call, iterable_value)
+
+    iterable_tmp <- scope@get_unique_var(
+      mode = iterable_value@mode,
+      dims = iterable_value@dims
+    )
+    iterable_tmp_assign <- glue("{iterable_tmp@name} = {iterable_val}")
+
+    formal_vars <- list(
+      Variable(mode = iterable_value@mode, name = formal_names[[1L]])
+    )
+    names(formal_vars) <- formal_names
+  }
+  res_var <- if (target_exists) {
+    res_dims <- if (out_var@rank == 1L) {
+      NULL
+    } else {
+      out_var@dims[seq_len(out_var@rank - 1L)]
+    }
+    res_out <- Variable(mode = out_var@mode, dims = res_dims)
+    if (logical_as_int(out_var)) {
+      res_out@logical_as_int <- TRUE
+    }
+    res_out
+  } else {
+    Variable()
   }
 
-  formal_vars <- list(Variable(mode = "integer", name = formal_names[[1L]]))
-  names(formal_vars) <- formal_names
   proc <- compile_internal_subroutine(
     proc_name,
     closure_obj,
@@ -666,6 +784,47 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
     res_var,
     forbid_superassign = out_name
   )
+
+  if (!target_exists) {
+    inferred <- proc$res_var
+    if (is.null(inferred@mode)) {
+      stop("internal error: could not infer sapply() output type")
+    }
+    res_var <- inferred
+
+    return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
+    if (res_var@mode == "logical" && out_name %in% return_names) {
+      res_var@logical_as_int <- TRUE
+      proc <- compile_internal_subroutine(
+        proc_name,
+        closure_obj,
+        scope,
+        formal_vars,
+        res_var,
+        forbid_superassign = out_name
+      )
+    }
+
+    if (is.null(iterable_len_expr) || is_scalar_na(iterable_len_expr)) {
+      stop("sapply() requires a vector input with a known length")
+    }
+    if (
+      res_var@rank > 1L && (is.null(simplify) || !identical(simplify, "array"))
+    ) {
+      stop('sapply() that returns arrays requires `simplify = "array"`.')
+    }
+    out_dims <- if (res_var@rank == 0L) {
+      list(iterable_len_expr)
+    } else {
+      c(res_var@dims, list(iterable_len_expr))
+    }
+    out_var <- Variable(mode = res_var@mode, dims = out_dims, name = out_name)
+    if (logical_as_int(res_var)) {
+      out_var@logical_as_int <- TRUE
+    }
+    scope[[out_name]] <- out_var
+  }
+
   scope_root(scope)@add_internal_proc(proc)
 
   out_target <- out_name
@@ -681,19 +840,19 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
   }
 
   idx <- scope@get_unique_var("integer")
-  if (is_seq_along_call(seq_call) && length(seq_call) == 2L) {
-    seq_target_f <- r2f(seq_call[[2L]], scope, ...)
-    last_i <- glue("size({seq_target_f})")
-  } else if (
-    is.call(seq_call) &&
-      identical(seq_call[[1L]], quote(seq_len)) &&
-      length(seq_call) == 2L
-  ) {
-    last_i <- r2f(seq_call[[2L]], scope, ...)
+  last_i <- if (index_iterable) {
+    if (is.null(iterable_len_expr) || is_scalar_na(iterable_len_expr)) {
+      NULL
+    } else {
+      r2f(iterable_len_expr, scope, hoist = hoist)
+    }
+  } else if (passes_as_scalar(iterable_value)) {
+    "1_c_int"
   } else {
-    stop(
-      "only sapply(seq_along(x), FUN) and sapply(seq_len(n), FUN) are supported"
-    )
+    glue("size({iterable_tmp@name})")
+  }
+  if (is.null(last_i)) {
+    stop("sapply() requires a vector input with a known length")
   }
 
   res_target <- if (out_var@rank == 1L) {
@@ -702,20 +861,48 @@ compile_sapply_assignment <- function(out_name, call_expr, scope, ...) {
     subs <- c(rep(":", out_var@rank - 1L), idx@name)
     glue("{out_target}({str_flatten_commas(subs)})")
   }
+  if (passes_as_scalar(out_var)) {
+    res_target <- out_target
+  }
+
+  element_designator <- if (index_iterable) {
+    idx@name
+  } else if (passes_as_scalar(iterable_value)) {
+    iterable_tmp@name
+  } else if (iterable_value@rank == 1L) {
+    glue("{iterable_tmp@name}({idx@name})")
+  } else {
+    subs <- linear_subscripts_from_1d(
+      iterable_tmp@name,
+      iterable_value@rank,
+      Fortran(idx@name, idx)
+    )
+    glue("{iterable_tmp@name}({str_flatten_commas(subs)})")
+  }
 
   call_args <- str_flatten_commas(c(
-    idx@name,
+    element_designator,
     res_target
   ))
 
   out_var@modified <- TRUE
   scope[[out_name]] <- out_var
 
+  directives <- openmp_directives(parallel)
+  if (!is.null(parallel)) {
+    mark_openmp_used(scope)
+  }
+  loop_header <- glue("do {idx@name} = 1_c_int, {last_i}")
+  prefix <- str_flatten_lines(
+    if (!index_iterable) iterable_tmp_assign else NULL,
+    str_flatten_lines(directives$prefix, loop_header)
+  )
   Fortran(glue(
     "
-    do {idx@name} = 1_c_int, {last_i}
+    {prefix}
       call {proc_name}({call_args})
     end do
+    {str_flatten_lines(directives$suffix)}
     {str_flatten_lines(post_stmts)}
     "
   ))
@@ -765,6 +952,9 @@ compile_subset_designator <- function(
   ) {
     idx_r <- attr(idxs[[1]], "r", exact = TRUE)
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
+      return(base_name)
+    }
+    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
       return(base_name)
     }
   }

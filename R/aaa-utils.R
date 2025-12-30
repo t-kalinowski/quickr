@@ -119,10 +119,14 @@ drop_last <- function(x) x[-length(x)]
 
 compile_nonreturn_statements <- function(stmts, scope) {
   if (!length(stmts)) {
+    check_pending_parallel_consumed(scope)
     return("")
   }
 
-  compiled <- lapply(stmts, function(stmt) {
+  compiled <- vector("list", length(stmts))
+  for (i in seq_along(stmts)) {
+    stmt <- stmts[[i]]
+    check_pending_parallel_target(stmt, scope)
     stmt_f <- r2f(stmt, scope)
     if (!is.null(stmt_f@value)) {
       stop(
@@ -131,9 +135,10 @@ compile_nonreturn_statements <- function(stmts, scope) {
         call. = FALSE
       )
     }
-    stmt_f
-  })
+    compiled[[i]] <- stmt_f
+  }
 
+  check_pending_parallel_consumed(scope)
   str_flatten_lines(compiled)
 }
 # fmt: skip
@@ -144,6 +149,7 @@ is_scalar_integer <- function(x) is.integer(x)   && !is.object(x) && length(x) =
 is_string         <- function(x) is.character(x) && length(x) == 1L && !is.na(x) # could also be 'glue' class.
 is_bool           <- function(x) is.logical(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
 is_number         <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
+is_scalar_integerish <- function(x) is_number(x) && trunc(x) == x
 is_wholenumber    <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x) &&
   x >= 0L && (is.integer(x) || is.double(x) && trunc(x) == x)
 }

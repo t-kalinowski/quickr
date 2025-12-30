@@ -48,6 +48,26 @@ self_evaluate <- function(...) sys.call()
 substitute_declared_sizes <- function(e) {
   stopifnot(is_call(e, quote(`{`)))
 
+  declared_names <- local({
+    names_out <- character()
+    walk <- function(node) {
+      if (is_call(node, quote(declare))) {
+        args <- get_flattened_args(node)
+        for (a in args) {
+          if (is_type_call(a)) {
+            nm <- names(as.list(a)[-1])
+            names_out <<- c(names_out, nm)
+          }
+        }
+      }
+      if (is.call(node)) {
+        lapply(as.list(node), walk)
+      }
+    }
+    walk(e)
+    unique(names_out[nzchar(names_out)])
+  })
+
   aliases <- new.env(parent = emptyenv())
   eval_env <- new.env(parent = emptyenv())
   for (name in all.names(e, functions = TRUE, unique = TRUE)) {
@@ -69,7 +89,11 @@ substitute_declared_sizes <- function(e) {
         var <- type_call_to_var(e)
         var@dims <- imap(var@dims, function(size, axis) {
           size_name <- as.symbol(get_size_name(var, axis))
-          if (is.symbol(size) && !exists(size, aliases)) {
+          if (
+            is.symbol(size) &&
+              !exists(size, aliases) &&
+              !(as.character(size) %in% declared_names)
+          ) {
             # user defined implicit size_name alias
             assign(as.character(size), size_name, aliases)
             size <- size_name

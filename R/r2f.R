@@ -341,7 +341,12 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
     if (is_missing(a)) {
       next
     }
-    if (is_type_call(a)) {
+    if (is_parallel_decl_call(a)) {
+      if (has_pending_parallel(scope)) {
+        stop("parallel()/omp() declaration already pending.", call. = FALSE)
+      }
+      set_pending_parallel(scope, parse_parallel_decl(a))
+    } else if (is_type_call(a)) {
       var <- type_call_to_var(a)
       var@is_arg <- var@name %in% names(formals(scope@closure))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
@@ -376,7 +381,13 @@ r2f_handlers[["("]] <- function(args, scope, ...) {
 
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {
   # every top level R-expr / fortran statement gets its own hoist target.
-  x <- lapply(args, r2f, scope, ...)
+  x <- vector("list", length(args))
+  for (i in seq_along(args)) {
+    stmt <- args[[i]]
+    check_pending_parallel_target(stmt, scope)
+    x[[i]] <- r2f(stmt, scope, ...)
+  }
+  check_pending_parallel_consumed(scope)
   code <- str_flatten_lines(x)
 
   # browser()
@@ -607,6 +618,9 @@ r2f_handlers[["["]] <- function(
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
       return(var)
     }
+    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
+      return(var)
+    }
   }
 
   # R-style linear indexing for rank>1 arrays: x[i]
@@ -737,6 +751,14 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
   if (!is.null(args$length.out) || !is.null(args$along.with)) {
     stop("seq(length.out=, along.with=) not implemented yet")
   }
+  if (is_scalar_integer(args$by) && identical(args$by, 0L)) {
+    if (
+      is.null(args$from) || is.null(args$to) || !identical(args$from, args$to)
+    ) {
+      stop("invalid '(to - from)/by'", call. = FALSE)
+    }
+    args$by <- NULL
+  }
 
   .[from, to, by] <- lapply(args, r2f, scope, ...)[c("from", "to", "by")]
   by <- by %||% Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
@@ -776,13 +798,17 @@ r2f_handlers[["seq"]] <- function(args, scope, ...) {
 
 r2f_handlers[["seq_len"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
-  n <- whole_doubles_to_ints(args[[1L]])
-  n <- r2f(n, scope, ...)
+  n_expr <- whole_doubles_to_ints(args[[1L]])
+  n <- r2f(n_expr, scope, ...)
   if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
     stop("seq_len() expects an integer scalar")
   }
 
-  val <- Variable("integer", NA)
+  size_expr <- r2size(n_expr, scope)
+  if (is_scalar_na(size_expr)) {
+    size_expr <- NA_integer_
+  }
+  val <- Variable("integer", list(size_expr))
   fr <- switch(
     list(...)$calls |> drop_last() |> last(),
     "[" = glue("1:{n}"),
@@ -803,8 +829,18 @@ r2f_handlers[["seq_along"]] <- function(args, scope, ...) {
     stop("seq_along() argument must have a value")
   }
 
+  len_expr <- if (passes_as_scalar(x@value)) {
+    1L
+  } else if (any(map_lgl(x@value@dims, is_scalar_na))) {
+    NA_integer_
+  } else if (x@value@rank == 1L) {
+    x@value@dims[[1L]]
+  } else {
+    reduce(x@value@dims, \(d1, d2) call("*", d1, d2))
+  }
+
   end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
-  val <- Variable("integer", NA)
+  val <- Variable("integer", list(len_expr))
   fr <- switch(
     list(...)$calls |> drop_last() |> last(),
     "[" = glue("1:{end}"),
@@ -1224,7 +1260,17 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
 
   # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
   if (is_sapply_call(rhs)) {
-    return(compile_sapply_assignment(name, rhs, scope, ..., hoist = hoist))
+    parallel <- take_pending_parallel(scope)
+    return(
+      compile_sapply_assignment(
+        name,
+        rhs,
+        scope,
+        ...,
+        hoist = hoist,
+        parallel = parallel
+      )
+    )
   }
 
   value <- r2f(rhs, scope, ..., hoist = hoist)
@@ -1617,6 +1663,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 
   # true and false branchs gets their own hoist target.
   true <- r2f(args[[2]], scope, ..., hoist = NULL)
+  check_pending_parallel_consumed(scope)
 
   if (length(args) == 2) {
     Fortran(glue(
@@ -1628,6 +1675,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
     ))
   } else {
     false <- r2f(args[[3]], scope, ..., hoist = NULL)
+    check_pending_parallel_consumed(scope)
     Fortran(glue(
       "
       if ({cond}) then
@@ -1647,6 +1695,7 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["repeat"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   body <- r2f(args[[1]], scope, ...)
+  check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do
     {indent(body)}
@@ -1672,6 +1721,7 @@ r2f_handlers[["while"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 2L)
   cond <- r2f(args[[1]], scope, ...)
   body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do while ({cond})
     {indent(body)}
@@ -1699,6 +1749,45 @@ r2f_unwrap_for_iterable <- function(iterable) {
   }
 
   list(iterable = iterable, reversed = reversed)
+}
+
+iterable_is_singleton_one <- function(iterable, scope) {
+  is_one <- function(x) {
+    is_wholenumber(x) && identical(as.integer(x), 1L)
+  }
+
+  if (is_call(iterable, quote(seq_len)) && length(iterable) == 2L) {
+    arg <- whole_doubles_to_ints(iterable[[2L]])
+    return(is_one(arg))
+  }
+
+  if (is_call(iterable, quote(seq_along)) && length(iterable) == 2L) {
+    arg <- iterable[[2L]]
+    if (is.symbol(arg)) {
+      var <- get0(as.character(arg), scope)
+      if (inherits(var, Variable) && passes_as_scalar(var)) {
+        return(TRUE)
+      }
+    }
+    return(FALSE)
+  }
+
+  if (is_call(iterable, quote(`:`)) && length(iterable) == 3L) {
+    args <- whole_doubles_to_ints(as.list(iterable)[-1L])
+    return(is_one(args[[1L]]) && is_one(args[[2L]]))
+  }
+
+  if (is_call(iterable, quote(seq))) {
+    ee <- match.call(seq.default, iterable)
+    ee <- whole_doubles_to_ints(ee)
+    from <- ee$from
+    to <- ee$to
+    if (!is.null(from) && !is.null(to) && is_one(from) && is_one(to)) {
+      return(TRUE)
+    }
+  }
+
+  FALSE
 }
 
 r2f_for_iterable <- function(iterable, scope, ...) {
@@ -1772,6 +1861,12 @@ r2f_for_iterable <- function(iterable, scope, ...) {
     seq = {
       ee <- match.call(seq.default, iterable)
       ee <- whole_doubles_to_ints(ee)
+      if (is_scalar_integer(ee$by) && identical(ee$by, 0L)) {
+        if (is.null(ee$from) || is.null(ee$to) || !identical(ee$from, ee$to)) {
+          stop("invalid '(to - from)/by'", call. = FALSE)
+        }
+        ee$by <- NULL
+      }
 
       from <- r2f(ee$from, scope, ...)
       to <- r2f(ee$to, scope, ...)
@@ -1817,6 +1912,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   iterable_info <- r2f_unwrap_for_iterable(iterable)
   iterable_unwrapped <- iterable_info$iterable
   iterable_reversed <- isTRUE(iterable_info$reversed)
+  parallel <- take_pending_parallel(scope)
 
   # Value iteration: `for (x in foo) { ... }`
   if (is.symbol(iterable_unwrapped)) {
@@ -1892,6 +1988,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     }
 
     body <- r2f(body, scope, ...)
+    check_pending_parallel_consumed(scope)
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
 
     loop_header <- if (iterable_reversed) {
@@ -1900,26 +1997,42 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
+    directives <- openmp_directives(parallel, private = var_name)
+    if (!is.null(parallel)) {
+      mark_openmp_used(scope)
+    }
     return(Fortran(glue(
       "
       {iterable_tmp_assign}
-      {loop_header}
+      {str_flatten_lines(directives$prefix, loop_header)}
       {indent(loop_stmts)}
       end do
+      {str_flatten_lines(directives$suffix)}
       "
     )))
   }
 
   # Index iteration: `for (i in 1:n) { ... }`
-  scope[[var]] <- Variable(mode = "integer", name = var_name)
+  loop_var <- Variable(mode = "integer", name = var_name)
+  if (iterable_is_singleton_one(iterable_unwrapped, scope)) {
+    loop_var@loop_is_singleton <- TRUE
+  }
+  scope[[var]] <- loop_var
 
   iterable <- r2f_for_iterable(iterable, scope, ...)
   body <- r2f(body, scope, ...)
+  check_pending_parallel_consumed(scope)
 
+  directives <- openmp_directives(parallel)
+  if (!is.null(parallel)) {
+    mark_openmp_used(scope)
+  }
+  loop_header <- glue("do {var_name} = {iterable}")
   Fortran(glue(
-    "do {var_name} = {iterable}
+    "{str_flatten_lines(directives$prefix, loop_header)}
     {indent(body)}
     end do
+    {str_flatten_lines(directives$suffix)}
     "
   ))
 }

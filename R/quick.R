@@ -216,7 +216,11 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       fsub_path,
       c_wrapper_path
     )
-    env <- quickr_fcompiler_env(build_dir = build_dir)
+    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
+    env <- quickr_fcompiler_env(
+      build_dir = build_dir,
+      use_openmp = use_openmp
+    )
     result <- system2(
       R.home("bin/R"),
       r_args,

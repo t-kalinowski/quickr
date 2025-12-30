@@ -238,16 +238,28 @@ closure_arg_size_checks <- function(var, scope) {
       if (as.character(d) == size_name) {
         # self-named size_name is expected to be passed along to subroutine
         return()
-      } else {
-        # it's a constraint for another size
-        return(glue(
-          '
-            if ({d} != {size_name})
-              Rf_error("{as_friendly_size_name(size_name)} must equal {as_friendly_size_name(d)},"
-                       " but are %0.f and %0.f",
-                        (double){size_name}, (double){d});'
-        ))
       }
+
+      d_name <- as.character(d)
+      d_var <- get0(d_name, scope)
+      if (inherits(d_var, Variable)) {
+        d_expr <- glue("Rf_asInteger({d_var@name})")
+        d_label <- d_name
+      } else if (is_size_name(d_name)) {
+        d_expr <- d_name
+        d_label <- as_friendly_size_name(d_name)
+      } else {
+        d_expr <- d_name
+        d_label <- d_name
+      }
+
+      return(glue(
+        '
+          if ({d_expr} != {size_name})
+            Rf_error("{as_friendly_size_name(size_name)} must equal {d_label},"
+                     " but are %0.f and %0.f",
+                      (double){size_name}, (double){d_expr});'
+      ))
     }
 
     if (is.call(d)) {
@@ -322,6 +334,9 @@ dims2c_eval_base_env[["-"]] <- function(e1, e2) glue("({e1} - {e2})")
 dims2c_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
 dims2c_eval_base_env[["/"]] <- function(e1, e2) {
   glue("((double)({e1}) / (double)({e2}))")
+}
+dims2c_eval_base_env[["abs"]] <- function(e1) {
+  glue("(({e1}) < 0 ? -({e1}) : ({e1}))")
 }
 # dividing integers truncates towards 0
 dims2c_eval_base_env[["%/%"]] <- function(e1, e2) {

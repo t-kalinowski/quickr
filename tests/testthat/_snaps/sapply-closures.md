@@ -37,7 +37,7 @@
       
         out = 0
       
-        do tmp1_ = 1_c_int, size(out)
+        do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
         end do
       
@@ -124,7 +124,7 @@
       
       
         out = .false.
-        do tmp1_ = 1_c_int, size((out/=0))
+        do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
         end do
       
@@ -227,7 +227,7 @@
       
       
         out = 0
-        do tmp1_ = 1_c_int, size(out)
+        do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
         end do
       
@@ -314,7 +314,7 @@
       
       
         out = 0.0_c_double
-        do tmp1_ = 1_c_int, size(x, 2)
+        do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
         end do
       
@@ -421,7 +421,7 @@
       
       
         out = .false.
-        do tmp1_ = 1_c_int, size(x, 2)
+        do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
         end do
       
@@ -672,7 +672,7 @@
           integer(c_int) :: btmp1_(3)
       
           btmp1_ = shape(x)
-          do tmp1_ = 1_c_int, btmp1_(3_c_int)
+          do tmp1_ = 1_c_int, x__dim_3_
             call closure1_(tmp1_, out(:, :, tmp1_))
           end do
         end block
@@ -793,7 +793,7 @@
           integer(c_int) :: btmp1_(4)
       
           btmp1_ = shape(x)
-          do tmp1_ = 1_c_int, btmp1_(4_c_int)
+          do tmp1_ = 1_c_int, x__dim_4_
             call closure1_(tmp1_, out(:, :, :, tmp1_))
           end do
         end block
@@ -1031,7 +1031,7 @@
       
       
         out = 0
-        do tmp1_ = 1_c_int, size(out)
+        do tmp1_ = 1_c_int, 12_c_int
           call closure1_(tmp1_, out(tmp1_))
         end do
       
@@ -1134,9 +1134,10 @@
         block
           real(c_double) :: btmp1_(x__dim_1_, x__dim_2_)
       
-          do tmp1_ = 1_c_int, size(out, 2)
+          do tmp1_ = 1_c_int, x__dim_2_
             call closure1_(tmp1_, btmp1_(:, tmp1_))
           end do
+      
           out = btmp1_
         end block
       
