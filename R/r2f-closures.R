@@ -705,10 +705,6 @@ compile_sapply_assignment <- function(
         to <- ee$to
         by <- ee$by
 
-        is_scalar_integerish <- function(x) {
-          is_number(x) && !is.na(x) && trunc(x) == x
-        }
-
         if (!is.null(from) && !is.null(to) && identical(from, to)) {
           return(1L)
         }

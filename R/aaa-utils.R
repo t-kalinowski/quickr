@@ -149,6 +149,7 @@ is_scalar_integer <- function(x) is.integer(x)   && !is.object(x) && length(x) =
 is_string         <- function(x) is.character(x) && length(x) == 1L && !is.na(x) # could also be 'glue' class.
 is_bool           <- function(x) is.logical(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
 is_number         <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x)
+is_scalar_integerish <- function(x) is_number(x) && trunc(x) == x
 is_wholenumber    <- function(x) is.numeric(x)   && !is.object(x) && length(x) == 1L && !is.na(x) &&
   x >= 0L && (is.integer(x) || is.double(x) && trunc(x) == x)
 }
