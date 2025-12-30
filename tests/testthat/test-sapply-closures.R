@@ -100,6 +100,18 @@ test_that("sapply seq() validates by sign and zero step", {
   expect_quick_identical(ok_zero, list())
 })
 
+test_that("sapply seq_len() validates integer scalar", {
+  bad_seq_len <- function() {
+    out <- sapply(seq_len(2.5), function(v) v)
+    out
+  }
+
+  expect_error(
+    quick(bad_seq_len),
+    regexp = "seq_len\\(\\) expects an integer scalar"
+  )
+})
+
 test_that("sapply supports vector return -> matrix output", {
   fn <- function(x) {
     declare(type(x = double(m, n)))
