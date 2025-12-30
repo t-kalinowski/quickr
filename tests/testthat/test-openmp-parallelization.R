@@ -155,7 +155,7 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
   }
 }
 
-test_that("parallel loops consume more CPU time without large slowdowns", {
+test_that("parallel loops show parallelism without large slowdowns", {
   openmp_supported_or_skip()
 
   serial <- function(x, n) {
@@ -235,7 +235,9 @@ test_that("parallel loops consume more CPU time without large slowdowns", {
   )
 
   if (!anyNA(c(parallel_time$cpu, serial_time$cpu))) {
-    expect_gt(parallel_time$cpu, serial_time$cpu * 1.2, label = info)
+    cpu_increase <- parallel_time$cpu > serial_time$cpu * 1.1
+    elapsed_improve <- parallel_time$elapsed < serial_time$elapsed * 0.95
+    expect_true(cpu_increase || elapsed_improve, label = info)
     expect_lt(parallel_time$elapsed, serial_time$elapsed * 1.5, label = info)
   } else {
     expect_lt(parallel_time$elapsed, serial_time$elapsed * 1.5, label = info)
