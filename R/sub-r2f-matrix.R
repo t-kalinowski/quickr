@@ -75,28 +75,30 @@ gemm <- function(
   hoist,
   dest = NULL
 ) {
-  if (!is.function(hoist)) {
-    stop("internal: hoist must be a function")
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
   }
   A_name <- symbol_name_or_null(left)
   if (is.null(A_name)) {
-    tmp <- scope@get_unique_var(left@value@mode %||% "double")
-    tmp@dims <- left@value@dims
-    scope[[tmp@name]] <- tmp
-    hoist(glue("{tmp@name} = {left}"))
+    tmp <- hoist$declare_tmp(
+      mode = left@value@mode %||% "double",
+      dims = left@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {left}"))
     A_name <- tmp@name
   }
   B_name <- symbol_name_or_null(right)
   if (is.null(B_name)) {
-    tmp <- scope@get_unique_var(right@value@mode %||% "double")
-    tmp@dims <- right@value@dims
-    scope[[tmp@name]] <- tmp
-    hoist(glue("{tmp@name} = {right}"))
+    tmp <- hoist$declare_tmp(
+      mode = right@value@mode %||% "double",
+      dims = right@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {right}"))
     B_name <- tmp@name
   }
 
   if (can_use_output(dest, left, right)) {
-    hoist(glue(
+    hoist$emit(glue(
       "call dgemm('{opA}','{opB}', {m}, {n}, {k}, 1.0_c_double, {A_name}, {lda}, {B_name}, {ldb}, 0.0_c_double, {dest@name}, {ldc_expr})"
     ))
     out <- Fortran(dest@name, dest)
@@ -104,10 +106,8 @@ gemm <- function(
     return(out)
   }
 
-  output_var <- scope@get_unique_var("double")
-  output_var@dims <- list(m, n)
-  scope[[output_var@name]] <- output_var
-  hoist(glue(
+  output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
+  hoist$emit(glue(
     "call dgemm('{opA}','{opB}', {m}, {n}, {k}, 1.0_c_double, {A_name}, {lda}, {B_name}, {ldb}, 0.0_c_double, {output_var@name}, {ldc_expr})"
   ))
   Fortran(output_var@name, output_var)
@@ -129,29 +129,31 @@ gemv <- function(
   hoist,
   dest = NULL
 ) {
-  if (!is.function(hoist)) {
-    stop("internal: hoist must be a function")
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
   }
   A_name <- symbol_name_or_null(A)
   if (is.null(A_name)) {
-    tmp <- scope@get_unique_var(A@value@mode %||% "double")
-    tmp@dims <- A@value@dims
-    scope[[tmp@name]] <- tmp
-    hoist(glue("{tmp@name} = {A}"))
+    tmp <- hoist$declare_tmp(
+      mode = A@value@mode %||% "double",
+      dims = A@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {A}"))
     A_name <- tmp@name
   }
   x_name <- symbol_name_or_null(x)
   if (is.null(x_name)) {
-    tmp <- scope@get_unique_var(x@value@mode %||% "double")
-    tmp@dims <- x@value@dims
-    scope[[tmp@name]] <- tmp
-    hoist(glue("{tmp@name} = {x}"))
+    tmp <- hoist$declare_tmp(
+      mode = x@value@mode %||% "double",
+      dims = x@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {x}"))
     x_name <- tmp@name
   }
 
   if (can_use_output(dest, A, x)) {
     # Assign output to output destination
-    hoist(glue(
+    hoist$emit(glue(
       "call dgemv('{transA}', {m}, {n}, 1.0_c_double, {A_name}, {lda}, {x_name}, 1, 0.0_c_double, {dest@name}, 1)"
     ))
     out <- Fortran(dest@name, dest)
@@ -159,10 +161,8 @@ gemv <- function(
     return(out)
   }
   # Else assign to a temporary variable
-  output_var <- scope@get_unique_var("double")
-  output_var@dims <- out_dims
-  scope[[output_var@name]] <- output_var
-  hoist(glue(
+  output_var <- hoist$declare_tmp(mode = "double", dims = out_dims)
+  hoist$emit(glue(
     "call dgemv('{transA}', {m}, {n}, 1.0_c_double, {A_name}, {lda}, {x_name}, 1, 0.0_c_double, {output_var@name}, 1)"
   ))
   Fortran(output_var@name, output_var)
