@@ -1273,10 +1273,15 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  value <- r2f(rhs, scope, ..., hoist = hoist)
+  # If target already exists (declared), thread destination hint to a single BLAS-capable child
+  var <- get0(name, scope, inherits = FALSE)
+  if (!is.null(var) && inherits(var, Variable)) {
+    value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
+  } else {
+    value <- r2f(rhs, scope, ..., hoist = hoist)
+  }
 
   # immutable / copy-on-modify usage of Variable()
-  var <- get0(name, scope, inherits = FALSE)
   if (is.null(var) || !inherits(var, Variable)) {
     # The var does not exist -> this is a binding to a new symbol
     # Create a fresh Variable carrying only mode/dims and a new name.
@@ -1306,9 +1311,13 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
     assign(name, var, scope)
   }
 
-  Fortran(glue("{var@name} = {value}"))
+  # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
+  if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
+    Fortran("")
+  } else {
+    Fortran(glue("{var@name} = {value}"))
+  }
 }
-
 
 r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   # TODO: handle logical subsetting here, which must become a where a construct like:

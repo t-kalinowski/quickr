@@ -208,48 +208,37 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   writeLines(fsub, fsub_path)
   writeLines(c_wrapper, c_wrapper_path)
 
+  # Link against the same BLAS/LAPACK/Fortran libs as the running R
+  # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
+  cfg <- function(var) tryCatch({
+    out <- system2(
+      R.home("bin/R"),
+      c("CMD", "config", var),
+      stdout = TRUE,
+      stderr = FALSE
+    )
+    paste(out, collapse = " ")
+  }, error = function(e) "")
+
+  BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
+  LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
+  FLIBS <- strsplit(cfg("FLIBS"), "[[:space:]]+")[[1]]
+  # clean empties
+  BLAS_LIBS <- BLAS_LIBS[nzchar(BLAS_LIBS)]
+  LAPACK_LIBS <- LAPACK_LIBS[nzchar(LAPACK_LIBS)]
+  FLIBS <- FLIBS[nzchar(FLIBS)]
+
+  link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
+
   suppressWarnings({
-    r_args <- c(
-      "CMD SHLIB --use-LTO",
-      "-o",
-      dll_path,
-      fsub_path,
-      c_wrapper_path
-    )
-    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
-    env <- quickr_fcompiler_env(
-      build_dir = build_dir,
-      use_openmp = use_openmp
-    )
     result <- system2(
       R.home("bin/R"),
-      r_args,
-      env = env,
+      c("CMD SHLIB --use-LTO", "-o", dll_path, fsub_path, c_wrapper_path, link_flags),
       stdout = TRUE,
       stderr = TRUE
     )
-    if (!is.null(attr(result, "status")) && length(env)) {
-      result2 <- system2(
-        R.home("bin/R"),
-        r_args,
-        stdout = TRUE,
-        stderr = TRUE
-      )
-      if (is.null(attr(result2, "status"))) {
-        result <- result2
-      } else {
-        # Prefer to show the flang attempt first, then the fallback attempt.
-        result <- c(
-          "--- flang attempt ---",
-          result,
-          "",
-          "--- fallback attempt ---",
-          result2
-        )
-        attr(result, "status") <- attr(result2, "status")
-      }
-    }
   })
+  
   if (!is.null(status <- attr(result, "status"))) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
