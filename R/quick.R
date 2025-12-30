@@ -210,15 +210,20 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 
   # Link against the same BLAS/LAPACK/Fortran libs as the running R
   # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
-  cfg <- function(var) tryCatch({
-    out <- system2(
-      R.home("bin/R"),
-      c("CMD", "config", var),
-      stdout = TRUE,
-      stderr = FALSE
+  cfg <- function(var) {
+    tryCatch(
+      {
+        out <- system2(
+          R.home("bin/R"),
+          c("CMD", "config", var),
+          stdout = TRUE,
+          stderr = FALSE
+        )
+        paste(out, collapse = " ")
+      },
+      error = function(e) ""
     )
-    paste(out, collapse = " ")
-  }, error = function(e) "")
+  }
 
   BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
   LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
@@ -230,15 +235,29 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 
   link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
 
+  use_openmp <- FALSE
+  if (!is.null(fsub@scope)) {
+    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
+  }
+  fcompiler_env <- quickr_fcompiler_env(build_dir, use_openmp = use_openmp)
+
   suppressWarnings({
     result <- system2(
       R.home("bin/R"),
-      c("CMD SHLIB --use-LTO", "-o", dll_path, fsub_path, c_wrapper_path, link_flags),
+      c(
+        "CMD SHLIB --use-LTO",
+        "-o",
+        dll_path,
+        fsub_path,
+        c_wrapper_path,
+        link_flags
+      ),
       stdout = TRUE,
-      stderr = TRUE
+      stderr = TRUE,
+      env = fcompiler_env
     )
   })
-  
+
   if (!is.null(status <- attr(result, "status"))) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
