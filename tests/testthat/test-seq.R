@@ -42,6 +42,18 @@ test_that("seq_along returns linear indices for arrays", {
   )
 })
 
+test_that("seq_along requires a value", {
+  bad_seq_along <- function() {
+    out <- seq_along(NULL)
+    out
+  }
+
+  expect_error(
+    quick(bad_seq_along),
+    regexp = "seq_along\\(\\) argument must have a value"
+  )
+})
+
 test_that("seq rejects length.out and along.with", {
   bad_length_out <- function() {
     out <- seq(1L, 5L, length.out = 3L)

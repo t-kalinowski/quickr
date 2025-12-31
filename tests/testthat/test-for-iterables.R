@@ -115,6 +115,14 @@ test_that("for() iterable errors are clear", {
     s
   }
 
+  literal_iterable <- function() {
+    s <- 0L
+    for (i in 1L) {
+      s <- s + i
+    }
+    s
+  }
+
   expect_error(
     quick(unsupported_iterable),
     regexp = "unsupported iterable in for\\(\\): rev\\(list\\("
@@ -126,6 +134,10 @@ test_that("for() iterable errors are clear", {
   expect_error(
     quick(non_integer_seq_len),
     regexp = "seq_len\\(\\) expects an integer scalar"
+  )
+  expect_error(
+    quick(literal_iterable),
+    regexp = "unsupported iterable in for\\(\\): 1"
   )
 })
 
@@ -169,6 +181,35 @@ test_that("for() supports rev() on index iterables", {
   expect_quick_identical(rev_seq, list())
   expect_quick_identical(rev_seq_len, 0L, 1L, 5L)
   expect_quick_identical(rev_seq_along, numeric(), c(1, 2, 3))
+})
+
+test_that("for() rev(seq()) validates scalar bounds and step", {
+  non_scalar_bounds <- function(x) {
+    declare(type(x = integer(NA)))
+    s <- 0L
+    for (i in rev(seq(1L, x))) {
+      s <- s + i
+    }
+    s
+  }
+
+  non_scalar_step <- function(x) {
+    declare(type(x = integer(NA)))
+    s <- 0L
+    for (i in rev(seq(1L, 5L, by = x))) {
+      s <- s + i
+    }
+    s
+  }
+
+  expect_error(
+    quick(non_scalar_bounds),
+    regexp = "seq\\(\\) iterable bounds must be scalars"
+  )
+  expect_error(
+    quick(non_scalar_step),
+    regexp = "seq\\(\\) iterable step must be a scalar"
+  )
 })
 
 test_that("for() supports iterating over a symbol (value iteration)", {

@@ -822,15 +822,6 @@ seq_like_parse <- function(name, args, scope) {
       from <- seq_call$from
       to <- seq_call$to
       by <- seq_call$by
-      if (is_missing(from)) {
-        from <- NULL
-      }
-      if (is_missing(to)) {
-        to <- NULL
-      }
-      if (is_missing(by)) {
-        by <- NULL
-      }
 
       if (is.null(from) || is.null(to)) {
         stop("seq() requires both `from` and `to`", call. = FALSE)
@@ -2030,8 +2021,7 @@ r2f_for_iterable <- function(iterable, scope, ...) {
       ...,
       context = "for",
       reversed = TRUE
-    ),
-    stop_unsupported(original)
+    )
   )
 }
 
