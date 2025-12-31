@@ -45,6 +45,46 @@ matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
   list(rows = rows, cols = cols)
 }
 
+effective_dims <- function(dims, trans) {
+  if (identical(trans, "T")) {
+    list(rows = dims$cols, cols = dims$rows)
+  } else {
+    dims
+  }
+}
+
+assert_conformable <- function(left, right, context) {
+  if (is_wholenumber(left) && is_wholenumber(right)) {
+    if (!identical(as.integer(left), as.integer(right))) {
+      stop("non-conformable arguments in ", context, call. = FALSE)
+    }
+  }
+}
+
+unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
+  if (is_call(arg, quote(t)) && length(arg) == 2L) {
+    inner <- r2f(arg[[2L]], scope, ..., hoist = hoist)
+    inner <- maybe_cast_double(inner)
+    if (inner@value@rank == 2L) {
+      return(list(value = inner, trans = "T"))
+    } else if (inner@value@rank == 1L) {
+      len <- inner@value@dims[[1L]]
+      val <- Variable("double", list(1L, len))
+      return(list(
+        value = Fortran(glue("reshape({inner}, [1, int({len})])"), val),
+        trans = "N"
+      ))
+    } else if (inner@value@rank == 0L) {
+      return(list(value = inner, trans = "N"))
+    } else {
+      stop("t() only supports rank 0-2 inputs")
+    }
+  }
+  value <- r2f(arg, scope, ..., hoist = hoist)
+  value <- maybe_cast_double(value)
+  list(value = value, trans = "N")
+}
+
 # Whether it's safe and useful to write into dest (no aliasing with inputs)
 can_use_output <- function(dest, left, right) {
   if (is.null(dest)) {
@@ -249,12 +289,12 @@ end do"
 # %*% handler with optional destination hint
 r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
   stopifnot(length(args) == 2L)
-  left <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  right <- r2f(args[[2L]], scope, ..., hoist = hoist)
-
-  # Promote to double for BLAS
-  left <- maybe_cast_double(left)
-  right <- maybe_cast_double(right)
+  left_info <- unwrap_transpose_arg(args[[1L]], scope, ..., hoist = hoist)
+  right_info <- unwrap_transpose_arg(args[[2L]], scope, ..., hoist = hoist)
+  left <- left_info$value
+  right <- right_info$value
+  left_trans <- left_info$trans
+  right_trans <- right_info$trans
 
   left_rank <- left@value@rank
   right_rank <- right@value@rank
@@ -273,10 +313,21 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
     orientation = if (right_rank == 1) "colvec" else "matrix"
   )
 
+  left_eff <- if (left_rank == 2) {
+    effective_dims(left_dims, left_trans)
+  } else {
+    left_dims
+  }
+  right_eff <- if (right_rank == 2) {
+    effective_dims(right_dims, right_trans)
+  } else {
+    right_dims
+  }
+
   # Compute effective shapes
-  m <- left_dims$rows
-  k <- left_dims$cols
-  n <- right_dims$cols
+  m <- left_eff$rows
+  k <- left_eff$cols
+  n <- right_eff$cols
 
   # Leading dimensions
   lda <- left_dims$rows
@@ -285,14 +336,17 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
 
   # Matrix-Vector: use GEMV
   if (left_rank == 2 && right_rank == 1) {
+    expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
+    assert_conformable(expected_len, right_dims$rows, "%*%")
+    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
     return(gemv(
-      transA = "N",
+      transA = left_trans,
       A = left,
       x = right,
       m = left_dims$rows,
       n = left_dims$cols,
       lda = left_dims$rows,
-      out_dims = list(left_dims$rows, 1L),
+      out_dims = list(out_len, 1L),
       scope = scope,
       hoist = hoist,
       dest = dest
@@ -300,24 +354,30 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
   }
   # Vector-Matrix: use GEMV with transpose
   if (left_rank == 1 && right_rank == 2) {
+    transA <- if (right_trans == "N") "T" else "N"
+    expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
+    assert_conformable(left_dims$cols, expected_len, "%*%")
+    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
     return(gemv(
-      transA = "T",
+      transA = transA,
       A = right,
       x = left,
       m = right_dims$rows,
       n = right_dims$cols,
       lda = right_dims$rows,
-      out_dims = list(1L, right_dims$cols),
+      out_dims = list(1L, out_len),
       scope = scope,
       hoist = hoist,
       dest = dest
     ))
   }
 
+  assert_conformable(k, right_eff$rows, "%*%")
+
   # Matrix-Matrix
   gemm(
-    opA = "N",
-    opB = "N",
+    opA = left_trans,
+    opB = right_trans,
     left = left,
     right = right,
     m = m,
@@ -383,6 +443,8 @@ r2f_handlers[["crossprod"]] <- function(
   x_dims <- matrix_dims(x)
   y_dims <- matrix_dims(y)
 
+  assert_conformable(x_dims$rows, y_dims$rows, "crossprod")
+
   m <- x_dims$cols
   n <- y_dims$cols
   k <- x_dims$rows
@@ -438,6 +500,8 @@ r2f_handlers[["tcrossprod"]] <- function(
 
   x_dims <- matrix_dims(x)
   y_dims <- matrix_dims(y)
+
+  assert_conformable(x_dims$cols, y_dims$cols, "tcrossprod")
 
   m <- x_dims$rows
   n <- y_dims$rows
