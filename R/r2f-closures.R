@@ -71,10 +71,6 @@ is_function_call <- function(x) {
 
 is_sapply_call <- function(x) is.call(x) && identical(x[[1L]], quote(sapply))
 
-is_seq_along_call <- function(x) {
-  is.call(x) && identical(x[[1L]], quote(seq_along))
-}
-
 
 new_local_closure <- function(fun, name = NULL) {
   stopifnot(is.function(fun), is.null(name) || is_string(name))
@@ -668,8 +664,8 @@ compile_sapply_assignment <- function(
 
   if (index_iterable) {
     seq_val <- r2f(seq_call, scope, calls = "for", hoist = hoist)
-    if (!is.null(seq_val@value) && seq_val@value@rank == 1L) {
-      iterable_len_expr <- seq_val@value@dims[[1L]]
+    if (!is.null(seq_val@value)) {
+      iterable_len_expr <- value_length_expr(seq_val@value)
     }
     formal_vars <- list(
       Variable(mode = "integer", name = formal_names[[1L]])
@@ -682,73 +678,7 @@ compile_sapply_assignment <- function(
     }
     iterable_value <- iterable_val@value
 
-    infer_iterable_len <- function(expr, value) {
-      while (is_call(expr, quote(`(`)) && length(expr) == 2L) {
-        expr <- expr[[2L]]
-      }
-
-      if (passes_as_scalar(value)) {
-        return(1L)
-      }
-
-      if (is_call(expr, quote(`:`)) && length(expr) == 3L) {
-        args <- whole_doubles_to_ints(as.list(expr)[-1L])
-        start <- args[[1L]]
-        end <- args[[2L]]
-        return(call("+", call("abs", call("-", end, start)), 1L))
-      }
-
-      if (is_call(expr, quote(seq))) {
-        ee <- match.call(seq.default, expr)
-        ee <- whole_doubles_to_ints(ee)
-        from <- ee$from
-        to <- ee$to
-        by <- ee$by
-
-        if (!is.null(from) && !is.null(to) && identical(from, to)) {
-          return(1L)
-        }
-
-        if (!is.null(by) && is_scalar_integerish(by)) {
-          by_val <- as.integer(by)
-          if (by_val == 0L) {
-            stop("invalid '(to - from)/by'", call. = FALSE)
-          }
-        }
-
-        if (is_scalar_integerish(from) && is_scalar_integerish(to)) {
-          from_val <- as.integer(from)
-          to_val <- as.integer(to)
-          delta <- to_val - from_val
-          if (delta == 0L) {
-            return(1L)
-          }
-          if (!is.null(by) && is_scalar_integerish(by)) {
-            by_val <- as.integer(by)
-            if (sign(delta) != sign(by_val)) {
-              stop("wrong sign in 'by' argument", call. = FALSE)
-            }
-            return(abs(delta %/% by_val) + 1L)
-          }
-        }
-
-        if (is.null(by)) {
-          return(call("+", call("abs", call("-", to, from)), 1L))
-        }
-        return(call("+", call("abs", call("%/%", call("-", to, from), by)), 1L))
-      }
-
-      dims <- value@dims
-      if (is.null(dims) || any(map_lgl(dims, is_scalar_na))) {
-        return(NA_integer_)
-      }
-      if (value@rank == 1L) {
-        return(dims[[1L]])
-      }
-      reduce(dims, \(d1, d2) call("*", d1, d2))
-    }
-
-    iterable_len_expr <- infer_iterable_len(seq_call, iterable_value)
+    iterable_len_expr <- value_length_expr(iterable_value)
 
     iterable_tmp <- scope@get_unique_var(
       mode = iterable_value@mode,

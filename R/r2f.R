@@ -722,136 +722,308 @@ r2f_handlers[["["]] <- function(
 }
 
 
-r2f_handlers[[":"]] <- function(args, scope, ...) {
-  # depending on context, this translation can vary.
+r2f_iterable_context <- function(calls) {
+  if (is.null(calls) || !length(calls)) {
+    return(NULL)
+  }
+  calls <- drop_last(calls)
+  if (!length(calls)) {
+    return(NULL)
+  }
+  parent_call <- last(calls)
+  if (parent_call %in% c("[", "for")) {
+    parent_call
+  } else {
+    NULL
+  }
+}
 
-  # x[a:b]    becomes   x(a:b)
-  # for(i in a:b){}  becomes  do i = a,b ...
-  # c(a:b)  becomes  ({tmp}, {tmp}=a,b)
-  args <- whole_doubles_to_ints(args)
-  .[start, end] <- lapply(args, r2f, scope, ...)
-  step <- glue("sign(1, {end}-{start})")
-  val <- Variable("integer", NA)
-  fr <- switch(
-    list(...)$calls |> drop_last() |> last(),
-    "[" = glue("{start}:{end}:{step}"),
-    "for" = glue("{start}, {end}, {step}"),
-    {
-      i <- scope@get_unique_var("integer")
+value_length_expr <- function(value) {
+  stopifnot(inherits(value, Variable))
+  if (passes_as_scalar(value)) {
+    return(1L)
+  }
+  dims <- value@dims
+  if (is.null(dims) || any(map_lgl(dims, is_scalar_na))) {
+    return(NA_integer_)
+  }
+  if (value@rank == 1L) {
+    return(dims[[1L]])
+  }
+  reduce(dims, \(d1, d2) call("*", d1, d2))
+}
+
+seq_like_length_expr <- function(from, to, by = NULL) {
+  if (is.null(from) || is.null(to) || is_missing(from) || is_missing(to)) {
+    return(NA_integer_)
+  }
+  if (identical(from, to)) {
+    return(1L)
+  }
+
+  if (is_scalar_integerish(from) && is_scalar_integerish(to)) {
+    from_val <- as.integer(from)
+    to_val <- as.integer(to)
+    delta <- to_val - from_val
+
+    if (delta == 0L) {
+      return(1L)
+    }
+
+    if (!is.null(by) && is_scalar_integerish(by)) {
+      by_val <- as.integer(by)
+      if (by_val == 0L) {
+        stop("invalid '(to - from)/by'", call. = FALSE)
+      }
+      if (sign(delta) != sign(by_val)) {
+        stop("wrong sign in 'by' argument", call. = FALSE)
+      }
+      return(abs(delta %/% by_val) + 1L)
+    }
+
+    return(abs(delta) + 1L)
+  }
+
+  if (is.null(by)) {
+    return(call("+", call("abs", call("-", to, from)), 1L))
+  }
+  call("+", call("abs", call("%/%", call("-", to, from), by)), 1L)
+}
+
+seq_like_parse <- function(name, args, scope) {
+  stopifnot(is_string(name))
+  switch(
+    name,
+    `:` = {
+      args <- whole_doubles_to_ints(args)
+      from <- args[[1L]]
+      to <- args[[2L]]
+      len_expr <- seq_like_length_expr(from, to)
+      list(
+        kind = ":",
+        from = from,
+        to = to,
+        by = NULL,
+        len_expr = len_expr
+      )
+    },
+    seq = {
+      call_expr <- as.call(c(as.symbol("seq"), args))
+      seq_call <- match.call(seq.default, call_expr)
+      seq_call <- whole_doubles_to_ints(seq_call)
+
+      if (!is.null(seq_call$length.out) && !is_missing(seq_call$length.out)) {
+        stop("seq(length.out=, along.with=) not implemented yet")
+      }
+      if (!is.null(seq_call$along.with) && !is_missing(seq_call$along.with)) {
+        stop("seq(length.out=, along.with=) not implemented yet")
+      }
+
+      from <- seq_call$from
+      to <- seq_call$to
+      by <- seq_call$by
+
+      if (is.null(from) || is.null(to)) {
+        stop("seq() requires both `from` and `to`", call. = FALSE)
+      }
+
+      if (is_scalar_integer(by) && identical(by, 0L)) {
+        if (is.null(from) || is.null(to) || !identical(from, to)) {
+          stop("invalid '(to - from)/by'", call. = FALSE)
+        }
+        by <- NULL
+      }
+
+      len_expr <- seq_like_length_expr(from, to, by)
+      list(
+        kind = "seq",
+        from = from,
+        to = to,
+        by = by,
+        len_expr = len_expr
+      )
+    },
+    seq_len = {
+      stopifnot(length(args) == 1L)
+      n_expr <- whole_doubles_to_ints(args[[1L]])
+      list(kind = "seq_len", n = n_expr)
+    },
+    seq_along = {
+      stopifnot(length(args) == 1L)
+      list(kind = "seq_along", arg = args[[1L]])
+    },
+    stop("unsupported iterable: ", name, call. = FALSE)
+  )
+}
+
+seq_like_r2f <- function(
+  name,
+  args,
+  scope,
+  ...,
+  context = NULL,
+  reversed = FALSE
+) {
+  info <- seq_like_parse(name, args, scope)
+  kind <- info$kind
+  len_expr <- info$len_expr %||% NA_integer_
+
+  state <- switch(
+    kind,
+    `:` = {
+      from <- r2f(info$from, scope, ...)
+      to <- r2f(info$to, scope, ...)
+      list(
+        from = from,
+        to = to,
+        by = Fortran(glue("sign(1, {to}-{from})"), Variable("integer")),
+        len_expr = len_expr,
+        omit_step = FALSE
+      )
+    },
+    seq = {
+      from <- r2f(info$from, scope, ...)
+      to <- r2f(info$to, scope, ...)
+      by <- if (is.null(info$by)) {
+        Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
+      } else {
+        r2f(info$by, scope, ...)
+      }
+
+      if (
+        from@value@mode != "integer" ||
+          to@value@mode != "integer" ||
+          by@value@mode != "integer"
+      ) {
+        stop("non-integer seq()'s not implemented yet.")
+      }
+
+      if (isTRUE(reversed)) {
+        if (!passes_as_scalar(from@value) || !passes_as_scalar(to@value)) {
+          stop("seq() iterable bounds must be scalars")
+        }
+        if (!passes_as_scalar(by@value)) {
+          stop("seq() iterable step must be a scalar")
+        }
+      }
+
+      list(
+        from = from,
+        to = to,
+        by = by,
+        len_expr = len_expr,
+        omit_step = FALSE
+      )
+    },
+    seq_len = {
+      n <- r2f(info$n, scope, ...)
+      if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
+        stop("seq_len() expects an integer scalar")
+      }
+      len_expr <- r2size(info$n, scope)
+      if (is_scalar_na(len_expr)) {
+        len_expr <- NA_integer_
+      }
+      list(
+        from = Fortran("1", Variable("integer")),
+        to = n,
+        by = Fortran("1", Variable("integer")),
+        len_expr = len_expr,
+        omit_step = !isTRUE(reversed)
+      )
+    },
+    seq_along = {
+      x <- r2f(info$arg, scope, ...)
+      if (is.null(x@value)) {
+        stop("seq_along() argument must have a value")
+      }
+      len_expr <- value_length_expr(x@value)
+      end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
+      list(
+        from = Fortran("1", Variable("integer")),
+        to = Fortran(end, Variable("integer")),
+        by = Fortran("1", Variable("integer")),
+        len_expr = len_expr,
+        omit_step = !isTRUE(reversed)
+      )
+    },
+    stop("unsupported iterable: ", kind, call. = FALSE)
+  )
+  from <- state$from
+  to <- state$to
+  by <- state$by
+  len_expr <- state$len_expr
+  omit_step <- state$omit_step
+
+  context <- context %||% r2f_iterable_context(list(...)$calls)
+  if (is.null(context)) {
+    context <- "value"
+  }
+
+  if (is.null(len_expr) || is_scalar_na(len_expr)) {
+    len_expr <- NA_integer_
+  }
+  if (
+    context == "value" &&
+      is_wholenumber(len_expr) &&
+      identical(as.integer(len_expr), 1L)
+  ) {
+    len_expr <- call("+", 0L, 1L)
+  }
+  val <- Variable("integer", list(len_expr))
+
+  if (isTRUE(reversed)) {
+    last <- glue("{from} + (({to} - {from}) / {by}) * {by}")
+    start <- last
+    end <- from
+    step <- glue("(-{by})")
+    omit_step <- FALSE
+  } else {
+    start <- from
+    end <- to
+    step <- by
+  }
+
+  if (context == "for") {
+    fr <- if (omit_step) {
+      glue("{start}, {end}")
+    } else {
+      glue("{start}, {end}, {step}")
+    }
+  } else if (context == "[") {
+    fr <- if (omit_step) {
+      glue("{start}:{end}")
+    } else {
+      glue("{start}:{end}:{step}")
+    }
+  } else {
+    i <- scope@get_unique_var("integer")
+    fr <- if (omit_step) {
+      glue("[ ({i}, {i} = {start}, {end}) ]")
+    } else {
       glue("[ ({i}, {i} = {start}, {end}, {step}) ]")
     }
-    # default
-  )
+  }
+
   Fortran(fr, val)
+}
+
+
+r2f_handlers[[":"]] <- function(args, scope, ...) {
+  seq_like_r2f(":", args, scope, ...)
 }
 
 
 r2f_handlers[["seq"]] <- function(args, scope, ...) {
-  args <- whole_doubles_to_ints(args) # only casts if trunc(dbl) == dbl
-  if (!is.null(args$length.out) || !is.null(args$along.with)) {
-    stop("seq(length.out=, along.with=) not implemented yet")
-  }
-  if (is_scalar_integer(args$by) && identical(args$by, 0L)) {
-    if (
-      is.null(args$from) || is.null(args$to) || !identical(args$from, args$to)
-    ) {
-      stop("invalid '(to - from)/by'", call. = FALSE)
-    }
-    args$by <- NULL
-  }
-
-  .[from, to, by] <- lapply(args, r2f, scope, ...)[c("from", "to", "by")]
-  by <- by %||% Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
-
-  # Fortran only supports integer sequences in do and implicit do contexts.
-  # to make a double sequence, needs to be in via an implied map() call, like
-  # seq(1, 10, .1) ->    [(x * 0.1, x = 10, 50)]
-  #
-  # e.g., i <- scope@get_unique_var("integer")
-  # glue("[({i} * by, {i} = int(from/by), int(to/by))]")
-  if (
-    from@value@mode != "integer" ||
-      to@value@mode != "integer" ||
-      by@value@mode != "integer"
-  ) {
-    stop("non-integer seq()'s not implemented yet.")
-  }
-
-  # depending on context, this translation can vary.
-  #
-  # x[a:b]    becomes   x(a:b)
-  # for(i in a:b){}  becomes  do i = a,b ...
-  # c(a:b)  becomes  ({tmp}, {tmp}=a,b)
-  val <- Variable("integer", NA)
-  fr <- switch(
-    list(...)$calls |> drop_last() |> last(),
-    "[" = glue("{from}:{to}:{by}"),
-    "for" = glue("{from}, {to}, {by}"),
-    {
-      i <- scope@get_unique_var("integer")
-      glue("[ ({i}, {i} = {from}, {to}, {by}) ]")
-    }
-    # default
-  )
-  Fortran(fr, val)
+  seq_like_r2f("seq", args, scope, ...)
 }
 
 r2f_handlers[["seq_len"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  n_expr <- whole_doubles_to_ints(args[[1L]])
-  n <- r2f(n_expr, scope, ...)
-  if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
-    stop("seq_len() expects an integer scalar")
-  }
-
-  size_expr <- r2size(n_expr, scope)
-  if (is_scalar_na(size_expr)) {
-    size_expr <- NA_integer_
-  }
-  val <- Variable("integer", list(size_expr))
-  fr <- switch(
-    list(...)$calls |> drop_last() |> last(),
-    "[" = glue("1:{n}"),
-    "for" = glue("1, {n}"),
-    {
-      i <- scope@get_unique_var("integer")
-      glue("[ ({i}, {i} = 1, {n}) ]")
-    }
-  )
-
-  Fortran(fr, val)
+  seq_like_r2f("seq_len", args, scope, ...)
 }
 
 r2f_handlers[["seq_along"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  x <- r2f(args[[1L]], scope, ...)
-  if (is.null(x@value)) {
-    stop("seq_along() argument must have a value")
-  }
-
-  len_expr <- if (passes_as_scalar(x@value)) {
-    1L
-  } else if (any(map_lgl(x@value@dims, is_scalar_na))) {
-    NA_integer_
-  } else if (x@value@rank == 1L) {
-    x@value@dims[[1L]]
-  } else {
-    reduce(x@value@dims, \(d1, d2) call("*", d1, d2))
-  }
-
-  end <- if (passes_as_scalar(x@value)) "1" else glue("size({x})")
-  val <- Variable("integer", list(len_expr))
-  fr <- switch(
-    list(...)$calls |> drop_last() |> last(),
-    "[" = glue("1:{end}"),
-    "for" = glue("1, {end}"),
-    {
-      i <- scope@get_unique_var("integer")
-      glue("[ ({i}, {i} = 1, {end}) ]")
-    }
-  )
-
-  Fortran(fr, val)
+  seq_like_r2f("seq_along", args, scope, ...)
 }
 
 
@@ -1765,38 +1937,38 @@ iterable_is_singleton_one <- function(iterable, scope) {
     is_wholenumber(x) && identical(as.integer(x), 1L)
   }
 
-  if (is_call(iterable, quote(seq_len)) && length(iterable) == 2L) {
-    arg <- whole_doubles_to_ints(iterable[[2L]])
-    return(is_one(arg))
-  }
-
-  if (is_call(iterable, quote(seq_along)) && length(iterable) == 2L) {
-    arg <- iterable[[2L]]
-    if (is.symbol(arg)) {
-      var <- get0(as.character(arg), scope)
-      if (inherits(var, Variable) && passes_as_scalar(var)) {
-        return(TRUE)
-      }
-    }
+  if (!is.call(iterable) || !is.symbol(iterable[[1L]])) {
     return(FALSE)
   }
 
-  if (is_call(iterable, quote(`:`)) && length(iterable) == 3L) {
-    args <- whole_doubles_to_ints(as.list(iterable)[-1L])
-    return(is_one(args[[1L]]) && is_one(args[[2L]]))
+  name <- as.character(iterable[[1L]])
+  if (!name %in% c(":", "seq", "seq_len", "seq_along")) {
+    return(FALSE)
   }
 
-  if (is_call(iterable, quote(seq))) {
-    ee <- match.call(seq.default, iterable)
-    ee <- whole_doubles_to_ints(ee)
-    from <- ee$from
-    to <- ee$to
-    if (!is.null(from) && !is.null(to) && is_one(from) && is_one(to)) {
-      return(TRUE)
-    }
+  args <- as.list(iterable)[-1L]
+  info <- tryCatch(seq_like_parse(name, args, scope), error = function(e) NULL)
+  if (is.null(info)) {
+    return(FALSE)
   }
 
-  FALSE
+  switch(
+    info$kind,
+    seq_len = is_one(info$n),
+    seq_along = {
+      arg <- info$arg
+      if (is.symbol(arg)) {
+        var <- get0(as.character(arg), scope)
+        if (inherits(var, Variable) && passes_as_scalar(var)) {
+          return(TRUE)
+        }
+      }
+      FALSE
+    },
+    `:` = is_one(info$from) && is_one(info$to),
+    seq = is_one(info$from) && is_one(info$to),
+    FALSE
+  )
 }
 
 r2f_for_iterable <- function(iterable, scope, ...) {
@@ -1831,77 +2003,34 @@ r2f_for_iterable <- function(iterable, scope, ...) {
     return(r2f(iterable, scope, ...))
   }
 
+  args <- as.list(iterable)[-1L]
   switch(
     name,
-    `:` = {
-      args <- whole_doubles_to_ints(as.list(iterable)[-1L])
-      if (length(args) != 2L) {
-        stop_unsupported(original)
-      }
-      start <- r2f(args[[1L]], scope, ...)
-      end <- r2f(args[[2L]], scope, ...)
-      step <- glue("sign(1, {start}-{end})")
-      Fortran(glue("{end}, {start}, {step}"), Variable("integer", NA))
-    },
-    seq_len = {
-      args <- as.list(iterable)[-1L]
-      if (length(args) != 1L) {
-        stop_unsupported(original)
-      }
-      n <- whole_doubles_to_ints(args[[1L]])
-      n <- r2f(n, scope, ...)
-      if (n@value@mode != "integer" || !passes_as_scalar(n@value)) {
-        stop("seq_len() expects an integer scalar")
-      }
-      Fortran(glue("{n}, 1_c_int, -1_c_int"), Variable("integer", NA))
-    },
-    seq_along = {
-      args <- as.list(iterable)[-1L]
-      if (length(args) != 1L) {
-        stop_unsupported(original)
-      }
-      x <- r2f(args[[1L]], scope, ...)
-      if (is.null(x@value)) {
-        stop("seq_along() argument must have a value")
-      }
-      end <- if (passes_as_scalar(x@value)) "1_c_int" else glue("size({x})")
-      Fortran(glue("{end}, 1_c_int, -1_c_int"), Variable("integer", NA))
-    },
-    seq = {
-      ee <- match.call(seq.default, iterable)
-      ee <- whole_doubles_to_ints(ee)
-      if (is_scalar_integer(ee$by) && identical(ee$by, 0L)) {
-        if (is.null(ee$from) || is.null(ee$to) || !identical(ee$from, ee$to)) {
-          stop("invalid '(to - from)/by'", call. = FALSE)
-        }
-        ee$by <- NULL
-      }
-
-      from <- r2f(ee$from, scope, ...)
-      to <- r2f(ee$to, scope, ...)
-      by <- if (is.null(ee$by)) {
-        Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
-      } else {
-        r2f(ee$by, scope, ...)
-      }
-
-      if (
-        from@value@mode != "integer" ||
-          to@value@mode != "integer" ||
-          by@value@mode != "integer"
-      ) {
-        stop("non-integer seq()'s not implemented yet.")
-      }
-      if (!passes_as_scalar(from@value) || !passes_as_scalar(to@value)) {
-        stop("seq() iterable bounds must be scalars")
-      }
-      if (!passes_as_scalar(by@value)) {
-        stop("seq() iterable step must be a scalar")
-      }
-
-      last <- glue("{from} + (({to} - {from}) / {by}) * {by}")
-      Fortran(glue("{last}, {from}, (-{by})"), Variable("integer", NA))
-    }
+    `:` = seq_like_r2f(":", args, scope, ..., context = "for", reversed = TRUE),
+    seq_len = seq_like_r2f(
+      "seq_len",
+      args,
+      scope,
+      ...,
+      context = "for",
+      reversed = TRUE
+    ),
+    seq_along = seq_like_r2f(
+      "seq_along",
+      args,
+      scope,
+      ...,
+      context = "for",
+      reversed = TRUE
+    ),
+    seq = seq_like_r2f(
+      "seq",
+      args,
+      scope,
+      ...,
+      context = "for",
+      reversed = TRUE
+    )
   )
 }
 
