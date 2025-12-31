@@ -168,6 +168,82 @@ gemv <- function(
   Fortran(output_var@name, output_var)
 }
 
+# Centralized SYRK emission for symmetric rank-k update
+# Computes: C := alpha * op(A) * op(A)^T + beta * C
+# For crossprod(X):  C = t(X) %*% X  → trans = "T"
+# For tcrossprod(X): C = X %*% t(X)  → trans = "N"
+syrk <- function(
+  trans,
+  X,
+  scope,
+  hoist,
+  dest = NULL
+) {
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
+  }
+
+  X_name <- symbol_name_or_null(X)
+  if (is.null(X_name)) {
+    tmp <- hoist$declare_tmp(
+      mode = X@value@mode %||% "double",
+      dims = X@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {X}"))
+    X_name <- tmp@name
+  }
+
+  x_dims <- matrix_dims(X)
+
+  # For trans = "T": C = t(X) %*% X, so C is k x k where k = ncol(X)
+  # For trans = "N": C = X %*% t(X), so C is n x n where n = nrow(X)
+  if (trans == "T") {
+    n <- x_dims$cols
+    k <- x_dims$rows
+  } else {
+    n <- x_dims$rows
+    k <- x_dims$cols
+  }
+  lda <- x_dims$rows
+
+  # Output is symmetric n x n matrix
+  if (can_use_output(dest, X, X)) {
+    hoist$emit(glue(
+      "call dsyrk('U', '{trans}', {n}, {k}, 1.0_c_double, {X_name}, {lda}, 0.0_c_double, {dest@name}, {n})"
+    ))
+    # Fill lower triangle from upper
+    idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+    idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+    hoist$emit(glue(
+      "
+do {idx_j@name} = 1_c_int, {n} - 1_c_int
+  do {idx_i@name} = {idx_j@name} + 1_c_int, {n}
+    {dest@name}({idx_i@name}, {idx_j@name}) = {dest@name}({idx_j@name}, {idx_i@name})
+  end do
+end do"
+    ))
+    out <- Fortran(dest@name, dest)
+    attr(out, "writes_to_dest") <- TRUE
+    return(out)
+  }
+
+  output_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+  hoist$emit(glue(
+    "call dsyrk('U', '{trans}', {n}, {k}, 1.0_c_double, {X_name}, {lda}, 0.0_c_double, {output_var@name}, {n})"
+  ))
+  # Fill lower triangle from upper
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  hoist$emit(glue(
+    "
+do {idx_j@name} = 1_c_int, {n} - 1_c_int
+  do {idx_i@name} = {idx_j@name} + 1_c_int, {n}
+    {output_var@name}({idx_i@name}, {idx_j@name}) = {output_var@name}({idx_j@name}, {idx_i@name})
+  end do
+end do"
+  ))
+  Fortran(output_var@name, output_var)
+}
 # ---- matrix operation handlers ----
 
 # %*% handler with optional destination hint
@@ -285,15 +361,24 @@ r2f_handlers[["crossprod"]] <- function(
   dest = NULL
 ) {
   x_arg <- args[[1L]]
-  y_arg <- if (length(args) >= 2L) args[[2L]] else args$y
+  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
 
   x <- r2f(x_arg, scope, ..., hoist = hoist)
   x <- maybe_cast_double(x)
-  y <- if (is.null(y_arg)) {
-    x
-  } else {
-    maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
+
+  # Single-argument case: crossprod(X) = t(X) %*% X → use dsyrk
+  if (is.null(y_arg)) {
+    return(syrk(
+      trans = "T",
+      X = x,
+      scope = scope,
+      hoist = hoist,
+      dest = dest
+    ))
   }
+
+  # Two-argument case: crossprod(X, Y) = t(X) %*% Y → use dgemm
+  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
 
   x_dims <- matrix_dims(x)
   y_dims <- matrix_dims(y)
@@ -302,7 +387,6 @@ r2f_handlers[["crossprod"]] <- function(
   n <- y_dims$cols
   k <- x_dims$rows
 
-  # Fortran column-major: LDA/LDB are rows of original arrays
   lda <- x_dims$rows
   ldb <- y_dims$rows
   ldc_expr <- m
@@ -324,6 +408,7 @@ r2f_handlers[["crossprod"]] <- function(
   )
 }
 
+
 r2f_handlers[["tcrossprod"]] <- function(
   args,
   scope,
@@ -332,15 +417,24 @@ r2f_handlers[["tcrossprod"]] <- function(
   dest = NULL
 ) {
   x_arg <- args[[1L]]
-  y_arg <- if (length(args) >= 2L) args[[2L]] else args$y
+  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
 
   x <- r2f(x_arg, scope, ..., hoist = hoist)
   x <- maybe_cast_double(x)
-  y <- if (is.null(y_arg)) {
-    x
-  } else {
-    maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
+
+  # Single-argument case: tcrossprod(X) = X %*% t(X) → use dsyrk
+  if (is.null(y_arg)) {
+    return(syrk(
+      trans = "N",
+      X = x,
+      scope = scope,
+      hoist = hoist,
+      dest = dest
+    ))
   }
+
+  # Two-argument case: tcrossprod(X, Y) = X %*% t(Y) → use dgemm
+  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
 
   x_dims <- matrix_dims(x)
   y_dims <- matrix_dims(y)
@@ -350,7 +444,6 @@ r2f_handlers[["tcrossprod"]] <- function(
   k <- x_dims$cols
 
   lda <- x_dims$rows
-  # LDB is rows of original y regardless of transpose
   ldb <- y_dims$rows
   ldc_expr <- m
 

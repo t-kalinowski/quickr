@@ -53,3 +53,50 @@ test_that("crossprod and tcrossprod match R", {
   expect_quick_identical(cross_fun, list(x = x, y = y, n = n, k = k))
   expect_quick_identical(tcross_fun, list(x = x, y = y, n = n, k = k))
 })
+
+test_that("single-argument crossprod/tcrossprod match R", {
+  cross_single <- function(x, n, k) {
+    declare(
+      type(x = double(n, k)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    crossprod(x)
+  }
+
+  tcross_single <- function(x, n, k) {
+    declare(
+      type(x = double(n, k)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    tcrossprod(x)
+  }
+
+  cross_vec <- function(x, n) {
+    declare(
+      type(x = double(n)),
+      type(n = integer(1))
+    )
+    crossprod(x)
+  }
+
+  tcross_vec <- function(x, n) {
+    declare(
+      type(x = double(n)),
+      type(n = integer(1))
+    )
+    tcrossprod(x)
+  }
+
+  set.seed(3)
+  n <- 5L
+  k <- 4L
+  x <- matrix(rnorm(n * k), nrow = n)
+  v <- rnorm(n)
+
+  expect_quick_identical(cross_single, list(x = x, n = n, k = k))
+  expect_quick_identical(tcross_single, list(x = x, n = n, k = k))
+  expect_quick_identical(cross_vec, list(x = v, n = n))
+  expect_quick_identical(tcross_vec, list(x = v, n = n))
+})
