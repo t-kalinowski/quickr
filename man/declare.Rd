@@ -22,10 +22,10 @@ arguments.
 versions of R, quickr exports a compatible backport.
 
 \code{declare(parallel())} or \code{declare(omp())} applies an OpenMP \verb{parallel do}
-directive to the next \code{for} loop or \code{sapply()} assignment. \code{for}
-loops can iterate values over symbols or index iterables (\code{1:n},
-\code{seq_len()}, \code{seq_along()}, \code{seq()}), and \code{sapply()}
-iterates over vector inputs with a known length.
+directive to the next \code{for} loop or \code{sapply()} assignment. \code{for} loops can
+iterate values over symbols or index iterables (\code{1:n}, \code{seq_len()},
+\code{seq_along()}, \code{seq()}), and \code{sapply()} iterates over vector inputs with a
+known length.
 
 Control the number of OpenMP threads using environment variables such as
 \code{OMP_NUM_THREADS} (threads per region), \code{OMP_THREAD_LIMIT} (global cap),

@@ -117,3 +117,73 @@ test_that("defer schedules cleanup code on exit", {
   f()
   expect_true(isTRUE(e$done))
 })
+
+test_that("iterable helpers cover edge cases", {
+  expect_null(quickr:::r2f_iterable_context(NULL))
+  expect_null(quickr:::r2f_iterable_context(character()))
+  expect_null(quickr:::r2f_iterable_context("seq"))
+  expect_null(quickr:::r2f_iterable_context(c("foo", "seq")))
+  expect_identical(quickr:::r2f_iterable_context(c("[", "seq")), "[")
+  expect_identical(quickr:::r2f_iterable_context(c("for", "seq")), "for")
+
+  var_na <- quickr:::Variable("double", list(NA_integer_))
+  expect_identical(quickr:::value_length_expr(var_na), NA_integer_)
+
+  expect_identical(quickr:::seq_like_length_expr(NULL, 1L), NA_integer_)
+  expect_identical(quickr:::seq_like_length_expr(1L, 1), 1L)
+  expect_error(
+    quickr:::seq_like_length_expr(1L, 2L, 0L),
+    "invalid '\\(to - from\\)/by'"
+  )
+
+  scope <- new.env(parent = emptyenv())
+  expect_error(
+    quickr:::seq_like_parse(
+      "seq",
+      list(from = quote(expr = ), to = 5L),
+      scope
+    ),
+    "seq\\(\\) requires both `from` and `to`"
+  )
+  expect_error(
+    quickr:::seq_like_parse(
+      "seq",
+      list(from = 5L, to = quote(expr = )),
+      scope
+    ),
+    "seq\\(\\) requires both `from` and `to`"
+  )
+  out <- quickr:::seq_like_parse(
+    "seq",
+    list(from = 1L, to = 3L, by = quote(expr = )),
+    scope
+  )
+  expect_null(out$by)
+  expect_error(
+    quickr:::seq_like_parse("banana", list(), scope),
+    "unsupported iterable"
+  )
+
+  expect_false(quickr:::iterable_is_singleton_one(1L, scope))
+  expect_false(quickr:::iterable_is_singleton_one(quote(foo(1L)), scope))
+  expect_false(quickr:::iterable_is_singleton_one(quote(seq(1L)), scope))
+  expect_false(
+    quickr:::iterable_is_singleton_one(quote(seq_along(x)), scope)
+  )
+
+  scope2 <- quickr:::new_scope(function() NULL)
+  expect_error(
+    quickr:::r2f_for_iterable(quote(x), scope2),
+    "unsupported iterable in for\\(\\)"
+  )
+})
+
+test_that("iterable_is_singleton_one handles unknown iterable kinds", {
+  scope <- new.env(parent = emptyenv())
+  local_mocked_bindings(
+    seq_like_parse = function(...) list(kind = "bogus"),
+    .package = "quickr"
+  )
+
+  expect_false(quickr:::iterable_is_singleton_one(quote(seq_len(1L)), scope))
+})
