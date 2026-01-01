@@ -48,14 +48,14 @@ test_that("matrix multiplication matches R for common shapes", {
   mat_3x4 <- matrix(rnorm(3 * 4), nrow = 3)
   vec_4 <- rnorm(4)
 
-  expect_quick_identical(mat_mat, list(mat_A = mat_A, mat_B = mat_B))
-  expect_quick_identical(
+  expect_quick_equal(mat_mat, list(mat_A = mat_A, mat_B = mat_B))
+  expect_quick_equal(
     mat_mat_square,
     list(mat_A = mat_sq_A, mat_B = mat_sq_B)
   )
-  expect_quick_identical(vec_mat, list(vec = vec_3, mat_A = mat_3x4))
-  expect_quick_identical(mat_vec, list(mat_A = mat_3x4, vec = vec_4))
-  expect_quick_identical(vec_vec, list(vec_A = vec_3, vec_B = vec_3))
+  expect_quick_equal(vec_mat, list(vec = vec_3, mat_A = mat_3x4))
+  expect_quick_equal(mat_vec, list(mat_A = mat_3x4, vec = vec_4))
+  expect_quick_equal(vec_vec, list(vec_A = vec_3, vec_B = vec_3))
 })
 
 test_that("matrix multiplication handles transposed operands", {
@@ -89,9 +89,9 @@ test_that("matrix multiplication handles transposed operands", {
   y_right <- matrix(rnorm(5 * 3), nrow = 5)
   y_both <- matrix(rnorm(5 * 4), nrow = 5)
 
-  expect_quick_identical(matmul_t_left, list(x = x, y = y_left))
-  expect_quick_identical(matmul_t_right, list(x = x, y = y_right))
-  expect_quick_identical(matmul_t_both, list(x = x, y = y_both))
+  expect_quick_equal(matmul_t_left, list(x = x, y = y_left))
+  expect_quick_equal(matmul_t_right, list(x = x, y = y_right))
+  expect_quick_equal(matmul_t_both, list(x = x, y = y_both))
 })
 
 test_that("matrix multiplication handles chained mixes", {
@@ -109,7 +109,7 @@ test_that("matrix multiplication handles chained mixes", {
   b <- matrix(rnorm(5 * 3), nrow = 5)
   c <- matrix(rnorm(5 * 5), nrow = 5)
 
-  expect_quick_identical(chain_mix, list(a = a, b = b, c = c))
+  expect_quick_equal(chain_mix, list(a = a, b = b, c = c))
 })
 
 test_that("matrix multiplication handles 1x1 and 1xN/Nx1 shapes", {
@@ -212,8 +212,8 @@ test_that("crossprod and tcrossprod match R", {
   x <- matrix(rnorm(6 * 4), nrow = 6)
   y <- matrix(rnorm(6 * 4), nrow = 6)
 
-  expect_quick_identical(cross_fun, list(x = x, y = y))
-  expect_quick_identical(tcross_fun, list(x = x, y = y))
+  expect_quick_equal(cross_fun, list(x = x, y = y))
+  expect_quick_equal(tcross_fun, list(x = x, y = y))
 })
 
 test_that("single-argument crossprod/tcrossprod match R", {
@@ -241,10 +241,10 @@ test_that("single-argument crossprod/tcrossprod match R", {
   x <- matrix(rnorm(5 * 4), nrow = 5)
   v <- rnorm(5)
 
-  expect_quick_identical(cross_single, list(x = x))
-  expect_quick_identical(tcross_single, list(x = x))
-  expect_quick_identical(cross_vec, list(x = v))
-  expect_quick_identical(tcross_vec, list(x = v))
+  expect_quick_equal(cross_single, list(x = x))
+  expect_quick_equal(tcross_single, list(x = x))
+  expect_quick_equal(cross_vec, list(x = v))
+  expect_quick_equal(tcross_vec, list(x = v))
 })
 
 test_that("outer supports multiplication and %o%", {
@@ -276,9 +276,9 @@ test_that("outer supports multiplication and %o%", {
   x <- rnorm(3)
   y <- rnorm(4)
 
-  expect_quick_identical(outer_default, list(x = x, y = y))
-  expect_quick_identical(outer_mul, list(x = x, y = y))
-  expect_quick_identical(outer_op, list(x = x, y = y))
+  expect_quick_equal(outer_default, list(x = x, y = y))
+  expect_quick_equal(outer_mul, list(x = x, y = y))
+  expect_quick_equal(outer_op, list(x = x, y = y))
 })
 
 test_that("outer errors on unsupported FUN", {

@@ -228,18 +228,10 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
   LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
   FLIBS <- strsplit(cfg("FLIBS"), "[[:space:]]+")[[1]]
-  # clean empties
   BLAS_LIBS <- BLAS_LIBS[nzchar(BLAS_LIBS)]
   LAPACK_LIBS <- LAPACK_LIBS[nzchar(LAPACK_LIBS)]
   FLIBS <- FLIBS[nzchar(FLIBS)]
-
   link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
-
-  use_openmp <- FALSE
-  if (!is.null(fsub@scope)) {
-    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
-  }
-  fcompiler_env <- quickr_fcompiler_env(build_dir, use_openmp = use_openmp)
 
   suppressWarnings({
     r_args <- c(
@@ -250,14 +242,19 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       c_wrapper_path,
       link_flags
     )
+    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
+    env <- quickr_fcompiler_env(
+      build_dir = build_dir,
+      use_openmp = use_openmp
+    )
     result <- system2(
       R.home("bin/R"),
       r_args,
       stdout = TRUE,
       stderr = TRUE,
-      env = fcompiler_env
+      env = env
     )
-    if (!is.null(attr(result, "status")) && length(fcompiler_env)) {
+    if (!is.null(attr(result, "status")) && length(env)) {
       result2 <- system2(
         R.home("bin/R"),
         r_args,
