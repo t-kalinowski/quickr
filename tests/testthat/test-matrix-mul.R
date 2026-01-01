@@ -228,3 +228,103 @@ test_that("single-argument crossprod/tcrossprod match R", {
   expect_quick_identical(cross_vec, list(x = v))
   expect_quick_identical(tcross_vec, list(x = v))
 })
+
+test_that("outer supports multiplication and %o%", {
+  outer_mul <- function(x, y) {
+    declare(
+      type(x = double(3)),
+      type(y = double(4))
+    )
+    outer(x, y, "*")
+  }
+
+  outer_op <- function(x, y) {
+    declare(
+      type(x = double(3)),
+      type(y = double(4))
+    )
+    x %o% y
+  }
+
+  set.seed(10)
+  x <- rnorm(3)
+  y <- rnorm(4)
+
+  expect_quick_identical(outer_mul, list(x = x, y = y))
+  expect_quick_identical(outer_op, list(x = x, y = y))
+})
+
+test_that("outer errors on unsupported FUN", {
+  outer_add <- function(x, y) {
+    declare(
+      type(x = double(3)),
+      type(y = double(4))
+    )
+    outer(x, y, "+")
+  }
+
+  set.seed(1)
+  x <- rnorm(3)
+  y <- rnorm(4)
+
+  expect_error(quick(outer_add), "outer\\(\\) only supports FUN = \"\\*\"")
+})
+
+test_that("forwardsolve and backsolve match R", {
+  forward_vec <- function(L, b) {
+    declare(
+      type(L = double(4, 4)),
+      type(b = double(4))
+    )
+    forwardsolve(L, b)
+  }
+
+  forward_mat <- function(L, b) {
+    declare(
+      type(L = double(4, 4)),
+      type(b = double(4, 2))
+    )
+    forwardsolve(L, b)
+  }
+
+  back_vec <- function(U, b) {
+    declare(
+      type(U = double(4, 4)),
+      type(b = double(4))
+    )
+    backsolve(U, b)
+  }
+
+  back_mat <- function(U, b) {
+    declare(
+      type(U = double(4, 4)),
+      type(b = double(4, 2))
+    )
+    backsolve(U, b)
+  }
+
+  back_transpose <- function(U, b) {
+    declare(
+      type(U = double(4, 4)),
+      type(b = double(4))
+    )
+    backsolve(U, b, transpose = TRUE)
+  }
+
+  set.seed(11)
+  base <- matrix(rnorm(16), nrow = 4)
+  L <- base
+  L[upper.tri(L)] <- 0
+  diag(L) <- diag(L) + 5
+  U <- base
+  U[lower.tri(U)] <- 0
+  diag(U) <- diag(U) + 5
+  b_vec <- rnorm(4)
+  b_mat <- matrix(rnorm(8), nrow = 4)
+
+  expect_quick_equal(forward_vec, list(L = L, b = b_vec))
+  expect_quick_equal(forward_mat, list(L = L, b = b_mat))
+  expect_quick_equal(back_vec, list(U = U, b = b_vec))
+  expect_quick_equal(back_mat, list(U = U, b = b_mat))
+  expect_quick_equal(back_transpose, list(U = U, b = b_vec))
+})

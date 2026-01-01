@@ -96,6 +96,17 @@ can_use_output <- function(dest, left, right) {
     !identical(output_name, as.character(right))
 }
 
+logical_arg_or_default <- function(args, name, default, context) {
+  val <- args[[name]] %||% default
+  if (is.null(val)) {
+    return(default)
+  }
+  if (!is.logical(val) || length(val) != 1L || is.na(val)) {
+    stop(context, " only supports literal ", name, " = TRUE/FALSE")
+  }
+  val
+}
+
 # Centralized GEMM emission with optional destination
 # gemm: centralized BLAS GEMM emission.
 # - 'hoist' is required and provided by r2f(); handlers thread it through so
@@ -284,6 +295,141 @@ end do"
   ))
   Fortran(output_var@name, output_var)
 }
+
+outer_mul <- function(x, y, scope, hoist, dest = NULL) {
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
+  }
+
+  x <- maybe_cast_double(x)
+  y <- maybe_cast_double(y)
+
+  if (x@value@rank > 1L || y@value@rank > 1L) {
+    stop("outer() only supports vectors or scalars")
+  }
+
+  m <- dim_or_one(x, 1L)
+  n <- dim_or_one(y, 1L)
+
+  x_name <- symbol_name_or_null(x)
+  if (is.null(x_name)) {
+    tmp <- hoist$declare_tmp(
+      mode = x@value@mode %||% "double",
+      dims = x@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {x}"))
+    x_name <- tmp@name
+  }
+  y_name <- symbol_name_or_null(y)
+  if (is.null(y_name)) {
+    tmp <- hoist$declare_tmp(
+      mode = y@value@mode %||% "double",
+      dims = y@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {y}"))
+    y_name <- tmp@name
+  }
+
+  if (can_use_output(dest, x, y)) {
+    hoist$emit(glue("{dest@name} = 0.0_c_double"))
+    hoist$emit(glue(
+      "call dger({m}, {n}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {dest@name}, {m})"
+    ))
+    out <- Fortran(dest@name, dest)
+    attr(out, "writes_to_dest") <- TRUE
+    return(out)
+  }
+
+  output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
+  hoist$emit(glue("{output_var@name} = 0.0_c_double"))
+  hoist$emit(glue(
+    "call dger({m}, {n}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {output_var@name}, {m})"
+  ))
+  Fortran(output_var@name, output_var)
+}
+
+triangular_solve <- function(
+  A,
+  B,
+  uplo,
+  trans,
+  diag,
+  scope,
+  hoist,
+  dest = NULL
+) {
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
+  }
+
+  A <- maybe_cast_double(A)
+  B <- maybe_cast_double(B)
+
+  if (A@value@rank != 2L) {
+    stop("triangular solve expects a matrix")
+  }
+
+  a_dims <- matrix_dims(A)
+  assert_conformable(a_dims$rows, a_dims$cols, "triangular solve")
+  n <- a_dims$rows
+
+  b_rank <- B@value@rank
+  if (b_rank > 2L) {
+    stop("triangular solve only supports vector or matrix right-hand sides")
+  }
+  if (b_rank == 0L) {
+    stop("triangular solve expects a vector or matrix right-hand side")
+  } else if (b_rank == 1L) {
+    b_len <- dim_or_one(B, 1L)
+    assert_conformable(n, b_len, "triangular solve")
+  } else {
+    b_rows <- dim_or_one(B, 1L)
+    assert_conformable(n, b_rows, "triangular solve")
+  }
+
+  A_name <- symbol_name_or_null(A)
+  if (is.null(A_name)) {
+    tmp <- hoist$declare_tmp(
+      mode = A@value@mode %||% "double",
+      dims = A@value@dims
+    )
+    hoist$emit(glue("{tmp@name} = {A}"))
+    A_name <- tmp@name
+  }
+
+  if (can_use_output(dest, A, B)) {
+    hoist$emit(glue("{dest@name} = {B}"))
+    B_name <- dest@name
+    out_var <- dest
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(
+      mode = B@value@mode %||% "double",
+      dims = B@value@dims
+    )
+    hoist$emit(glue("{out_var@name} = {B}"))
+    B_name <- out_var@name
+    writes_to_dest <- FALSE
+  }
+
+  if (b_rank <= 1L) {
+    hoist$emit(glue(
+      "call dtrsv('{uplo}', '{trans}', '{diag}', {n}, {A_name}, {n}, {B_name}, 1)"
+    ))
+  } else {
+    nrhs <- dim_or_one(B, 2L)
+    hoist$emit(glue(
+      "call dtrsm('L', '{uplo}', '{trans}', '{diag}', {n}, {nrhs}, 1.0_c_double, {A_name}, {n}, {B_name}, {n})"
+    ))
+  }
+
+  out <- Fortran(B_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
 # ---- matrix operation handlers ----
 
 # %*% handler with optional destination hint
@@ -522,6 +668,110 @@ r2f_handlers[["tcrossprod"]] <- function(
     lda = lda,
     ldb = ldb,
     ldc_expr = ldc_expr,
+    scope = scope,
+    hoist = hoist,
+    dest = dest
+  )
+}
+
+r2f_handlers[["outer"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  x_arg <- args$X %||% args[[1L]]
+  y_arg <- args$Y %||% args[[2L]]
+  if (is.null(x_arg) || is.null(y_arg)) {
+    stop("outer() expects X and Y")
+  }
+
+  if (args$FUN != "*") {
+    stop("outer() only supports FUN = \"*\"")
+  }
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  y <- r2f(y_arg, scope, ..., hoist = hoist)
+  outer_mul(x, y, scope = scope, hoist = hoist, dest = dest)
+}
+
+r2f_handlers[["%o%"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) == 2L)
+  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  y <- r2f(args[[2L]], scope, ..., hoist = hoist)
+  outer_mul(x, y, scope = scope, hoist = hoist, dest = dest)
+}
+
+r2f_handlers[["forwardsolve"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) >= 2L)
+  if (!is.null(args$k)) {
+    stop("forwardsolve() does not support k yet")
+  }
+  upper_tri <- logical_arg_or_default(
+    args,
+    "upper.tri",
+    FALSE,
+    "forwardsolve()"
+  )
+  transpose <- logical_arg_or_default(
+    args,
+    "transpose",
+    FALSE,
+    "forwardsolve()"
+  )
+  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "forwardsolve()")
+
+  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+
+  triangular_solve(
+    A = A,
+    B = B,
+    uplo = if (upper_tri) "U" else "L",
+    trans = if (transpose) "T" else "N",
+    diag = if (diag_unit) "U" else "N",
+    scope = scope,
+    hoist = hoist,
+    dest = dest
+  )
+}
+
+r2f_handlers[["backsolve"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) >= 2L)
+  if (!is.null(args$k)) {
+    stop("backsolve() does not support k yet")
+  }
+  upper_tri <- logical_arg_or_default(args, "upper.tri", TRUE, "backsolve()")
+  transpose <- logical_arg_or_default(args, "transpose", FALSE, "backsolve()")
+  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "backsolve()")
+
+  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+
+  triangular_solve(
+    A = A,
+    B = B,
+    uplo = if (upper_tri) "U" else "L",
+    trans = if (transpose) "T" else "N",
+    diag = if (diag_unit) "U" else "N",
     scope = scope,
     hoist = hoist,
     dest = dest
