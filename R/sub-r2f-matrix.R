@@ -4,7 +4,13 @@
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
   r_expr <- x@r
-  if (is.symbol(r_expr)) as.character(r_expr) else NULL
+  if (is.symbol(r_expr)) {
+    return(as.character(r_expr))
+  }
+  if (length(x) == 1L && grepl("^[A-Za-z][A-Za-z0-9_]*$", x)) {
+    return(as.character(x))
+  }
+  NULL
 }
 
 # Return the requested axis length, defaulting scalars (or missing axes) to 1L.
@@ -13,6 +19,18 @@ dim_or_one <- function(x, axis) {
   stopifnot(is.numeric(axis), axis >= 1)
   axis <- as.integer(axis)
   dims <- x@value@dims
+  if (axis <= length(dims) && !is.null(dims[[axis]])) {
+    dims[[axis]]
+  } else {
+    1L
+  }
+}
+
+var_dim_or_one <- function(var, axis) {
+  stopifnot(inherits(var, Variable))
+  stopifnot(is.numeric(axis), axis >= 1)
+  axis <- as.integer(axis)
+  dims <- var@dims
   if (axis <= length(dims) && !is.null(dims[[axis]])) {
     dims[[axis]]
   } else {
@@ -45,6 +63,69 @@ matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
   list(rows = rows, cols = cols)
 }
 
+matrix_dims_var <- function(
+  var,
+  orientation = c("matrix", "rowvec", "colvec")
+) {
+  stopifnot(inherits(var, Variable))
+  orientation <- match.arg(orientation)
+  rank <- var@rank
+  rows <- var_dim_or_one(var, 1L)
+  cols <- var_dim_or_one(var, 2L)
+
+  if (rank == 0L) {
+    rows <- 1L
+    cols <- 1L
+  } else if (rank == 1L) {
+    if (orientation == "rowvec") {
+      rows <- 1L
+      cols <- var_dim_or_one(var, 1L)
+    } else {
+      rows <- var_dim_or_one(var, 1L)
+      cols <- 1L
+    }
+  }
+
+  list(rows = rows, cols = cols)
+}
+
+infer_symbol_var <- function(arg, scope) {
+  if (!is.symbol(arg)) {
+    return(NULL)
+  }
+  var <- get0(as.character(arg), scope, inherits = FALSE)
+  if (inherits(var, Variable)) var else NULL
+}
+
+infer_matrix_arg <- function(arg, scope) {
+  if (is_call(arg, quote(t)) && length(arg) == 2L) {
+    inner <- infer_symbol_var(arg[[2L]], scope)
+    if (is.null(inner)) {
+      return(NULL)
+    }
+    if (inner@rank == 2L) {
+      return(list(var = inner, trans = "T"))
+    }
+    if (inner@rank == 1L) {
+      len <- inner@dims[[1L]]
+      if (is.null(len)) {
+        return(NULL)
+      }
+      val <- Variable("double", list(1L, len))
+      return(list(var = val, trans = "N"))
+    }
+    if (inner@rank == 0L) {
+      return(list(var = inner, trans = "N"))
+    }
+    return(NULL)
+  }
+  var <- infer_symbol_var(arg, scope)
+  if (is.null(var)) {
+    return(NULL)
+  }
+  list(var = var, trans = "N")
+}
+
 effective_dims <- function(dims, trans) {
   if (identical(trans, "T")) {
     list(rows = dims$cols, cols = dims$rows)
@@ -58,7 +139,24 @@ assert_conformable <- function(left, right, context) {
     if (!identical(as.integer(left), as.integer(right))) {
       stop("non-conformable arguments in ", context, call. = FALSE)
     }
+    return(invisible(TRUE))
   }
+  if (identical(left, right)) {
+    return(invisible(TRUE))
+  }
+
+  left_txt <- if (is.null(left)) "NULL" else deparse(left)
+  right_txt <- if (is.null(right)) "NULL" else deparse(right)
+  warning(
+    "cannot verify conformability in ",
+    context,
+    " at compile time: ",
+    left_txt,
+    " vs ",
+    right_txt,
+    call. = FALSE
+  )
+  invisible(FALSE)
 }
 
 unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
@@ -777,3 +875,137 @@ r2f_handlers[["backsolve"]] <- function(
     dest = dest
   )
 }
+
+infer_dest_matmul <- function(args, scope) {
+  if (length(args) != 2L) {
+    return(NULL)
+  }
+  left_info <- infer_matrix_arg(args[[1L]], scope)
+  right_info <- infer_matrix_arg(args[[2L]], scope)
+  if (is.null(left_info) || is.null(right_info)) {
+    return(NULL)
+  }
+
+  left <- left_info$var
+  right <- right_info$var
+  left_trans <- left_info$trans
+  right_trans <- right_info$trans
+
+  left_rank <- left@rank
+  right_rank <- right@rank
+  if (left_rank > 2L || right_rank > 2L) {
+    return(NULL)
+  }
+
+  left_dims <- matrix_dims_var(
+    left,
+    orientation = if (left_rank == 1L) "rowvec" else "matrix"
+  )
+  right_dims <- matrix_dims_var(
+    right,
+    orientation = if (right_rank == 1L) "colvec" else "matrix"
+  )
+
+  left_eff <- if (left_rank == 2L) {
+    effective_dims(left_dims, left_trans)
+  } else {
+    left_dims
+  }
+  right_eff <- if (right_rank == 2L) {
+    effective_dims(right_dims, right_trans)
+  } else {
+    right_dims
+  }
+
+  if (left_rank == 2L && right_rank == 1L) {
+    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
+    return(Variable("double", list(out_len, 1L)))
+  }
+  if (left_rank == 1L && right_rank == 2L) {
+    transA <- if (right_trans == "N") "T" else "N"
+    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
+    return(Variable("double", list(1L, out_len)))
+  }
+
+  Variable("double", list(left_eff$rows, right_eff$cols))
+}
+
+infer_dest_crossprod <- function(args, scope) {
+  x <- infer_symbol_var(args[[1L]], scope)
+  if (is.null(x)) {
+    return(NULL)
+  }
+  y <- if (length(args) > 1L) infer_symbol_var(args[[2L]], scope) else NULL
+  x_dims <- matrix_dims_var(x)
+  if (is.null(y)) {
+    n <- x_dims$cols
+    return(Variable("double", list(n, n)))
+  }
+  y_dims <- matrix_dims_var(y)
+  Variable("double", list(x_dims$cols, y_dims$cols))
+}
+
+infer_dest_tcrossprod <- function(args, scope) {
+  x <- infer_symbol_var(args[[1L]], scope)
+  if (is.null(x)) {
+    return(NULL)
+  }
+  y <- if (length(args) > 1L) infer_symbol_var(args[[2L]], scope) else NULL
+  x_dims <- matrix_dims_var(x)
+  if (is.null(y)) {
+    n <- x_dims$rows
+    return(Variable("double", list(n, n)))
+  }
+  y_dims <- matrix_dims_var(y)
+  Variable("double", list(x_dims$rows, y_dims$rows))
+}
+
+infer_dest_outer <- function(args, scope) {
+  x_arg <- args$X %||% args[[1L]]
+  y_arg <- args$Y %||% args[[2L]]
+  x <- infer_symbol_var(x_arg, scope)
+  y <- infer_symbol_var(y_arg, scope)
+  if (is.null(x) || is.null(y)) {
+    return(NULL)
+  }
+  if (x@rank > 1L || y@rank > 1L) {
+    return(NULL)
+  }
+  m <- var_dim_or_one(x, 1L)
+  n <- var_dim_or_one(y, 1L)
+  Variable("double", list(m, n))
+}
+
+infer_dest_triangular <- function(args, scope) {
+  if (length(args) < 2L) {
+    return(NULL)
+  }
+  A <- infer_symbol_var(args[[1L]], scope)
+  B <- infer_symbol_var(args[[2L]], scope)
+  if (is.null(A) || is.null(B)) {
+    return(NULL)
+  }
+  if (A@rank != 2L || B@rank == 0L || B@rank > 2L) {
+    return(NULL)
+  }
+  if (is.null(B@dims)) {
+    return(NULL)
+  }
+  Variable("double", B@dims)
+}
+
+attr(r2f_handlers[["%*%"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["crossprod"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["tcrossprod"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["outer"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["%o%"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["forwardsolve"]], "dest_supported") <- TRUE
+attr(r2f_handlers[["backsolve"]], "dest_supported") <- TRUE
+
+attr(r2f_handlers[["%*%"]], "dest_infer") <- infer_dest_matmul
+attr(r2f_handlers[["crossprod"]], "dest_infer") <- infer_dest_crossprod
+attr(r2f_handlers[["tcrossprod"]], "dest_infer") <- infer_dest_tcrossprod
+attr(r2f_handlers[["outer"]], "dest_infer") <- infer_dest_outer
+attr(r2f_handlers[["%o%"]], "dest_infer") <- infer_dest_outer
+attr(r2f_handlers[["forwardsolve"]], "dest_infer") <- infer_dest_triangular
+attr(r2f_handlers[["backsolve"]], "dest_infer") <- infer_dest_triangular
