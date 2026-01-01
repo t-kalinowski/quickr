@@ -13,39 +13,38 @@ symbol_name_or_null <- function(x) {
   NULL
 }
 
-# Return the requested axis length, defaulting scalars (or missing axes) to 1L.
-dim_or_one <- function(x, axis) {
-  stopifnot(inherits(x, Fortran))
+dim_or_one_from <- function(dims, axis) {
   stopifnot(is.numeric(axis), axis >= 1)
   axis <- as.integer(axis)
-  dims <- x@value@dims
+  if (is.null(dims)) {
+    return(1L)
+  }
   if (axis <= length(dims) && !is.null(dims[[axis]])) {
     dims[[axis]]
   } else {
     1L
   }
+}
+
+# Return the requested axis length, defaulting scalars (or missing axes) to 1L.
+dim_or_one <- function(x, axis) {
+  stopifnot(inherits(x, Fortran))
+  dim_or_one_from(x@value@dims, axis)
 }
 
 var_dim_or_one <- function(var, axis) {
   stopifnot(inherits(var, Variable))
-  stopifnot(is.numeric(axis), axis >= 1)
-  axis <- as.integer(axis)
-  dims <- var@dims
-  if (axis <= length(dims) && !is.null(dims[[axis]])) {
-    dims[[axis]]
-  } else {
-    1L
-  }
+  dim_or_one_from(var@dims, axis)
 }
 
-# Interpret a Fortran value as a matrix for BLAS calls. Scalars become 1x1
-# matrices, and vectors can be viewed as either row or column vectors.
-matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
-  stopifnot(inherits(x, Fortran))
+matrix_dims_from <- function(
+  rank,
+  dims,
+  orientation = c("matrix", "rowvec", "colvec")
+) {
   orientation <- match.arg(orientation)
-  rank <- x@value@rank
-  rows <- dim_or_one(x, 1L)
-  cols <- dim_or_one(x, 2L)
+  rows <- dim_or_one_from(dims, 1L)
+  cols <- dim_or_one_from(dims, 2L)
 
   if (rank == 0L) {
     rows <- 1L
@@ -53,14 +52,21 @@ matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
   } else if (rank == 1L) {
     if (orientation == "rowvec") {
       rows <- 1L
-      cols <- dim_or_one(x, 1L)
+      cols <- dim_or_one_from(dims, 1L)
     } else {
-      rows <- dim_or_one(x, 1L)
+      rows <- dim_or_one_from(dims, 1L)
       cols <- 1L
     }
   }
 
   list(rows = rows, cols = cols)
+}
+
+# Interpret a Fortran value as a matrix for BLAS calls. Scalars become 1x1
+# matrices, and vectors can be viewed as either row or column vectors.
+matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
+  stopifnot(inherits(x, Fortran))
+  matrix_dims_from(x@value@rank, x@value@dims, orientation = orientation)
 }
 
 matrix_dims_var <- function(
@@ -68,25 +74,7 @@ matrix_dims_var <- function(
   orientation = c("matrix", "rowvec", "colvec")
 ) {
   stopifnot(inherits(var, Variable))
-  orientation <- match.arg(orientation)
-  rank <- var@rank
-  rows <- var_dim_or_one(var, 1L)
-  cols <- var_dim_or_one(var, 2L)
-
-  if (rank == 0L) {
-    rows <- 1L
-    cols <- 1L
-  } else if (rank == 1L) {
-    if (orientation == "rowvec") {
-      rows <- 1L
-      cols <- var_dim_or_one(var, 1L)
-    } else {
-      rows <- var_dim_or_one(var, 1L)
-      cols <- 1L
-    }
-  }
-
-  list(rows = rows, cols = cols)
+  matrix_dims_from(var@rank, var@dims, orientation = orientation)
 }
 
 infer_symbol_var <- function(arg, scope) {
@@ -188,10 +176,26 @@ can_use_output <- function(dest, left, right) {
   if (is.null(dest)) {
     return(FALSE)
   }
+  if (!identical(dest@mode, "double")) {
+    return(FALSE)
+  }
   output_name <- dest@name
   # check output name is not the same as left or right
   !identical(output_name, as.character(left)) &&
     !identical(output_name, as.character(right))
+}
+
+ensure_blas_operand_name <- function(x, hoist) {
+  name <- symbol_name_or_null(x)
+  if (!is.null(name)) {
+    return(name)
+  }
+  tmp <- hoist$declare_tmp(
+    mode = x@value@mode %||% "double",
+    dims = x@value@dims
+  )
+  hoist$emit(glue("{tmp@name} = {x}"))
+  tmp@name
 }
 
 logical_arg_or_default <- function(args, name, default, context) {
@@ -227,24 +231,8 @@ gemm <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
-  A_name <- symbol_name_or_null(left)
-  if (is.null(A_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = left@value@mode %||% "double",
-      dims = left@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {left}"))
-    A_name <- tmp@name
-  }
-  B_name <- symbol_name_or_null(right)
-  if (is.null(B_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = right@value@mode %||% "double",
-      dims = right@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {right}"))
-    B_name <- tmp@name
-  }
+  A_name <- ensure_blas_operand_name(left, hoist)
+  B_name <- ensure_blas_operand_name(right, hoist)
 
   if (can_use_output(dest, left, right)) {
     hoist$emit(glue(
@@ -281,24 +269,8 @@ gemv <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
-  A_name <- symbol_name_or_null(A)
-  if (is.null(A_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = A@value@mode %||% "double",
-      dims = A@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {A}"))
-    A_name <- tmp@name
-  }
-  x_name <- symbol_name_or_null(x)
-  if (is.null(x_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = x@value@mode %||% "double",
-      dims = x@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {x}"))
-    x_name <- tmp@name
-  }
+  A_name <- ensure_blas_operand_name(A, hoist)
+  x_name <- ensure_blas_operand_name(x, hoist)
 
   if (can_use_output(dest, A, x)) {
     # Assign output to output destination
@@ -331,16 +303,7 @@ syrk <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
-
-  X_name <- symbol_name_or_null(X)
-  if (is.null(X_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = X@value@mode %||% "double",
-      dims = X@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {X}"))
-    X_name <- tmp@name
-  }
+  X_name <- ensure_blas_operand_name(X, hoist)
 
   x_dims <- matrix_dims(X)
 
@@ -409,24 +372,8 @@ outer_mul <- function(x, y, scope, hoist, dest = NULL) {
   m <- dim_or_one(x, 1L)
   n <- dim_or_one(y, 1L)
 
-  x_name <- symbol_name_or_null(x)
-  if (is.null(x_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = x@value@mode %||% "double",
-      dims = x@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {x}"))
-    x_name <- tmp@name
-  }
-  y_name <- symbol_name_or_null(y)
-  if (is.null(y_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = y@value@mode %||% "double",
-      dims = y@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {y}"))
-    y_name <- tmp@name
-  }
+  x_name <- ensure_blas_operand_name(x, hoist)
+  y_name <- ensure_blas_operand_name(y, hoist)
 
   if (can_use_output(dest, x, y)) {
     hoist$emit(glue("{dest@name} = 0.0_c_double"))
@@ -485,15 +432,7 @@ triangular_solve <- function(
     assert_conformable(n, b_rows, "triangular solve")
   }
 
-  A_name <- symbol_name_or_null(A)
-  if (is.null(A_name)) {
-    tmp <- hoist$declare_tmp(
-      mode = A@value@mode %||% "double",
-      dims = A@value@dims
-    )
-    hoist$emit(glue("{tmp@name} = {A}"))
-    A_name <- tmp@name
-  }
+  A_name <- ensure_blas_operand_name(A, hoist)
 
   if (can_use_output(dest, A, B)) {
     hoist$emit(glue("{dest@name} = {B}"))
@@ -526,6 +465,65 @@ triangular_solve <- function(
     attr(out, "writes_to_dest") <- TRUE
   }
   out
+}
+
+crossprod_like <- function(
+  x_arg,
+  y_arg,
+  scope,
+  ...,
+  hoist,
+  dest,
+  trans_single,
+  opA,
+  opB,
+  context
+) {
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  x <- maybe_cast_double(x)
+
+  if (is.null(y_arg)) {
+    return(syrk(
+      trans = trans_single,
+      X = x,
+      scope = scope,
+      hoist = hoist,
+      dest = dest
+    ))
+  }
+
+  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
+
+  x_dims <- matrix_dims(x)
+  y_dims <- matrix_dims(y)
+  x_eff <- effective_dims(x_dims, opA)
+  y_eff <- effective_dims(y_dims, opB)
+
+  assert_conformable(x_eff$cols, y_eff$rows, context)
+
+  m <- x_eff$rows
+  n <- y_eff$cols
+  k <- x_eff$cols
+
+  lda <- x_dims$rows
+  ldb <- y_dims$rows
+  ldc_expr <- m
+
+  gemm(
+    opA = opA,
+    opB = opB,
+    left = x,
+    right = y,
+    m = m,
+    n = n,
+    k = k,
+    lda = lda,
+    ldb = ldb,
+    ldc_expr = ldc_expr,
+    scope = scope,
+    hoist = hoist,
+    dest = dest
+  )
 }
 
 # ---- matrix operation handlers ----
@@ -666,51 +664,17 @@ r2f_handlers[["crossprod"]] <- function(
 ) {
   x_arg <- args[[1L]]
   y_arg <- if (length(args) > 1L) args[[2L]] else NULL
-
-  x <- r2f(x_arg, scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
-
-  # Single-argument case: crossprod(X) = t(X) %*% X → use dsyrk
-  if (is.null(y_arg)) {
-    return(syrk(
-      trans = "T",
-      X = x,
-      scope = scope,
-      hoist = hoist,
-      dest = dest
-    ))
-  }
-
-  # Two-argument case: crossprod(X, Y) = t(X) %*% Y → use dgemm
-  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
-
-  x_dims <- matrix_dims(x)
-  y_dims <- matrix_dims(y)
-
-  assert_conformable(x_dims$rows, y_dims$rows, "crossprod")
-
-  m <- x_dims$cols
-  n <- y_dims$cols
-  k <- x_dims$rows
-
-  lda <- x_dims$rows
-  ldb <- y_dims$rows
-  ldc_expr <- m
-
-  gemm(
+  crossprod_like(
+    x_arg = x_arg,
+    y_arg = y_arg,
+    scope = scope,
+    ...,
+    hoist = hoist,
+    dest = dest,
+    trans_single = "T",
     opA = "T",
     opB = "N",
-    left = x,
-    right = y,
-    m = m,
-    n = n,
-    k = k,
-    lda = lda,
-    ldb = ldb,
-    ldc_expr = ldc_expr,
-    scope = scope,
-    hoist = hoist,
-    dest = dest
+    context = "crossprod"
   )
 }
 
@@ -724,51 +688,17 @@ r2f_handlers[["tcrossprod"]] <- function(
 ) {
   x_arg <- args[[1L]]
   y_arg <- if (length(args) > 1L) args[[2L]] else NULL
-
-  x <- r2f(x_arg, scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
-
-  # Single-argument case: tcrossprod(X) = X %*% t(X) → use dsyrk
-  if (is.null(y_arg)) {
-    return(syrk(
-      trans = "N",
-      X = x,
-      scope = scope,
-      hoist = hoist,
-      dest = dest
-    ))
-  }
-
-  # Two-argument case: tcrossprod(X, Y) = X %*% t(Y) → use dgemm
-  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
-
-  x_dims <- matrix_dims(x)
-  y_dims <- matrix_dims(y)
-
-  assert_conformable(x_dims$cols, y_dims$cols, "tcrossprod")
-
-  m <- x_dims$rows
-  n <- y_dims$rows
-  k <- x_dims$cols
-
-  lda <- x_dims$rows
-  ldb <- y_dims$rows
-  ldc_expr <- m
-
-  gemm(
+  crossprod_like(
+    x_arg = x_arg,
+    y_arg = y_arg,
+    scope = scope,
+    ...,
+    hoist = hoist,
+    dest = dest,
+    trans_single = "N",
     opA = "N",
     opB = "T",
-    left = x,
-    right = y,
-    m = m,
-    n = n,
-    k = k,
-    lda = lda,
-    ldb = ldb,
-    ldc_expr = ldc_expr,
-    scope = scope,
-    hoist = hoist,
-    dest = dest
+    context = "tcrossprod"
   )
 }
 
@@ -930,7 +860,7 @@ infer_dest_matmul <- function(args, scope) {
   Variable("double", list(left_eff$rows, right_eff$cols))
 }
 
-infer_dest_crossprod <- function(args, scope) {
+infer_dest_crossprod_like <- function(args, scope, trans) {
   x <- infer_symbol_var(args[[1L]], scope)
   if (is.null(x)) {
     return(NULL)
@@ -938,26 +868,23 @@ infer_dest_crossprod <- function(args, scope) {
   y <- if (length(args) > 1L) infer_symbol_var(args[[2L]], scope) else NULL
   x_dims <- matrix_dims_var(x)
   if (is.null(y)) {
-    n <- x_dims$cols
+    n <- if (identical(trans, "T")) x_dims$cols else x_dims$rows
     return(Variable("double", list(n, n)))
   }
   y_dims <- matrix_dims_var(y)
-  Variable("double", list(x_dims$cols, y_dims$cols))
+  if (identical(trans, "T")) {
+    Variable("double", list(x_dims$cols, y_dims$cols))
+  } else {
+    Variable("double", list(x_dims$rows, y_dims$rows))
+  }
+}
+
+infer_dest_crossprod <- function(args, scope) {
+  infer_dest_crossprod_like(args, scope, trans = "T")
 }
 
 infer_dest_tcrossprod <- function(args, scope) {
-  x <- infer_symbol_var(args[[1L]], scope)
-  if (is.null(x)) {
-    return(NULL)
-  }
-  y <- if (length(args) > 1L) infer_symbol_var(args[[2L]], scope) else NULL
-  x_dims <- matrix_dims_var(x)
-  if (is.null(y)) {
-    n <- x_dims$rows
-    return(Variable("double", list(n, n)))
-  }
-  y_dims <- matrix_dims_var(y)
-  Variable("double", list(x_dims$rows, y_dims$rows))
+  infer_dest_crossprod_like(args, scope, trans = "N")
 }
 
 infer_dest_outer <- function(args, scope) {
