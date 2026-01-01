@@ -94,6 +94,24 @@ test_that("matrix multiplication handles transposed operands", {
   expect_quick_identical(matmul_t_both, list(x = x, y = y_both))
 })
 
+test_that("matrix multiplication handles chained mixes", {
+  chain_mix <- function(a, b, c) {
+    declare(
+      type(a = double(4, 3)),
+      type(b = double(5, 3)),
+      type(c = double(5, 5))
+    )
+    (a %*% t(b)) %*% c + 0.25 * (a %*% t(b))
+  }
+
+  set.seed(7)
+  a <- matrix(rnorm(4 * 3), nrow = 4)
+  b <- matrix(rnorm(5 * 3), nrow = 5)
+  c <- matrix(rnorm(5 * 5), nrow = 5)
+
+  expect_quick_identical(chain_mix, list(a = a, b = b, c = c))
+})
+
 test_that("matrix multiplication handles 1x1 and 1xN/Nx1 shapes", {
   mat_mat_1x1 <- function(a, b) {
     declare(
