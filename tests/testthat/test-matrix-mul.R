@@ -230,6 +230,14 @@ test_that("single-argument crossprod/tcrossprod match R", {
 })
 
 test_that("outer supports multiplication and %o%", {
+  outer_default <- function(x, y) {
+    declare(
+      type(x = double(3)),
+      type(y = double(4))
+    )
+    outer(x, y)
+  }
+
   outer_mul <- function(x, y) {
     declare(
       type(x = double(3)),
@@ -250,6 +258,7 @@ test_that("outer supports multiplication and %o%", {
   x <- rnorm(3)
   y <- rnorm(4)
 
+  expect_quick_identical(outer_default, list(x = x, y = y))
   expect_quick_identical(outer_mul, list(x = x, y = y))
   expect_quick_identical(outer_op, list(x = x, y = y))
 })

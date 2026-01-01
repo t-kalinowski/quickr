@@ -209,6 +209,10 @@ logical_arg_or_default <- function(args, name, default, context) {
   val
 }
 
+blas_int <- function(x) {
+  glue("int({x}, kind=c_int)")
+}
+
 # Centralized GEMM emission with optional destination
 # gemm: centralized BLAS GEMM emission.
 # - 'hoist' is required and provided by r2f(); handlers thread it through so
@@ -236,7 +240,7 @@ gemm <- function(
 
   if (can_use_output(dest, left, right)) {
     hoist$emit(glue(
-      "call dgemm('{opA}','{opB}', {m}, {n}, {k}, 1.0_c_double, {A_name}, {lda}, {B_name}, {ldb}, 0.0_c_double, {dest@name}, {ldc_expr})"
+      "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {dest@name}, {blas_int(ldc_expr)})"
     ))
     out <- Fortran(dest@name, dest)
     attr(out, "writes_to_dest") <- TRUE
@@ -245,7 +249,7 @@ gemm <- function(
 
   output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue(
-    "call dgemm('{opA}','{opB}', {m}, {n}, {k}, 1.0_c_double, {A_name}, {lda}, {B_name}, {ldb}, 0.0_c_double, {output_var@name}, {ldc_expr})"
+    "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {output_var@name}, {blas_int(ldc_expr)})"
   ))
   Fortran(output_var@name, output_var)
 }
@@ -275,7 +279,7 @@ gemv <- function(
   if (can_use_output(dest, A, x)) {
     # Assign output to output destination
     hoist$emit(glue(
-      "call dgemv('{transA}', {m}, {n}, 1.0_c_double, {A_name}, {lda}, {x_name}, 1, 0.0_c_double, {dest@name}, 1)"
+      "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1, 0.0_c_double, {dest@name}, 1)"
     ))
     out <- Fortran(dest@name, dest)
     attr(out, "writes_to_dest") <- TRUE
@@ -284,7 +288,7 @@ gemv <- function(
   # Else assign to a temporary variable
   output_var <- hoist$declare_tmp(mode = "double", dims = out_dims)
   hoist$emit(glue(
-    "call dgemv('{transA}', {m}, {n}, 1.0_c_double, {A_name}, {lda}, {x_name}, 1, 0.0_c_double, {output_var@name}, 1)"
+    "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1, 0.0_c_double, {output_var@name}, 1)"
   ))
   Fortran(output_var@name, output_var)
 }
@@ -321,7 +325,7 @@ syrk <- function(
   # Output is symmetric n x n matrix
   if (can_use_output(dest, X, X)) {
     hoist$emit(glue(
-      "call dsyrk('U', '{trans}', {n}, {k}, 1.0_c_double, {X_name}, {lda}, 0.0_c_double, {dest@name}, {n})"
+      "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {dest@name}, {blas_int(n)})"
     ))
     # Fill lower triangle from upper
     idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
@@ -341,7 +345,7 @@ end do"
 
   output_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
   hoist$emit(glue(
-    "call dsyrk('U', '{trans}', {n}, {k}, 1.0_c_double, {X_name}, {lda}, 0.0_c_double, {output_var@name}, {n})"
+    "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {output_var@name}, {blas_int(n)})"
   ))
   # Fill lower triangle from upper
   idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
@@ -378,7 +382,7 @@ outer_mul <- function(x, y, scope, hoist, dest = NULL) {
   if (can_use_output(dest, x, y)) {
     hoist$emit(glue("{dest@name} = 0.0_c_double"))
     hoist$emit(glue(
-      "call dger({m}, {n}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {dest@name}, {m})"
+      "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {dest@name}, {blas_int(m)})"
     ))
     out <- Fortran(dest@name, dest)
     attr(out, "writes_to_dest") <- TRUE
@@ -388,7 +392,7 @@ outer_mul <- function(x, y, scope, hoist, dest = NULL) {
   output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{output_var@name} = 0.0_c_double"))
   hoist$emit(glue(
-    "call dger({m}, {n}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {output_var@name}, {m})"
+    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {output_var@name}, {blas_int(m)})"
   ))
   Fortran(output_var@name, output_var)
 }
@@ -451,12 +455,12 @@ triangular_solve <- function(
 
   if (b_rank <= 1L) {
     hoist$emit(glue(
-      "call dtrsv('{uplo}', '{trans}', '{diag}', {n}, {A_name}, {n}, {B_name}, 1)"
+      "call dtrsv('{uplo}', '{trans}', '{diag}', {blas_int(n)}, {A_name}, {blas_int(n)}, {B_name}, 1)"
     ))
   } else {
     nrhs <- dim_or_one(B, 2L)
     hoist$emit(glue(
-      "call dtrsm('L', '{uplo}', '{trans}', '{diag}', {n}, {nrhs}, 1.0_c_double, {A_name}, {n}, {B_name}, {n})"
+      "call dtrsm('L', '{uplo}', '{trans}', '{diag}', {blas_int(n)}, {blas_int(nrhs)}, 1.0_c_double, {A_name}, {blas_int(n)}, {B_name}, {blas_int(n)})"
     ))
   }
 
@@ -715,7 +719,8 @@ r2f_handlers[["outer"]] <- function(
     stop("outer() expects X and Y")
   }
 
-  if (args$FUN != "*") {
+  fun <- args$FUN %||% "*"
+  if (!identical(fun, "*")) {
     stop("outer() only supports FUN = \"*\"")
   }
   x <- r2f(x_arg, scope, ..., hoist = hoist)

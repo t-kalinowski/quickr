@@ -81,6 +81,9 @@ iso_c_binding_symbols <- function(
   if (grepl("\\b[0-9]+_c_int\\b", body_code)) {
     used_iso_bindings <- union(used_iso_bindings, "c_int")
   }
+  if (grepl("\\bc_int\\b", body_code)) {
+    used_iso_bindings <- union(used_iso_bindings, "c_int")
+  }
   if (grepl("\\b[0-9]+\\.[0-9]+_c_double\\b", body_code)) {
     used_iso_bindings <- union(used_iso_bindings, "c_double")
   }
