@@ -298,7 +298,12 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   create_quick_closure(fsub@name, fsub@closure, native_symbol = ptr)
 }
 
-quickr_windows_add_dll_paths <- function(flags, os_type = .Platform$OS.type) {
+quickr_windows_add_dll_paths <- function(
+  flags,
+  os_type = .Platform$OS.type,
+  config_value = openmp_config_value,
+  which = Sys.which
+) {
   if (!identical(os_type, "windows")) {
     return(invisible(FALSE))
   }
@@ -307,6 +312,28 @@ quickr_windows_add_dll_paths <- function(flags, os_type = .Platform$OS.type) {
   dirs <- dirs[nzchar(dirs)]
 
   bin_siblings <- file.path(dirs, "..", "bin")
+
+  config_values <- c(
+    config_value("BINPREF"),
+    config_value("FC"),
+    config_value("F77"),
+    config_value("CC"),
+    config_value("CXX")
+  )
+  config_paths <- vapply(
+    config_values,
+    function(value) {
+      value <- trimws(value)
+      if (!nzchar(value)) {
+        return("")
+      }
+      value <- sub("^\"([^\"]+)\".*", "\\1", value)
+      value <- sub("^'([^']+)'.*", "\\1", value)
+      strsplit(value, "\\s+")[[1L]][[1L]]
+    },
+    character(1)
+  )
+  config_bins <- unique(dirname(config_paths[nzchar(config_paths)]))
 
   r_bin <- R.home("bin")
   r_bin_x64 <- file.path(r_bin, "x64")
@@ -329,13 +356,14 @@ quickr_windows_add_dll_paths <- function(flags, os_type = .Platform$OS.type) {
     file.path(rtools_roots, "x86_64-w64-mingw32", "bin")
   ))
 
-  compilers <- Sys.which(c("gfortran", "gcc", "clang", "flang"))
+  compilers <- which(c("gfortran", "gcc", "clang", "flang"))
   compilers <- compilers[nzchar(compilers)]
   compiler_bins <- unique(dirname(compilers))
 
   dirs <- unique(c(
     dirs,
     bin_siblings,
+    config_bins,
     r_bin,
     r_bin_x64,
     r_bin_i386,

@@ -85,7 +85,9 @@ test_that("quickr_windows_add_dll_paths updates PATH for Windows-style runs", {
   withr::local_envvar(PATH = "C:\\Existing")
   expect_true(quickr:::quickr_windows_add_dll_paths(
     flags = paste0("-L", lib_dir),
-    os_type = "windows"
+    os_type = "windows",
+    config_value = function(...) "",
+    which = function(...) ""
   ))
 
   path <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1]]
@@ -97,7 +99,9 @@ test_that("quickr_windows_add_dll_paths updates PATH for Windows-style runs", {
   expect_true(bin_norm %in% path_norm)
   expect_false(quickr:::quickr_windows_add_dll_paths(
     flags = paste0("-L", lib_dir),
-    os_type = "windows"
+    os_type = "windows",
+    config_value = function(...) "",
+    which = function(...) ""
   ))
 })
 
@@ -105,6 +109,29 @@ test_that("quickr_windows_add_dll_paths is a no-op outside Windows", {
   withr::local_envvar(PATH = "C:\\Existing")
   expect_false(quickr:::quickr_windows_add_dll_paths(
     flags = "-Lfoo",
-    os_type = "unix"
+    os_type = "unix",
+    config_value = function(...) "",
+    which = function(...) ""
   ))
+})
+
+test_that("quickr_windows_add_dll_paths uses BINPREF from config", {
+  temp <- withr::local_tempdir()
+  bin_dir <- file.path(temp, "bin")
+  dir.create(bin_dir, recursive = TRUE)
+  binpref <- file.path(bin_dir, "x86_64-w64-mingw32-")
+
+  withr::local_envvar(PATH = "C:\\Existing")
+  expect_true(quickr:::quickr_windows_add_dll_paths(
+    flags = character(),
+    os_type = "windows",
+    config_value = function(key) if (key == "BINPREF") binpref else "",
+    which = function(...) ""
+  ))
+
+  path <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1]]
+  path_norm <- tolower(normalizePath(path, winslash = "\\", mustWork = FALSE))
+  bin_norm <- tolower(normalizePath(bin_dir, winslash = "\\", mustWork = FALSE))
+
+  expect_true(bin_norm %in% path_norm)
 })
