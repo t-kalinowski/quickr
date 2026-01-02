@@ -234,19 +234,21 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
 
   suppressWarnings({
-    r_args <- c(
+    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
+    env <- quickr_fcompiler_env(
+      build_dir = build_dir,
+      use_openmp = use_openmp,
+      link_flags = link_flags
+    )
+    r_args_base <- c(
       "CMD SHLIB --use-LTO",
       "-o",
       dll_path,
       fsub_path,
-      c_wrapper_path,
-      link_flags
+      c_wrapper_path
     )
-    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
-    env <- quickr_fcompiler_env(
-      build_dir = build_dir,
-      use_openmp = use_openmp
-    )
+    r_args_libs <- c(r_args_base, link_flags)
+    r_args <- if (length(env)) r_args_base else r_args_libs
     result <- system2(
       R.home("bin/R"),
       r_args,
@@ -257,7 +259,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     if (!is.null(attr(result, "status")) && length(env)) {
       result2 <- system2(
         R.home("bin/R"),
-        r_args,
+        r_args_libs,
         stdout = TRUE,
         stderr = TRUE
       )
