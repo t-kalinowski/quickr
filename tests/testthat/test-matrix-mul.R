@@ -366,3 +366,21 @@ test_that("forwardsolve and backsolve match R", {
   expect_quick_equal(back_mat, list(U = U, b = b_mat))
   expect_quick_equal(back_transpose, list(U = U, b = b_vec))
 })
+
+test_that("blas usage is recorded on the scope", {
+  matmul <- function(x) {
+    declare(type(x = double(2, 2)))
+    x %*% x
+  }
+
+  add_only <- function(x) {
+    declare(type(x = double(2, 2)))
+    x + 1
+  }
+
+  matmul_sub <- r2f(matmul)
+  add_sub <- r2f(add_only)
+
+  expect_true(isTRUE(attr(matmul_sub@scope, "uses_blas", exact = TRUE)))
+  expect_false(isTRUE(attr(add_sub@scope, "uses_blas", exact = TRUE)))
+})

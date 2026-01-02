@@ -489,6 +489,13 @@ can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
     !identical(output_name, as.character(right))
 }
 
+mark_blas_used <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  root <- scope_root(scope)
+  attr(root, "uses_blas") <- TRUE
+  invisible(root)
+}
+
 # Ensure a BLAS operand is named, hoisting into a temp if needed.
 ensure_blas_operand_name <- function(x, hoist) {
   name <- symbol_name_or_null(x)
@@ -543,6 +550,7 @@ gemm <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
+  mark_blas_used(scope)
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
@@ -590,6 +598,7 @@ gemv <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
+  mark_blas_used(scope)
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
@@ -633,6 +642,7 @@ syrk <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
+  mark_blas_used(scope)
   X_name <- ensure_blas_operand_name(X, hoist)
 
   x_dims <- matrix_dims(X)
@@ -707,6 +717,7 @@ outer_mul <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
+  mark_blas_used(scope)
 
   x <- maybe_cast_double(x)
   y <- maybe_cast_double(y)
@@ -762,6 +773,7 @@ triangular_solve <- function(
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
+  mark_blas_used(scope)
 
   A <- maybe_cast_double(A)
   B <- maybe_cast_double(B)
