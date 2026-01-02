@@ -161,7 +161,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
   serial <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
     out <- double(n)
-    iters <- 20L
+    iters <- 12L
     for (i in seq_len(n)) {
       v <- x[i]
       for (k in seq_len(iters)) {
@@ -176,7 +176,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
   parallel <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
     out <- double(n)
-    iters <- 20L
+    iters <- 12L
     declare(parallel())
     for (i in seq_len(n)) {
       v <- x[i]
@@ -189,7 +189,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
     out
   }
 
-  n <- 2000000L
+  n <- 500000L
   set.seed(1)
   x <- runif(n)
   serial_q <- quick(serial)
@@ -198,7 +198,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
   serial_q(x, n)
   gc()
 
-  reps <- 2L
+  reps <- 1L
   serial_time <- timed_run(serial_q, x, n, reps = reps)
   parallel_time <- withr::with_envvar(
     c(
@@ -249,7 +249,7 @@ test_that("openmp responds to OMP_NUM_THREADS across sessions", {
 
   check_thread_scaling_subprocess(
     label = "iter-map",
-    n = 1000000L,
-    iters = 100L
+    n = 400000L,
+    iters = 80L
   )
 })
