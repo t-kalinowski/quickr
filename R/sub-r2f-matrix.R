@@ -172,13 +172,38 @@ unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
 }
 
 # Whether it's safe and useful to write into dest (no aliasing with inputs)
-can_use_output <- function(dest, left, right) {
+assert_dest_dims_compatible <- function(dest, expected_dims, context) {
+  if (is.null(dest) || is.null(expected_dims)) {
+    return(invisible(TRUE))
+  }
+  expected_rank <- length(expected_dims)
+  if (dest@rank != expected_rank) {
+    stop("assignment target has incompatible rank for ", context, call. = FALSE)
+  }
+  for (i in seq_len(expected_rank)) {
+    dest_dim <- dest@dims[[i]]
+    expected_dim <- expected_dims[[i]]
+    if (is_wholenumber(dest_dim) && is_wholenumber(expected_dim)) {
+      if (!identical(as.integer(dest_dim), as.integer(expected_dim))) {
+        stop(
+          "assignment target has incompatible dimensions for ",
+          context,
+          call. = FALSE
+        )
+      }
+    }
+  }
+  invisible(TRUE)
+}
+
+can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
   if (is.null(dest)) {
     return(FALSE)
   }
   if (!identical(dest@mode, "double")) {
     return(FALSE)
   }
+  assert_dest_dims_compatible(dest, expected_dims, context)
   output_name <- dest@name
   # check output name is not the same as left or right
   !identical(output_name, as.character(left)) &&
@@ -230,7 +255,8 @@ gemm <- function(
   ldc_expr,
   scope,
   hoist,
-  dest = NULL
+  dest = NULL,
+  context = "gemm"
 ) {
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
@@ -238,7 +264,15 @@ gemm <- function(
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
-  if (can_use_output(dest, left, right)) {
+  if (
+    can_use_output(
+      dest,
+      left,
+      right,
+      expected_dims = list(m, n),
+      context = context
+    )
+  ) {
     hoist$emit(glue(
       "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {dest@name}, {blas_int(ldc_expr)})"
     ))
@@ -268,7 +302,8 @@ gemv <- function(
   out_dims,
   scope,
   hoist,
-  dest = NULL
+  dest = NULL,
+  context = "gemv"
 ) {
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
@@ -276,7 +311,15 @@ gemv <- function(
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
-  if (can_use_output(dest, A, x)) {
+  if (
+    can_use_output(
+      dest,
+      A,
+      x,
+      expected_dims = out_dims,
+      context = context
+    )
+  ) {
     # Assign output to output destination
     hoist$emit(glue(
       "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1, 0.0_c_double, {dest@name}, 1)"
@@ -302,7 +345,8 @@ syrk <- function(
   X,
   scope,
   hoist,
-  dest = NULL
+  dest = NULL,
+  context = "syrk"
 ) {
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
@@ -323,7 +367,15 @@ syrk <- function(
   lda <- x_dims$rows
 
   # Output is symmetric n x n matrix
-  if (can_use_output(dest, X, X)) {
+  if (
+    can_use_output(
+      dest,
+      X,
+      X,
+      expected_dims = list(n, n),
+      context = context
+    )
+  ) {
     hoist$emit(glue(
       "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {dest@name}, {blas_int(n)})"
     ))
@@ -361,7 +413,14 @@ end do"
   Fortran(output_var@name, output_var)
 }
 
-outer_mul <- function(x, y, scope, hoist, dest = NULL) {
+outer_mul <- function(
+  x,
+  y,
+  scope,
+  hoist,
+  dest = NULL,
+  context = "outer"
+) {
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
   }
@@ -379,7 +438,15 @@ outer_mul <- function(x, y, scope, hoist, dest = NULL) {
   x_name <- ensure_blas_operand_name(x, hoist)
   y_name <- ensure_blas_operand_name(y, hoist)
 
-  if (can_use_output(dest, x, y)) {
+  if (
+    can_use_output(
+      dest,
+      x,
+      y,
+      expected_dims = list(m, n),
+      context = context
+    )
+  ) {
     hoist$emit(glue("{dest@name} = 0.0_c_double"))
     hoist$emit(glue(
       "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {dest@name}, {blas_int(m)})"
@@ -405,7 +472,8 @@ triangular_solve <- function(
   diag,
   scope,
   hoist,
-  dest = NULL
+  dest = NULL,
+  context = "triangular solve"
 ) {
   if (!inherits(hoist, "environment")) {
     stop("internal: hoist must be a hoist environment")
@@ -438,7 +506,15 @@ triangular_solve <- function(
 
   A_name <- ensure_blas_operand_name(A, hoist)
 
-  if (can_use_output(dest, A, B)) {
+  if (
+    can_use_output(
+      dest,
+      A,
+      B,
+      expected_dims = B@value@dims,
+      context = context
+    )
+  ) {
     hoist$emit(glue("{dest@name} = {B}"))
     B_name <- dest@name
     out_var <- dest
@@ -492,7 +568,8 @@ crossprod_like <- function(
       X = x,
       scope = scope,
       hoist = hoist,
-      dest = dest
+      dest = dest,
+      context = context
     ))
   }
 
@@ -526,7 +603,8 @@ crossprod_like <- function(
     ldc_expr = ldc_expr,
     scope = scope,
     hoist = hoist,
-    dest = dest
+    dest = dest,
+    context = context
   )
 }
 
@@ -595,7 +673,8 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
       out_dims = list(out_len, 1L),
       scope = scope,
       hoist = hoist,
-      dest = dest
+      dest = dest,
+      context = "%*%"
     ))
   }
   # Vector-Matrix: use GEMV with transpose
@@ -614,7 +693,8 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
       out_dims = list(1L, out_len),
       scope = scope,
       hoist = hoist,
-      dest = dest
+      dest = dest,
+      context = "%*%"
     ))
   }
 
@@ -634,7 +714,8 @@ r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
     ldc_expr = ldc_expr,
     scope = scope,
     hoist = hoist,
-    dest = dest
+    dest = dest,
+    context = "%*%"
   )
 }
 
@@ -725,7 +806,14 @@ r2f_handlers[["outer"]] <- function(
   }
   x <- r2f(x_arg, scope, ..., hoist = hoist)
   y <- r2f(y_arg, scope, ..., hoist = hoist)
-  outer_mul(x, y, scope = scope, hoist = hoist, dest = dest)
+  outer_mul(
+    x,
+    y,
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "outer"
+  )
 }
 
 r2f_handlers[["%o%"]] <- function(
@@ -738,7 +826,14 @@ r2f_handlers[["%o%"]] <- function(
   stopifnot(length(args) == 2L)
   x <- r2f(args[[1L]], scope, ..., hoist = hoist)
   y <- r2f(args[[2L]], scope, ..., hoist = hoist)
-  outer_mul(x, y, scope = scope, hoist = hoist, dest = dest)
+  outer_mul(
+    x,
+    y,
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "%o%"
+  )
 }
 
 r2f_handlers[["forwardsolve"]] <- function(
@@ -777,7 +872,8 @@ r2f_handlers[["forwardsolve"]] <- function(
     diag = if (diag_unit) "U" else "N",
     scope = scope,
     hoist = hoist,
-    dest = dest
+    dest = dest,
+    context = "forwardsolve"
   )
 }
 
@@ -807,7 +903,8 @@ r2f_handlers[["backsolve"]] <- function(
     diag = if (diag_unit) "U" else "N",
     scope = scope,
     hoist = hoist,
-    dest = dest
+    dest = dest,
+    context = "backsolve"
   )
 }
 

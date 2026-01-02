@@ -191,6 +191,17 @@ test_that("matrix multiplication errors on non-conformable arguments", {
   expect_error(quick(matmul_bad), "non-conformable arguments in %*%")
 })
 
+test_that("matrix multiplication rejects incompatible destinations", {
+  dest_mismatch <- function() {
+    declare(type(x = double(2)))
+    a <- matrix(1.5, 2L, 2L)
+    x <- a %*% a
+    x
+  }
+
+  expect_error(quick(dest_mismatch), "incompatible rank for %\\*%")
+})
+
 test_that("crossprod and tcrossprod match R", {
   cross_fun <- function(x, y) {
     declare(
