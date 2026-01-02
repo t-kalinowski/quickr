@@ -306,18 +306,58 @@ quickr_windows_add_dll_paths <- function(flags, os_type = .Platform$OS.type) {
   dirs <- sub("^-L", "", dirs)
   dirs <- dirs[nzchar(dirs)]
 
-  r_bin <- R.home("bin")
-  dirs <- unique(c(dirs, r_bin, file.path(r_bin, "x64")))
+  bin_siblings <- file.path(dirs, "..", "bin")
 
-  dirs <- gsub("/", "\\\\", dirs, fixed = FALSE)
+  r_bin <- R.home("bin")
+  r_bin_x64 <- file.path(r_bin, "x64")
+  r_bin_i386 <- file.path(r_bin, "i386")
+
+  rtools_roots <- Sys.getenv(c(
+    "RTOOLS44_HOME",
+    "RTOOLS43_HOME",
+    "RTOOLS42_HOME",
+    "RTOOLS40_HOME",
+    "RTOOLS_HOME"
+  ))
+  rtools_roots <- rtools_roots[nzchar(rtools_roots)]
+  rtools_bins <- unique(c(
+    file.path(rtools_roots, "usr", "bin"),
+    file.path(rtools_roots, "mingw64", "bin"),
+    file.path(rtools_roots, "ucrt64", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32.static.posix", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32.static", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32", "bin")
+  ))
+
+  compilers <- Sys.which(c("gfortran", "gcc", "clang", "flang"))
+  compilers <- compilers[nzchar(compilers)]
+  compiler_bins <- unique(dirname(compilers))
+
+  dirs <- unique(c(
+    dirs,
+    bin_siblings,
+    r_bin,
+    r_bin_x64,
+    r_bin_i386,
+    rtools_bins,
+    compiler_bins
+  ))
   dirs <- dirs[nzchar(dirs)]
+  dirs <- dirs[dir.exists(dirs)]
   if (!length(dirs)) {
     return(invisible(FALSE))
   }
 
   path <- Sys.getenv("PATH", unset = "")
   existing <- strsplit(path, ";", fixed = TRUE)[[1]]
-  to_add <- dirs[!dirs %in% existing]
+  existing <- existing[nzchar(existing)]
+  existing_norm <- tolower(normalizePath(
+    existing,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+  dirs_norm <- tolower(normalizePath(dirs, winslash = "\\", mustWork = FALSE))
+  to_add <- dirs[!dirs_norm %in% existing_norm]
   if (length(to_add)) {
     Sys.setenv(PATH = paste(c(to_add, existing), collapse = ";"))
     return(invisible(TRUE))
