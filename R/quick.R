@@ -288,12 +288,42 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     stop("Compilation Error", call. = FALSE)
   }
 
+  quickr_windows_add_dll_paths(link_flags)
+
   # tryCatch(dyn.unload(dll_path), error = identity)
   dll <- dyn.load(dll_path)
   c_wrapper_name <- paste0(fsub@name, "_")
   ptr <- getNativeSymbolInfo(c_wrapper_name, dll)$address
 
   create_quick_closure(fsub@name, fsub@closure, native_symbol = ptr)
+}
+
+quickr_windows_add_dll_paths <- function(flags, os_type = .Platform$OS.type) {
+  if (!identical(os_type, "windows")) {
+    return(invisible(FALSE))
+  }
+  dirs <- flags[grepl("^-L", flags)]
+  dirs <- sub("^-L", "", dirs)
+  dirs <- dirs[nzchar(dirs)]
+
+  r_bin <- R.home("bin")
+  dirs <- unique(c(dirs, r_bin, file.path(r_bin, "x64")))
+
+  dirs <- gsub("/", "\\\\", dirs, fixed = FALSE)
+  dirs <- dirs[nzchar(dirs)]
+  if (!length(dirs)) {
+    return(invisible(FALSE))
+  }
+
+  path <- Sys.getenv("PATH", unset = "")
+  existing <- strsplit(path, ";", fixed = TRUE)[[1]]
+  to_add <- dirs[!dirs %in% existing]
+  if (length(to_add)) {
+    Sys.setenv(PATH = paste(c(to_add, existing), collapse = ";"))
+    return(invisible(TRUE))
+  }
+
+  invisible(FALSE)
 }
 
 
