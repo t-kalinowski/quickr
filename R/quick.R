@@ -211,10 +211,14 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   # Link against the same BLAS/LAPACK/Fortran libs as the running R
   # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
   cfg <- function(var) {
+    r_cmd <- R.home("bin/R")
+    if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
+      r_cmd <- paste0(r_cmd, ".exe")
+    }
     tryCatch(
       {
         out <- system2(
-          R.home("bin/R"),
+          r_cmd,
           c("CMD", "config", var),
           stdout = TRUE,
           stderr = FALSE
@@ -248,7 +252,8 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       c_wrapper_path
     )
     r_args_libs <- c(r_args_base, link_flags)
-    r_args <- if (length(env)) r_args_base else r_args_libs
+    is_windows <- identical(.Platform$OS.type, "windows")
+    r_args <- if (length(env) && !is_windows) r_args_base else r_args_libs
     result <- system2(
       R.home("bin/R"),
       r_args,
@@ -340,6 +345,7 @@ quickr_windows_add_dll_paths <- function(
   r_bin_i386 <- file.path(r_bin, "i386")
 
   rtools_roots <- Sys.getenv(c(
+    "RTOOLS45_HOME",
     "RTOOLS44_HOME",
     "RTOOLS43_HOME",
     "RTOOLS42_HOME",
