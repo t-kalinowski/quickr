@@ -1,5 +1,313 @@
 # Matrix-specific r2f handlers and helpers
 
+# ---- matrix operation handlers ----
+
+# %*% handler with optional destination hint
+r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
+  stopifnot(length(args) == 2L)
+  left_info <- unwrap_transpose_arg(args[[1L]], scope, ..., hoist = hoist)
+  right_info <- unwrap_transpose_arg(args[[2L]], scope, ..., hoist = hoist)
+  left <- left_info$value
+  right <- right_info$value
+  left_trans <- left_info$trans
+  right_trans <- right_info$trans
+
+  left_rank <- left@value@rank
+  right_rank <- right@value@rank
+
+  if (left_rank > 2 || right_rank > 2) {
+    stop("%*% only supports vectors/matrices (rank <= 2)")
+  }
+
+  left_dims <- matrix_dims(
+    left,
+    orientation = if (left_rank == 1) "rowvec" else "matrix"
+  )
+
+  right_dims <- matrix_dims(
+    right,
+    orientation = if (right_rank == 1) "colvec" else "matrix"
+  )
+
+  left_eff <- if (left_rank == 2) {
+    effective_dims(left_dims, left_trans)
+  } else {
+    left_dims
+  }
+  right_eff <- if (right_rank == 2) {
+    effective_dims(right_dims, right_trans)
+  } else {
+    right_dims
+  }
+
+  # Compute effective shapes
+  m <- left_eff$rows
+  k <- left_eff$cols
+  n <- right_eff$cols
+
+  # Leading dimensions
+  lda <- left_dims$rows
+  ldb <- right_dims$rows
+  ldc_expr <- m
+
+  # Matrix-Vector: use GEMV
+  if (left_rank == 2 && right_rank == 1) {
+    expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
+    assert_conformable(expected_len, right_dims$rows, "%*%")
+    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
+    return(gemv(
+      transA = left_trans,
+      A = left,
+      x = right,
+      m = left_dims$rows,
+      n = left_dims$cols,
+      lda = left_dims$rows,
+      out_dims = list(out_len, 1L),
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "%*%"
+    ))
+  }
+  # Vector-Matrix: use GEMV with transpose
+  if (left_rank == 1 && right_rank == 2) {
+    transA <- if (right_trans == "N") "T" else "N"
+    expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
+    assert_conformable(left_dims$cols, expected_len, "%*%")
+    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
+    return(gemv(
+      transA = transA,
+      A = right,
+      x = left,
+      m = right_dims$rows,
+      n = right_dims$cols,
+      lda = right_dims$rows,
+      out_dims = list(1L, out_len),
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "%*%"
+    ))
+  }
+
+  assert_conformable(k, right_eff$rows, "%*%")
+
+  # Matrix-Matrix
+  gemm(
+    opA = left_trans,
+    opB = right_trans,
+    left = left,
+    right = right,
+    m = m,
+    n = n,
+    k = k,
+    lda = lda,
+    ldb = ldb,
+    ldc_expr = ldc_expr,
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "%*%"
+  )
+}
+
+
+# t(x) handler: transpose 2D; 1D becomes a 1 x n row matrix
+r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
+  stopifnot(length(args) == 1L)
+  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  x <- maybe_cast_double(x)
+  if (x@value@rank == 2) {
+    val <- Variable("double", list(x@value@dims[[2]], x@value@dims[[1]]))
+    return(Fortran(glue("transpose({x})"), val))
+  } else if (x@value@rank == 1) {
+    len <- x@value@dims[[1]]
+    val <- Variable("double", list(1L, len))
+    return(Fortran(glue("reshape({x}, [1, int({len})])"), val))
+  } else if (x@value@rank == 0) {
+    return(x)
+  } else {
+    stop("t() only supports rank 0-2 inputs")
+  }
+}
+
+
+# Handle crossprod(), using SYRK for single-arg and GEMM for two-arg forms.
+r2f_handlers[["crossprod"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  x_arg <- args[[1L]]
+  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
+  crossprod_like(
+    x_arg = x_arg,
+    y_arg = y_arg,
+    scope = scope,
+    ...,
+    hoist = hoist,
+    dest = dest,
+    trans_single = "T",
+    opA = "T",
+    opB = "N",
+    context = "crossprod"
+  )
+}
+
+
+# Handle tcrossprod(), using SYRK for single-arg and GEMM for two-arg forms.
+r2f_handlers[["tcrossprod"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  x_arg <- args[[1L]]
+  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
+  crossprod_like(
+    x_arg = x_arg,
+    y_arg = y_arg,
+    scope = scope,
+    ...,
+    hoist = hoist,
+    dest = dest,
+    trans_single = "N",
+    opA = "N",
+    opB = "T",
+    context = "tcrossprod"
+  )
+}
+
+# Handle outer() for FUN = "*" as BLAS outer product.
+r2f_handlers[["outer"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  x_arg <- args$X %||% args[[1L]]
+  y_arg <- args$Y %||% args[[2L]]
+  if (is.null(x_arg) || is.null(y_arg)) {
+    stop("outer() expects X and Y")
+  }
+
+  fun <- args$FUN %||% "*"
+  if (!identical(fun, "*")) {
+    stop("outer() only supports FUN = \"*\"")
+  }
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  y <- r2f(y_arg, scope, ..., hoist = hoist)
+  outer_mul(
+    x,
+    y,
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "outer"
+  )
+}
+
+# Handle %o% for outer products via BLAS GER.
+r2f_handlers[["%o%"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) == 2L)
+  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  y <- r2f(args[[2L]], scope, ..., hoist = hoist)
+  outer_mul(
+    x,
+    y,
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "%o%"
+  )
+}
+
+# Handle forwardsolve() via triangular BLAS routines.
+r2f_handlers[["forwardsolve"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) >= 2L)
+  if (!is.null(args$k)) {
+    stop("forwardsolve() does not support k yet")
+  }
+  upper_tri <- logical_arg_or_default(
+    args,
+    "upper.tri",
+    FALSE,
+    "forwardsolve()"
+  )
+  transpose <- logical_arg_or_default(
+    args,
+    "transpose",
+    FALSE,
+    "forwardsolve()"
+  )
+  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "forwardsolve()")
+
+  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+
+  triangular_solve(
+    A = A,
+    B = B,
+    uplo = if (upper_tri) "U" else "L",
+    trans = if (transpose) "T" else "N",
+    diag = if (diag_unit) "U" else "N",
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "forwardsolve"
+  )
+}
+
+# Handle backsolve() via triangular BLAS routines.
+r2f_handlers[["backsolve"]] <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  dest = NULL
+) {
+  stopifnot(length(args) >= 2L)
+  if (!is.null(args$k)) {
+    stop("backsolve() does not support k yet")
+  }
+  upper_tri <- logical_arg_or_default(args, "upper.tri", TRUE, "backsolve()")
+  transpose <- logical_arg_or_default(args, "transpose", FALSE, "backsolve()")
+  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "backsolve()")
+
+  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+
+  triangular_solve(
+    A = A,
+    B = B,
+    uplo = if (upper_tri) "U" else "L",
+    trans = if (transpose) "T" else "N",
+    diag = if (diag_unit) "U" else "N",
+    scope = scope,
+    hoist = hoist,
+    dest = dest,
+    context = "backsolve"
+  )
+}
+
+# ---- matrix helpers ----
+
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -13,6 +321,7 @@ symbol_name_or_null <- function(x) {
   NULL
 }
 
+# Return a dimension value for an axis, defaulting missing dims to 1L.
 dim_or_one_from <- function(dims, axis) {
   stopifnot(is.numeric(axis), axis >= 1)
   axis <- as.integer(axis)
@@ -32,11 +341,13 @@ dim_or_one <- function(x, axis) {
   dim_or_one_from(x@value@dims, axis)
 }
 
+# Return the requested axis length for a Variable, defaulting to 1L.
 var_dim_or_one <- function(var, axis) {
   stopifnot(inherits(var, Variable))
   dim_or_one_from(var@dims, axis)
 }
 
+# Compute matrix-style row/column dimensions from rank, dims, and orientation.
 matrix_dims_from <- function(
   rank,
   dims,
@@ -69,6 +380,7 @@ matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
   matrix_dims_from(x@value@rank, x@value@dims, orientation = orientation)
 }
 
+# Interpret a Variable value as a matrix for BLAS calls.
 matrix_dims_var <- function(
   var,
   orientation = c("matrix", "rowvec", "colvec")
@@ -77,43 +389,7 @@ matrix_dims_var <- function(
   matrix_dims_from(var@rank, var@dims, orientation = orientation)
 }
 
-infer_symbol_var <- function(arg, scope) {
-  if (!is.symbol(arg)) {
-    return(NULL)
-  }
-  var <- get0(as.character(arg), scope, inherits = FALSE)
-  if (inherits(var, Variable)) var else NULL
-}
-
-infer_matrix_arg <- function(arg, scope) {
-  if (is_call(arg, quote(t)) && length(arg) == 2L) {
-    inner <- infer_symbol_var(arg[[2L]], scope)
-    if (is.null(inner)) {
-      return(NULL)
-    }
-    if (inner@rank == 2L) {
-      return(list(var = inner, trans = "T"))
-    }
-    if (inner@rank == 1L) {
-      len <- inner@dims[[1L]]
-      if (is.null(len)) {
-        return(NULL)
-      }
-      val <- Variable("double", list(1L, len))
-      return(list(var = val, trans = "N"))
-    }
-    if (inner@rank == 0L) {
-      return(list(var = inner, trans = "N"))
-    }
-    return(NULL)
-  }
-  var <- infer_symbol_var(arg, scope)
-  if (is.null(var)) {
-    return(NULL)
-  }
-  list(var = var, trans = "N")
-}
-
+# Compute effective dimensions based on transpose flags.
 effective_dims <- function(dims, trans) {
   if (identical(trans, "T")) {
     list(rows = dims$cols, cols = dims$rows)
@@ -122,6 +398,7 @@ effective_dims <- function(dims, trans) {
   }
 }
 
+# Validate conformability, warning when static checks are inconclusive.
 assert_conformable <- function(left, right, context) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     if (!identical(as.integer(left), as.integer(right))) {
@@ -147,6 +424,7 @@ assert_conformable <- function(left, right, context) {
   invisible(FALSE)
 }
 
+# Unwrap t() calls to infer transpose flags and normalize scalars/vectors.
 unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
   if (is_call(arg, quote(t)) && length(arg) == 2L) {
     inner <- r2f(arg[[2L]], scope, ..., hoist = hoist)
@@ -171,7 +449,7 @@ unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
   list(value = value, trans = "N")
 }
 
-# Whether it's safe and useful to write into dest (no aliasing with inputs)
+# Check that destination dimensions match expected output dimensions.
 assert_dest_dims_compatible <- function(dest, expected_dims, context) {
   if (is.null(dest) || is.null(expected_dims)) {
     return(invisible(TRUE))
@@ -196,6 +474,7 @@ assert_dest_dims_compatible <- function(dest, expected_dims, context) {
   invisible(TRUE)
 }
 
+# Determine if output can safely write into dest without aliasing.
 can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
   if (is.null(dest)) {
     return(FALSE)
@@ -210,6 +489,7 @@ can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
     !identical(output_name, as.character(right))
 }
 
+# Ensure a BLAS operand is named, hoisting into a temp if needed.
 ensure_blas_operand_name <- function(x, hoist) {
   name <- symbol_name_or_null(x)
   if (!is.null(name)) {
@@ -223,6 +503,7 @@ ensure_blas_operand_name <- function(x, hoist) {
   tmp@name
 }
 
+# Extract a logical argument or use the provided default.
 logical_arg_or_default <- function(args, name, default, context) {
   val <- args[[name]] %||% default
   if (is.null(val)) {
@@ -234,6 +515,7 @@ logical_arg_or_default <- function(args, name, default, context) {
   val
 }
 
+# Wrap an expression as a BLAS int literal.
 blas_int <- function(x) {
   glue("int({x}, kind=c_int)")
 }
@@ -413,6 +695,7 @@ end do"
   Fortran(output_var@name, output_var)
 }
 
+# Emit BLAS outer product for vectors or scalars with optional destination.
 outer_mul <- function(
   x,
   y,
@@ -464,6 +747,7 @@ outer_mul <- function(
   Fortran(output_var@name, output_var)
 }
 
+# Emit triangular solve (vector or matrix RHS) with optional destination.
 triangular_solve <- function(
   A,
   B,
@@ -547,6 +831,7 @@ triangular_solve <- function(
   out
 }
 
+# Shared crossprod/tcrossprod logic for one- and two-argument forms.
 crossprod_like <- function(
   x_arg,
   y_arg,
@@ -608,306 +893,48 @@ crossprod_like <- function(
   )
 }
 
-# ---- matrix operation handlers ----
+# ---- matrix inference helpers ----
 
-# %*% handler with optional destination hint
-r2f_handlers[["%*%"]] <- function(args, scope, ..., hoist = NULL, dest = NULL) {
-  stopifnot(length(args) == 2L)
-  left_info <- unwrap_transpose_arg(args[[1L]], scope, ..., hoist = hoist)
-  right_info <- unwrap_transpose_arg(args[[2L]], scope, ..., hoist = hoist)
-  left <- left_info$value
-  right <- right_info$value
-  left_trans <- left_info$trans
-  right_trans <- right_info$trans
-
-  left_rank <- left@value@rank
-  right_rank <- right@value@rank
-
-  if (left_rank > 2 || right_rank > 2) {
-    stop("%*% only supports vectors/matrices (rank <= 2)")
+# Infer a variable from a symbol in the current scope.
+infer_symbol_var <- function(arg, scope) {
+  if (!is.symbol(arg)) {
+    return(NULL)
   }
-
-  left_dims <- matrix_dims(
-    left,
-    orientation = if (left_rank == 1) "rowvec" else "matrix"
-  )
-
-  right_dims <- matrix_dims(
-    right,
-    orientation = if (right_rank == 1) "colvec" else "matrix"
-  )
-
-  left_eff <- if (left_rank == 2) {
-    effective_dims(left_dims, left_trans)
-  } else {
-    left_dims
-  }
-  right_eff <- if (right_rank == 2) {
-    effective_dims(right_dims, right_trans)
-  } else {
-    right_dims
-  }
-
-  # Compute effective shapes
-  m <- left_eff$rows
-  k <- left_eff$cols
-  n <- right_eff$cols
-
-  # Leading dimensions
-  lda <- left_dims$rows
-  ldb <- right_dims$rows
-  ldc_expr <- m
-
-  # Matrix-Vector: use GEMV
-  if (left_rank == 2 && right_rank == 1) {
-    expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
-    assert_conformable(expected_len, right_dims$rows, "%*%")
-    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
-    return(gemv(
-      transA = left_trans,
-      A = left,
-      x = right,
-      m = left_dims$rows,
-      n = left_dims$cols,
-      lda = left_dims$rows,
-      out_dims = list(out_len, 1L),
-      scope = scope,
-      hoist = hoist,
-      dest = dest,
-      context = "%*%"
-    ))
-  }
-  # Vector-Matrix: use GEMV with transpose
-  if (left_rank == 1 && right_rank == 2) {
-    transA <- if (right_trans == "N") "T" else "N"
-    expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
-    assert_conformable(left_dims$cols, expected_len, "%*%")
-    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
-    return(gemv(
-      transA = transA,
-      A = right,
-      x = left,
-      m = right_dims$rows,
-      n = right_dims$cols,
-      lda = right_dims$rows,
-      out_dims = list(1L, out_len),
-      scope = scope,
-      hoist = hoist,
-      dest = dest,
-      context = "%*%"
-    ))
-  }
-
-  assert_conformable(k, right_eff$rows, "%*%")
-
-  # Matrix-Matrix
-  gemm(
-    opA = left_trans,
-    opB = right_trans,
-    left = left,
-    right = right,
-    m = m,
-    n = n,
-    k = k,
-    lda = lda,
-    ldb = ldb,
-    ldc_expr = ldc_expr,
-    scope = scope,
-    hoist = hoist,
-    dest = dest,
-    context = "%*%"
-  )
+  var <- get0(as.character(arg), scope, inherits = FALSE)
+  if (inherits(var, Variable)) var else NULL
 }
 
-
-# t(x) handler: transpose 2D; 1D becomes a 1 x n row matrix
-r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
-  stopifnot(length(args) == 1L)
-  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
-  if (x@value@rank == 2) {
-    val <- Variable("double", list(x@value@dims[[2]], x@value@dims[[1]]))
-    return(Fortran(glue("transpose({x})"), val))
-  } else if (x@value@rank == 1) {
-    len <- x@value@dims[[1]]
-    val <- Variable("double", list(1L, len))
-    return(Fortran(glue("reshape({x}, [1, int({len})])"), val))
-  } else if (x@value@rank == 0) {
-    return(x)
-  } else {
-    stop("t() only supports rank 0-2 inputs")
+# Infer a matrix argument, handling t() and scalar/vector promotion.
+infer_matrix_arg <- function(arg, scope) {
+  if (is_call(arg, quote(t)) && length(arg) == 2L) {
+    inner <- infer_symbol_var(arg[[2L]], scope)
+    if (is.null(inner)) {
+      return(NULL)
+    }
+    if (inner@rank == 2L) {
+      return(list(var = inner, trans = "T"))
+    }
+    if (inner@rank == 1L) {
+      len <- inner@dims[[1L]]
+      if (is.null(len)) {
+        return(NULL)
+      }
+      val <- Variable("double", list(1L, len))
+      return(list(var = val, trans = "N"))
+    }
+    if (inner@rank == 0L) {
+      return(list(var = inner, trans = "N"))
+    }
+    return(NULL)
   }
-}
-
-
-r2f_handlers[["crossprod"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  x_arg <- args[[1L]]
-  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
-  crossprod_like(
-    x_arg = x_arg,
-    y_arg = y_arg,
-    scope = scope,
-    ...,
-    hoist = hoist,
-    dest = dest,
-    trans_single = "T",
-    opA = "T",
-    opB = "N",
-    context = "crossprod"
-  )
-}
-
-
-r2f_handlers[["tcrossprod"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  x_arg <- args[[1L]]
-  y_arg <- if (length(args) > 1L) args[[2L]] else NULL
-  crossprod_like(
-    x_arg = x_arg,
-    y_arg = y_arg,
-    scope = scope,
-    ...,
-    hoist = hoist,
-    dest = dest,
-    trans_single = "N",
-    opA = "N",
-    opB = "T",
-    context = "tcrossprod"
-  )
-}
-
-r2f_handlers[["outer"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  x_arg <- args$X %||% args[[1L]]
-  y_arg <- args$Y %||% args[[2L]]
-  if (is.null(x_arg) || is.null(y_arg)) {
-    stop("outer() expects X and Y")
+  var <- infer_symbol_var(arg, scope)
+  if (is.null(var)) {
+    return(NULL)
   }
-
-  fun <- args$FUN %||% "*"
-  if (!identical(fun, "*")) {
-    stop("outer() only supports FUN = \"*\"")
-  }
-  x <- r2f(x_arg, scope, ..., hoist = hoist)
-  y <- r2f(y_arg, scope, ..., hoist = hoist)
-  outer_mul(
-    x,
-    y,
-    scope = scope,
-    hoist = hoist,
-    dest = dest,
-    context = "outer"
-  )
+  list(var = var, trans = "N")
 }
 
-r2f_handlers[["%o%"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  stopifnot(length(args) == 2L)
-  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  y <- r2f(args[[2L]], scope, ..., hoist = hoist)
-  outer_mul(
-    x,
-    y,
-    scope = scope,
-    hoist = hoist,
-    dest = dest,
-    context = "%o%"
-  )
-}
-
-r2f_handlers[["forwardsolve"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  stopifnot(length(args) >= 2L)
-  if (!is.null(args$k)) {
-    stop("forwardsolve() does not support k yet")
-  }
-  upper_tri <- logical_arg_or_default(
-    args,
-    "upper.tri",
-    FALSE,
-    "forwardsolve()"
-  )
-  transpose <- logical_arg_or_default(
-    args,
-    "transpose",
-    FALSE,
-    "forwardsolve()"
-  )
-  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "forwardsolve()")
-
-  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
-
-  triangular_solve(
-    A = A,
-    B = B,
-    uplo = if (upper_tri) "U" else "L",
-    trans = if (transpose) "T" else "N",
-    diag = if (diag_unit) "U" else "N",
-    scope = scope,
-    hoist = hoist,
-    dest = dest,
-    context = "forwardsolve"
-  )
-}
-
-r2f_handlers[["backsolve"]] <- function(
-  args,
-  scope,
-  ...,
-  hoist = NULL,
-  dest = NULL
-) {
-  stopifnot(length(args) >= 2L)
-  if (!is.null(args$k)) {
-    stop("backsolve() does not support k yet")
-  }
-  upper_tri <- logical_arg_or_default(args, "upper.tri", TRUE, "backsolve()")
-  transpose <- logical_arg_or_default(args, "transpose", FALSE, "backsolve()")
-  diag_unit <- logical_arg_or_default(args, "diag", FALSE, "backsolve()")
-
-  A <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  B <- r2f(args[[2L]], scope, ..., hoist = hoist)
-
-  triangular_solve(
-    A = A,
-    B = B,
-    uplo = if (upper_tri) "U" else "L",
-    trans = if (transpose) "T" else "N",
-    diag = if (diag_unit) "U" else "N",
-    scope = scope,
-    hoist = hoist,
-    dest = dest,
-    context = "backsolve"
-  )
-}
-
+# Infer destination dimensions for %*% based on inputs.
 infer_dest_matmul <- function(args, scope) {
   if (length(args) != 2L) {
     return(NULL)
@@ -962,6 +989,7 @@ infer_dest_matmul <- function(args, scope) {
   Variable("double", list(left_eff$rows, right_eff$cols))
 }
 
+# Shared inference for crossprod/tcrossprod destination sizes.
 infer_dest_crossprod_like <- function(args, scope, trans) {
   x <- infer_symbol_var(args[[1L]], scope)
   if (is.null(x)) {
@@ -981,14 +1009,17 @@ infer_dest_crossprod_like <- function(args, scope, trans) {
   }
 }
 
+# Infer destination dimensions for crossprod().
 infer_dest_crossprod <- function(args, scope) {
   infer_dest_crossprod_like(args, scope, trans = "T")
 }
 
+# Infer destination dimensions for tcrossprod().
 infer_dest_tcrossprod <- function(args, scope) {
   infer_dest_crossprod_like(args, scope, trans = "N")
 }
 
+# Infer destination dimensions for outer() and %o%().
 infer_dest_outer <- function(args, scope) {
   x_arg <- args$X %||% args[[1L]]
   y_arg <- args$Y %||% args[[2L]]
@@ -1005,6 +1036,7 @@ infer_dest_outer <- function(args, scope) {
   Variable("double", list(m, n))
 }
 
+# Infer destination dimensions for forwardsolve() and backsolve().
 infer_dest_triangular <- function(args, scope) {
   if (length(args) < 2L) {
     return(NULL)
