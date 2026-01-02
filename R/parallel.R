@@ -127,9 +127,13 @@ openmp_directives <- function(parallel, private = NULL) {
 }
 
 openmp_config_value <- function(name) {
+  r_cmd <- R.home("bin/R")
+  if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
+    r_cmd <- paste0(r_cmd, ".exe")
+  }
   out <- tryCatch(
     suppressWarnings(system2(
-      R.home("bin/R"),
+      r_cmd,
       c("CMD", "config", name),
       stdout = TRUE,
       stderr = TRUE
