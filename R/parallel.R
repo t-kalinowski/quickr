@@ -31,6 +31,15 @@ mark_openmp_used <- function(scope) {
   invisible(root)
 }
 
+openmp_abort <- function(message, class = "quickr_openmp_error") {
+  stop(
+    structure(
+      list(message = message, call = sys.call(-1)),
+      class = c(class, "error", "condition")
+    )
+  )
+}
+
 is_parallel_decl_call <- function(e) {
   is.call(e) &&
     is.symbol(e[[1L]]) &&
@@ -235,18 +244,24 @@ openmp_link_flags <- function(fflags = openmp_fflags()) {
 openmp_makevars_lines <- function() {
   fflags <- openmp_fflags()
   if (!nzchar(fflags)) {
-    stop(
-      "OpenMP was requested but no OpenMP flags were found for this toolchain.",
-      "\nSet QUICKR_OPENMP_FFLAGS to your compiler's OpenMP flags.",
-      call. = FALSE
+    openmp_abort(
+      paste(
+        "OpenMP was requested but no OpenMP flags were found for this toolchain.",
+        "Set QUICKR_OPENMP_FFLAGS to your compiler's OpenMP flags.",
+        sep = "\n"
+      ),
+      class = "quickr_openmp_unavailable"
     )
   }
   libs <- openmp_link_flags(fflags = fflags)
   if (!nzchar(libs)) {
-    stop(
-      "OpenMP was requested but no OpenMP linker flags were found.",
-      "\nSet QUICKR_OPENMP_LIBS to your linker OpenMP flags.",
-      call. = FALSE
+    openmp_abort(
+      paste(
+        "OpenMP was requested but no OpenMP linker flags were found.",
+        "Set QUICKR_OPENMP_LIBS to your linker OpenMP flags.",
+        sep = "\n"
+      ),
+      class = "quickr_openmp_unavailable"
     )
   }
   c(

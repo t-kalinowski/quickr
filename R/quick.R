@@ -262,41 +262,75 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       env = env
     )
     if (!is.null(attr(result, "status")) && length(env)) {
-      result2 <- system2(
-        R.home("bin/R"),
-        r_args_libs,
-        stdout = TRUE,
-        stderr = TRUE
-      )
-      if (is.null(attr(result2, "status"))) {
-        result <- result2
+      if (use_openmp) {
+        attr(result, "quickr_openmp_failed") <- TRUE
       } else {
-        # Prefer to show the flang attempt first, then the fallback attempt.
-        result <- c(
-          "--- flang attempt ---",
-          result,
-          "",
-          "--- fallback attempt ---",
-          result2
+        result2 <- system2(
+          R.home("bin/R"),
+          r_args_libs,
+          stdout = TRUE,
+          stderr = TRUE
         )
-        attr(result, "status") <- attr(result2, "status")
+        if (is.null(attr(result2, "status"))) {
+          result <- result2
+        } else {
+          # Prefer to show the flang attempt first, then the fallback attempt.
+          result <- c(
+            "--- flang attempt ---",
+            result,
+            "",
+            "--- fallback attempt ---",
+            result2
+          )
+          attr(result, "status") <- attr(result2, "status")
+        }
       }
     }
   })
 
-  if (!is.null(status <- attr(result, "status"))) {
+  status <- attr(result, "status")
+  openmp_failed <- isTRUE(attr(result, "quickr_openmp_failed"))
+  if (!is.null(status)) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
     result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
     writeLines(result, stderr())
     cat("---\nCompiler exit status:", status, "\n", file = stderr())
+    if (openmp_failed) {
+      openmp_abort(
+        paste(
+          "OpenMP was requested but compilation with OpenMP flags failed.",
+          "quickr will not fall back to a non-OpenMP build.",
+          "Resolve the OpenMP toolchain or remove the parallel declarations.",
+          sep = "\n"
+        ),
+        class = "quickr_openmp_ignored"
+      )
+    }
     stop("Compilation Error", call. = FALSE)
   }
 
   quickr_windows_add_dll_paths(link_flags)
 
   # tryCatch(dyn.unload(dll_path), error = identity)
-  dll <- dyn.load(dll_path)
+  dll <- tryCatch(
+    dyn.load(dll_path),
+    error = function(e) {
+      if (use_openmp) {
+        openmp_abort(
+          paste(
+            "OpenMP was requested but the compiled shared library failed to load.",
+            "This usually means the OpenMP runtime (libgomp/libomp) was not found.",
+            "Original error:",
+            conditionMessage(e),
+            sep = "\n"
+          ),
+          class = "quickr_openmp_load_failed"
+        )
+      }
+      stop(e)
+    }
+  )
   c_wrapper_name <- paste0(fsub@name, "_")
   ptr <- getNativeSymbolInfo(c_wrapper_name, dll)$address
 

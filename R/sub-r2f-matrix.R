@@ -190,7 +190,7 @@ r2f_handlers[["outer"]] <- function(
   dest = NULL
 ) {
   x_arg <- args$X %||% args[[1L]]
-  y_arg <- args$Y %||% args[[2L]]
+  y_arg <- args$Y %||% if (length(args) >= 2L) args[[2L]] else NULL
   if (is.null(x_arg) || is.null(y_arg)) {
     stop("outer() expects X and Y")
   }
@@ -1022,7 +1022,7 @@ infer_dest_tcrossprod <- function(args, scope) {
 # Infer destination dimensions for outer() and %o%().
 infer_dest_outer <- function(args, scope) {
   x_arg <- args$X %||% args[[1L]]
-  y_arg <- args$Y %||% args[[2L]]
+  y_arg <- args$Y %||% if (length(args) >= 2L) args[[2L]] else NULL
   x <- infer_symbol_var(x_arg, scope)
   y <- infer_symbol_var(y_arg, scope)
   if (is.null(x) || is.null(y)) {
