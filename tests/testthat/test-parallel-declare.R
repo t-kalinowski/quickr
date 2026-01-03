@@ -161,3 +161,24 @@ test_that("parallel declarations do not cross control flow boundaries", {
     regexp = "parallel\\(\\)/omp\\(\\) must be followed by a for-loop or sapply\\(\\)"
   )
 })
+
+test_that("openmp functions that use BLAS load and run", {
+  openmp_supported_or_skip()
+
+  blas_parallel <- function(x, n) {
+    declare(
+      type(x = double(n, n)),
+      type(n = integer(1)),
+      type(out = double(n, n))
+    )
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      out <- x %*% x
+    }
+    out
+  }
+
+  set.seed(123)
+  x <- matrix(runif(16), nrow = 4)
+  expect_quick_equal(blas_parallel, list(x, 4L))
+})

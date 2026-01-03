@@ -67,3 +67,34 @@ test_that("value-returning local closures can be called as statements", {
 
   expect_quick_identical(fn, list(1))
 })
+
+test_that("reserved or underscored names are rejected", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = integer(1)))
+      `_bad` <- x + 1L
+      `_bad`
+    }),
+    "symbols cannot start or end with '_'",
+    fixed = TRUE
+  )
+
+  expect_error(
+    quick(function(x) {
+      declare(type(x = integer(1)))
+      `bad_` <- x + 1L
+      `bad_`
+    }),
+    "symbols cannot start or end with '_'",
+    fixed = TRUE
+  )
+
+  expect_error(
+    quick(function(int) {
+      declare(type(int = integer(1)))
+      int
+    }),
+    "symbols cannot start or end with '_'",
+    fixed = TRUE
+  )
+})

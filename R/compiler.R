@@ -94,11 +94,13 @@ quickr_fcompiler_env <- function(
     quickr_env_is_true("QUICKR_PREFER_FLANG"),
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
-  use_openmp = FALSE
+  use_openmp = FALSE,
+  link_flags = character()
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
   use_openmp <- isTRUE(use_openmp)
+  link_flags <- link_flags[nzchar(link_flags)]
 
   flang <- ""
   flang_runtime <- character()
@@ -151,7 +153,10 @@ quickr_fcompiler_env <- function(
         }
       )
     },
-    if (use_openmp) openmp_makevars_lines()
+    if (use_openmp) openmp_makevars_lines(),
+    if (length(link_flags)) {
+      paste("PKG_LIBS +=", paste(link_flags, collapse = " "))
+    }
   )
   write_lines(
     makevars_lines,

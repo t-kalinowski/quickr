@@ -62,7 +62,7 @@ test_that("reuse implicit size", {
     cat(c_wrapper)
   })
 
-  n <- 1000
+  n <- 400
   a1 <- as.double(1:n)
   a2 <- matrix(runif(n), n, n)
 

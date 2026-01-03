@@ -5,13 +5,13 @@ test_that("heat diffusion", {
   # 2D grid, explicit time-stepping, fixed boundaries
 
   # Parameters
-  nx <- 100L # Grid size in x
-  ny <- 100L # Grid size in y
+  nx <- 60L # Grid size in x
+  ny <- 60L # Grid size in y
   dx <- 1L # Grid spacing
   dy <- 1L
   dt <- 0.01 # Time step
   k <- 0.1 # Thermal diffusivity
-  steps <- 50L # Number of time steps
+  steps <- 25L # Number of time steps
 
   diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
     declare(

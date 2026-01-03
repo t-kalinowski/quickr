@@ -313,6 +313,40 @@ get_r2f_handler <- function(name) {
     stop("Unsupported function: ", name, call. = FALSE)
 }
 
+dest_supported_for_call <- function(call) {
+  if (!is.call(call)) {
+    return(FALSE)
+  }
+  unwrapped <- call
+  while (is_call(unwrapped, "(") && length(unwrapped) == 2L) {
+    unwrapped <- unwrapped[[2L]]
+  }
+  if (!is.call(unwrapped) || !is.symbol(unwrapped[[1L]])) {
+    return(FALSE)
+  }
+  handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
+  isTRUE(attr(handler, "dest_supported", exact = TRUE))
+}
+
+dest_infer_for_call <- function(call, scope) {
+  if (!is.call(call)) {
+    return(NULL)
+  }
+  unwrapped <- call
+  while (is_call(unwrapped, "(") && length(unwrapped) == 2L) {
+    unwrapped <- unwrapped[[2L]]
+  }
+  if (!is.call(unwrapped) || !is.symbol(unwrapped[[1L]])) {
+    return(NULL)
+  }
+  handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
+  infer <- attr(handler, "dest_infer", exact = TRUE)
+  if (!is.function(infer)) {
+    return(NULL)
+  }
+  infer(as.list(unwrapped)[-1L], scope)
+}
+
 r2f_default_handler <- function(args, scope = NULL, ..., calls) {
   # stopifnot(is.call(e), is.symbol(e[[1L]]))
 
@@ -1445,21 +1479,54 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  value <- r2f(rhs, scope, ..., hoist = hoist)
+  dest_allowed <- dest_supported_for_call(rhs)
 
-  # immutable / copy-on-modify usage of Variable()
+  # If target already exists (declared), thread destination hint to a single BLAS-capable child
   var <- get0(name, scope, inherits = FALSE)
-  if (is.null(var) || !inherits(var, Variable)) {
-    # The var does not exist -> this is a binding to a new symbol
-    # Create a fresh Variable carrying only mode/dims and a new name.
-    src <- value@value
-    var <- Variable(mode = src@mode, dims = src@dims)
+  existing_binding <- !is.null(var) && inherits(var, Variable)
+  inferred_var <- NULL
+  fortran_name <- NULL
+  if (!existing_binding && dest_allowed) {
+    inferred_var <- dest_infer_for_call(rhs, scope)
     fortran_name <- if (
       scope_is_closure(scope) && inherits(get0(name, scope), Variable)
     ) {
       make_shadow_fortran_name(scope, name)
     } else {
       name
+    }
+  }
+
+  if (existing_binding) {
+    value <- if (dest_allowed) {
+      r2f(rhs, scope, ..., hoist = hoist, dest = var)
+    } else {
+      r2f(rhs, scope, ..., hoist = hoist)
+    }
+  } else if (inherits(inferred_var, Variable)) {
+    var <- inferred_var
+    var@name <- fortran_name
+    value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
+  } else {
+    value <- r2f(rhs, scope, ..., hoist = hoist)
+  }
+
+  # immutable / copy-on-modify usage of Variable()
+  if (!existing_binding) {
+    # The var does not exist -> this is a binding to a new symbol
+    # Create a fresh Variable carrying only mode/dims and a new name.
+    if (!inherits(var, Variable)) {
+      src <- value@value
+      var <- Variable(mode = src@mode, dims = src@dims)
+    }
+    if (is.null(fortran_name)) {
+      fortran_name <- if (
+        scope_is_closure(scope) && inherits(get0(name, scope), Variable)
+      ) {
+        make_shadow_fortran_name(scope, name)
+      } else {
+        name
+      }
     }
     var@name <- fortran_name
     # keep a reference to the R expression assigned, if available
@@ -1478,9 +1545,13 @@ r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
     assign(name, var, scope)
   }
 
-  Fortran(glue("{var@name} = {value}"))
+  # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
+  if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
+    Fortran("")
+  } else {
+    Fortran(glue("{var@name} = {value}"))
+  }
 }
-
 
 r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
   # TODO: handle logical subsetting here, which must become a where a construct like:
