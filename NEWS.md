@@ -1,5 +1,11 @@
 # quickr (development version)
 
+- Added initial matrix/linear algebra handler support from base R, using the
+  same BLAS/LAPACK as R: `%*%`, `t()`, `crossprod()`, `tcrossprod()`,
+  `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, and `backsolve()`.
+
+  The plan is to add more functions in the future (#77 @mns-nordicals)
+
 - On macOS, quickr will use LLVM flang (`flang-new`) for compilation when
   available (e.g. `brew install flang`). This is optional and can be disabled
   with `options(quickr.prefer_flang = FALSE)`.
