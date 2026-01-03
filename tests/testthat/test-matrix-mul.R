@@ -175,6 +175,32 @@ test_that("matrix multiplication handles t(vec) orientation", {
   expect_quick_equal(mat_tvec, list(mat_A = mat_B, vec = vec_long))
 })
 
+test_that("matrix multiplication handles transposed matrix in vector cases", {
+  vec_tmat <- function(vec, mat_A) {
+    declare(
+      type(vec = double(3)),
+      type(mat_A = double(4, 3))
+    )
+    vec %*% t(mat_A)
+  }
+
+  tmat_vec <- function(mat_A, vec) {
+    declare(
+      type(mat_A = double(4, 3)),
+      type(vec = double(4))
+    )
+    t(mat_A) %*% vec
+  }
+
+  set.seed(15)
+  vec_3 <- rnorm(3)
+  mat_4x3 <- matrix(rnorm(12), nrow = 4)
+  vec_4 <- rnorm(4)
+
+  expect_quick_equal(vec_tmat, list(vec = vec_3, mat_A = mat_4x3))
+  expect_quick_equal(tmat_vec, list(mat_A = mat_4x3, vec = vec_4))
+})
+
 test_that("matrix multiplication errors on non-conformable arguments", {
   matmul_bad <- function(x, y) {
     declare(
@@ -294,6 +320,19 @@ test_that("crossprod and tcrossprod handle vector inputs", {
   expect_quick_equal(tcross_vec_vec, list(x = x, y = y_vec_long))
 })
 
+test_that("crossprod rejects incompatible destination dimensions", {
+  crossprod_bad_dest <- function(x) {
+    declare(type(x = double(4, 3)), type(out = double(2, 2)))
+    out <- crossprod(x)
+    out
+  }
+
+  expect_error(
+    quick(crossprod_bad_dest),
+    "assignment target has incompatible dimensions"
+  )
+})
+
 test_that("outer supports multiplication and %o%", {
   outer_default <- function(x, y) {
     declare(
@@ -326,6 +365,35 @@ test_that("outer supports multiplication and %o%", {
   expect_quick_equal(outer_default, list(x = x, y = y))
   expect_quick_equal(outer_mul, list(x = x, y = y))
   expect_quick_equal(outer_op, list(x = x, y = y))
+})
+
+test_that("outer supports scalar inputs", {
+  outer_scalar <- function(x, y) {
+    declare(
+      type(x = double(NA)),
+      type(y = double(3))
+    )
+    out <- outer(x, y)
+    out
+  }
+
+  outer_scalar_op <- function(x, y) {
+    declare(
+      type(x = double(3)),
+      type(y = double(NA))
+    )
+    out <- x %o% y
+    out
+  }
+
+  set.seed(16)
+  x <- 1.25
+  y <- rnorm(3)
+  x_vec <- rnorm(3)
+  y_scalar <- -0.5
+
+  expect_quick_equal(outer_scalar, list(x = x, y = y))
+  expect_quick_equal(outer_scalar_op, list(x = x_vec, y = y_scalar))
 })
 
 test_that("blas operations support preallocated outputs", {
