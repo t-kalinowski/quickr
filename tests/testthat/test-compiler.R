@@ -135,3 +135,53 @@ test_that("quickr_windows_add_dll_paths uses BINPREF from config", {
 
   expect_true(bin_norm %in% path_norm)
 })
+
+test_that("compile cleans existing build directories and reports failures", {
+  fsub <- r2f(function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  })
+
+  build_dir <- withr::local_tempdir()
+  file.create(file.path(build_dir, "stale.txt"))
+
+  calls <- 0L
+  system2_stub <- function(
+    command,
+    args,
+    stdout = TRUE,
+    stderr = TRUE,
+    env = character(),
+    ...
+  ) {
+    if (
+      length(args) >= 3L &&
+        identical(args[[1L]], "CMD") &&
+        identical(args[[2L]], "config")
+    ) {
+      return("")
+    }
+    calls <<- calls + 1L
+    if (calls == 1L) {
+      return(structure("flang fail", status = 1))
+    }
+    structure("fallback fail", status = 2)
+  }
+
+  local_mocked_bindings(
+    system2 = system2_stub,
+    .package = "base"
+  )
+  local_mocked_bindings(
+    quickr_fcompiler_env = function(...) "ENV=1",
+    .package = "quickr"
+  )
+
+  expect_error(
+    quickr:::compile(fsub, build_dir = build_dir),
+    "Compilation Error",
+    fixed = TRUE
+  )
+  expect_true(dir.exists(build_dir))
+  expect_false(file.exists(file.path(build_dir, "stale.txt")))
+})
