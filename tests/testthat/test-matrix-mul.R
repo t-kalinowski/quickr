@@ -258,6 +258,42 @@ test_that("single-argument crossprod/tcrossprod match R", {
   expect_quick_equal(tcross_vec, list(x = v))
 })
 
+test_that("crossprod and tcrossprod handle vector inputs", {
+  cross_vec_mat <- function(x, y) {
+    declare(
+      type(x = double(4)),
+      type(y = double(4, 3))
+    )
+    crossprod(x, y)
+  }
+
+  cross_vec_vec <- function(x, y) {
+    declare(
+      type(x = double(4)),
+      type(y = double(4))
+    )
+    crossprod(x, y)
+  }
+
+  tcross_vec_vec <- function(x, y) {
+    declare(
+      type(x = double(4)),
+      type(y = double(5))
+    )
+    tcrossprod(x, y)
+  }
+
+  set.seed(13)
+  x <- rnorm(4)
+  y_cross <- matrix(rnorm(12), nrow = 4)
+  y_vec <- rnorm(4)
+  y_vec_long <- rnorm(5)
+
+  expect_quick_equal(cross_vec_mat, list(x = x, y = y_cross))
+  expect_quick_equal(cross_vec_vec, list(x = x, y = y_vec))
+  expect_quick_equal(tcross_vec_vec, list(x = x, y = y_vec_long))
+})
+
 test_that("outer supports multiplication and %o%", {
   outer_default <- function(x, y) {
     declare(

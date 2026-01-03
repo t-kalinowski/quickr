@@ -46,18 +46,25 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
     mustWork = FALSE
   ))
   bin_sibling <- file.path(lib_dir, "..", "bin")
-  lib_dir_norm <- tolower(normalizePath(lib_dir, winslash = "\\", mustWork = FALSE))
+  lib_dir_norm <- tolower(normalizePath(
+    lib_dir,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
   bin_sibling_norm <- tolower(normalizePath(
     bin_sibling,
     winslash = "\\",
     mustWork = FALSE
   ))
-  bin_dir_norm <- tolower(normalizePath(bin_dir, winslash = "\\", mustWork = FALSE))
+  bin_dir_norm <- tolower(normalizePath(
+    bin_dir,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
 
   expect_true(lib_dir_norm %in% path_norm)
   expect_true(
-    bin_sibling_norm %in% path_norm ||
-      bin_dir_norm %in% path_norm
+    bin_sibling_norm %in% path_norm || bin_dir_norm %in% path_norm
   )
   compiler_dir_norm <- tolower(normalizePath(
     compiler_dir,
