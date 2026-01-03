@@ -126,30 +126,45 @@ openmp_directives <- function(parallel, private = NULL) {
   )
 }
 
-openmp_config_value <- function(name) {
-  r_cmd <- R.home("bin/R")
-  if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
-    r_cmd <- paste0(r_cmd, ".exe")
+openmp_config_value <- local({
+  cached <- NULL
+
+  function(name) {
+    if (is.null(cached)) {
+      cached <<- list()
+    }
+    cached_value <- cached[[name]]
+    if (!is.null(cached_value)) {
+      return(cached_value)
+    }
+
+    r_cmd <- R.home("bin/R")
+    if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
+      r_cmd <- paste0(r_cmd, ".exe")
+    }
+    out <- tryCatch(
+      suppressWarnings(system2(
+        r_cmd,
+        c("CMD", "config", name),
+        stdout = TRUE,
+        stderr = TRUE
+      )),
+      error = function(e) character()
+    )
+    status <- attr(out, "status")
+    if (!is.null(status)) {
+      cached[[name]] <<- ""
+      return("")
+    }
+    value <- trimws(paste(out, collapse = " "))
+    if (!nzchar(value) || grepl("^ERROR:", value)) {
+      cached[[name]] <<- ""
+      return("")
+    }
+    cached[[name]] <<- value
+    value
   }
-  out <- tryCatch(
-    suppressWarnings(system2(
-      r_cmd,
-      c("CMD", "config", name),
-      stdout = TRUE,
-      stderr = TRUE
-    )),
-    error = function(e) character()
-  )
-  status <- attr(out, "status")
-  if (!is.null(status)) {
-    return("")
-  }
-  value <- trimws(paste(out, collapse = " "))
-  if (!nzchar(value) || grepl("^ERROR:", value)) {
-    return("")
-  }
-  value
-}
+})
 
 openmp_fflags <- function() {
   env_flags <- trimws(Sys.getenv("QUICKR_OPENMP_FFLAGS", ""))
