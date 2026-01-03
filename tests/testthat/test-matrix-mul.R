@@ -292,6 +292,48 @@ test_that("outer supports multiplication and %o%", {
   expect_quick_equal(outer_op, list(x = x, y = y))
 })
 
+test_that("blas operations support preallocated outputs", {
+  matmul_out <- function(A, B) {
+    declare(
+      type(A = double(2, 3)),
+      type(B = double(3, 2)),
+      type(out = double(2, 2))
+    )
+    out <- A %*% B
+    out
+  }
+
+  crossprod_out <- function(x) {
+    declare(
+      type(x = double(4, 3)),
+      type(out = double(3, 3))
+    )
+    out <- crossprod(x)
+    out
+  }
+
+  outer_out <- function(x, y) {
+    declare(
+      type(x = double(2)),
+      type(y = double(3)),
+      type(out = double(2, 3))
+    )
+    out <- outer(x, y)
+    out
+  }
+
+  set.seed(12)
+  A <- matrix(rnorm(2 * 3), nrow = 2)
+  B <- matrix(rnorm(3 * 2), nrow = 3)
+  X <- matrix(rnorm(4 * 3), nrow = 4)
+  x <- rnorm(2)
+  y <- rnorm(3)
+
+  expect_quick_equal(matmul_out, list(A = A, B = B))
+  expect_quick_equal(crossprod_out, list(x = X))
+  expect_quick_equal(outer_out, list(x = x, y = y))
+})
+
 test_that("outer errors on unsupported FUN", {
   outer_add <- function(x, y) {
     declare(
@@ -349,6 +391,30 @@ test_that("forwardsolve and backsolve match R", {
     backsolve(U, b, transpose = TRUE)
   }
 
+  forward_upper <- function(U, b) {
+    declare(
+      type(U = double(4, 4)),
+      type(b = double(4))
+    )
+    forwardsolve(U, b, upper.tri = TRUE)
+  }
+
+  forward_transpose <- function(L, b) {
+    declare(
+      type(L = double(4, 4)),
+      type(b = double(4))
+    )
+    forwardsolve(L, b, transpose = TRUE)
+  }
+
+  back_lower <- function(L, b) {
+    declare(
+      type(L = double(4, 4)),
+      type(b = double(4))
+    )
+    backsolve(L, b, upper.tri = FALSE)
+  }
+
   set.seed(11)
   base <- matrix(rnorm(16), nrow = 4)
   L <- base
@@ -365,4 +431,7 @@ test_that("forwardsolve and backsolve match R", {
   expect_quick_equal(back_vec, list(U = U, b = b_vec))
   expect_quick_equal(back_mat, list(U = U, b = b_mat))
   expect_quick_equal(back_transpose, list(U = U, b = b_vec))
+  expect_quick_equal(forward_upper, list(U = U, b = b_vec))
+  expect_quick_equal(forward_transpose, list(L = L, b = b_vec))
+  expect_quick_equal(back_lower, list(L = L, b = b_vec))
 })
