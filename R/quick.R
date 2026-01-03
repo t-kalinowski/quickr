@@ -293,7 +293,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     stop("Compilation Error", call. = FALSE)
   }
 
-  quickr_windows_add_dll_paths(link_flags, use_openmp = use_openmp)
+  quickr_windows_add_dll_paths(link_flags)
 
   # tryCatch(dyn.unload(dll_path), error = identity)
   dll <- dyn.load(dll_path)
@@ -307,25 +307,14 @@ quickr_windows_add_dll_paths <- function(
   flags,
   os_type = .Platform$OS.type,
   config_value = openmp_config_value,
-  which = Sys.which,
-  system2 = system2,
-  use_openmp = FALSE
+  which = Sys.which
 ) {
   if (!identical(os_type, "windows")) {
     return(invisible(FALSE))
   }
-  flags <- flags[nzchar(flags)]
   dirs <- flags[grepl("^-L", flags)]
   dirs <- sub("^-L", "", dirs)
   dirs <- dirs[nzchar(dirs)]
-
-  lib_files <- flags[grepl(
-    "\\.(dll|so|dylib|a|lib)$",
-    flags,
-    ignore.case = TRUE
-  )]
-  lib_files <- lib_files[file.exists(lib_files)]
-  lib_dirs <- dirname(lib_files)
 
   bin_siblings <- file.path(dirs, "..", "bin")
 
@@ -377,51 +366,9 @@ quickr_windows_add_dll_paths <- function(
   compilers <- compilers[nzchar(compilers)]
   compiler_bins <- unique(dirname(compilers))
 
-  openmp_dirs <- character()
-  if (isTRUE(use_openmp)) {
-    compiler_candidates <- config_paths[nzchar(config_paths)]
-    if (!length(compiler_candidates)) {
-      compiler_candidates <- compilers
-    }
-    compiler_candidates <- compiler_candidates[nzchar(compiler_candidates)]
-    if (length(compiler_candidates)) {
-      compiler <- compiler_candidates[[1L]]
-      if (!file.exists(compiler)) {
-        compiler <- which(compiler)
-      }
-      if (nzchar(compiler)) {
-        for (libname in c("libgomp-1.dll", "libgomp.dll", "libomp.dll")) {
-          path <- tryCatch(
-            suppressWarnings(system2(
-              compiler,
-              paste0("-print-file-name=", libname),
-              stdout = TRUE,
-              stderr = TRUE
-            )),
-            error = function(e) character()
-          )
-          status <- attr(path, "status")
-          if (!is.null(status)) {
-            next
-          }
-          path <- trimws(paste(path, collapse = " "))
-          if (!nzchar(path) || identical(path, libname)) {
-            next
-          }
-          if (file.exists(path)) {
-            openmp_dirs <- c(openmp_dirs, dirname(path))
-            break
-          }
-        }
-      }
-    }
-  }
-
   dirs <- unique(c(
     dirs,
     bin_siblings,
-    lib_dirs,
-    openmp_dirs,
     config_bins,
     r_bin,
     r_bin_x64,

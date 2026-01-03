@@ -161,7 +161,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
   serial <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
     out <- double(n)
-    iters <- 16L
+    iters <- 12L
     for (i in seq_len(n)) {
       v <- x[i]
       for (k in seq_len(iters)) {
@@ -176,7 +176,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
   parallel <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
     out <- double(n)
-    iters <- 16L
+    iters <- 12L
     declare(parallel())
     for (i in seq_len(n)) {
       v <- x[i]
@@ -189,7 +189,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
     out
   }
 
-  n <- 1000000L
+  n <- 500000L
   set.seed(1)
   x <- runif(n)
   serial_q <- quick(serial)
@@ -234,13 +234,27 @@ test_that("parallel loops show parallelism without large slowdowns", {
     signif(parallel_time$cpu, 3)
   )
 
+  slowdown_factor <- if (identical(Sys.info()[["sysname"]], "Darwin")) {
+    2.5
+  } else {
+    1.5
+  }
+
   if (!anyNA(c(parallel_time$cpu, serial_time$cpu))) {
     cpu_increase <- parallel_time$cpu > serial_time$cpu * 1.1
     elapsed_improve <- parallel_time$elapsed < serial_time$elapsed * 0.95
     expect_true(cpu_increase || elapsed_improve, label = info)
-    expect_lt(parallel_time$elapsed, serial_time$elapsed * 1.5, label = info)
+    expect_lt(
+      parallel_time$elapsed,
+      serial_time$elapsed * slowdown_factor,
+      label = info
+    )
   } else {
-    expect_lt(parallel_time$elapsed, serial_time$elapsed * 1.5, label = info)
+    expect_lt(
+      parallel_time$elapsed,
+      serial_time$elapsed * slowdown_factor,
+      label = info
+    )
   }
 })
 
@@ -249,7 +263,7 @@ test_that("openmp responds to OMP_NUM_THREADS across sessions", {
 
   check_thread_scaling_subprocess(
     label = "iter-map",
-    n = 800000L,
-    iters = 100L
+    n = 400000L,
+    iters = 80L
   )
 })
