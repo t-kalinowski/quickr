@@ -68,6 +68,9 @@ test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stub
       ""
     }
   }
+  system2_stub <- function(command, args, stdout = TRUE, stderr = TRUE, ...) {
+    "flang version"
+  }
 
   expect_identical(quickr:::quickr_flang_path(which = which), "/tmp/flang-new")
 
@@ -78,7 +81,11 @@ test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stub
   )
   withr::local_envvar(c(QUICKR_PREFER_FLANG = ""))
 
-  expect_true(quickr:::quickr_prefer_flang(sysname = "Darwin", which = which))
+  expect_true(quickr:::quickr_prefer_flang(
+    sysname = "Darwin",
+    which = which,
+    system2 = system2_stub
+  ))
   expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
 
   withr::local_options(quickr.prefer_flang = FALSE)
@@ -114,12 +121,29 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   env <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
     which = which,
+    system2 = function(...) "",
     prefer_flang = TRUE,
     prefer_flang_force = TRUE,
     sysname = "Darwin"
   )
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
   expect_true(file.exists(sub("R_MAKEVARS_USER=", "", env, fixed = TRUE)))
+})
+
+test_that("quickr_fcompiler_env errors when flang is explicitly requested but unavailable", {
+  build_dir <- withr::local_tempdir()
+
+  expect_error(
+    quickr:::quickr_fcompiler_env(
+      build_dir = build_dir,
+      which = function(cmd) "",
+      system2 = function(...) structure("", status = 1L),
+      prefer_flang = TRUE,
+      prefer_flang_force = TRUE
+    ),
+    "configured to use flang",
+    fixed = TRUE
+  )
 })
 
 test_that("compile cleans existing build directories and reports failures", {

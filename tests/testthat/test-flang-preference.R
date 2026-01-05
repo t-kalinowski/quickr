@@ -18,6 +18,7 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
     prefer_flang = TRUE,
+    system2 = function(...) "",
     which = which,
     sysname = "Linux"
   )
@@ -51,6 +52,7 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
     prefer_flang = TRUE,
+    system2 = function(...) "",
     which = which,
     sysname = "Linux"
   )
@@ -114,7 +116,11 @@ test_that("quickr_prefer_flang defaults to TRUE on macOS when flang exists", {
   )
   Sys.unsetenv("QUICKR_PREFER_FLANG")
 
-  expect_true(quickr:::quickr_prefer_flang(sysname = "Darwin", which = which))
+  expect_true(quickr:::quickr_prefer_flang(
+    sysname = "Darwin",
+    which = which,
+    system2 = function(...) ""
+  ))
   expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
 })
 

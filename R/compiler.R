@@ -10,6 +10,55 @@ quickr_flang_path <- function(which = Sys.which) {
   ""
 }
 
+quickr_flang_available <- function(
+  which = Sys.which,
+  system2 = base::system2
+) {
+  flang <- quickr_flang_path(which = which)
+  if (!nzchar(flang)) {
+    return(list(path = "", available = FALSE))
+  }
+  probe <- tryCatch(
+    system2(flang, "--version", stdout = TRUE, stderr = TRUE),
+    error = function(e) structure(character(), status = 1L)
+  )
+  if (!is.null(attr(probe, "status"))) {
+    return(list(path = flang, available = FALSE))
+  }
+  list(path = flang, available = TRUE)
+}
+
+quickr_flang_state <- local({
+  state <- new.env(parent = emptyenv())
+  state$auto_disabled <- FALSE
+  state$fallback_warned <- FALSE
+  state
+})
+
+quickr_flang_auto_disabled <- function(state = quickr_flang_state) {
+  isTRUE(state$auto_disabled)
+}
+
+quickr_disable_flang_auto <- function(state = quickr_flang_state) {
+  state$auto_disabled <- TRUE
+  invisible(state$auto_disabled)
+}
+
+quickr_warn_flang_fallback_once <- function(state = quickr_flang_state) {
+  if (isTRUE(state$fallback_warned)) {
+    return(invisible(TRUE))
+  }
+  warning(
+    paste(
+      "flang compilation failed; falling back to gfortran and disabling",
+      "automatic flang preference for this session."
+    ),
+    call. = FALSE
+  )
+  state$fallback_warned <- TRUE
+  invisible(TRUE)
+}
+
 quickr_flang_runtime_flags <- local({
   cache <- NULL
 
@@ -60,27 +109,29 @@ quickr_env_is_true <- function(name) {
 
 quickr_prefer_flang <- function(
   sysname = Sys.info()[["sysname"]],
-  which = Sys.which
+  which = Sys.which,
+  system2 = base::system2
 ) {
   opt <- getOption("quickr.prefer_flang")
   if (isFALSE(opt)) {
     return(FALSE)
   }
-  if (quickr_env_is_true("QUICKR_PREFER_FLANG")) {
+  explicit_request <- isTRUE(opt) ||
+    quickr_env_is_true("QUICKR_PREFER_FLANG") ||
+    isTRUE(getOption("quickr.prefer_flang_force"))
+  if (explicit_request) {
     return(TRUE)
   }
-  if (isTRUE(getOption("quickr.prefer_flang_force"))) {
-    return(TRUE)
-  }
-  if (interactive() && isTRUE(opt)) {
-    return(TRUE)
+  if (quickr_flang_auto_disabled()) {
+    return(FALSE)
   }
 
   # Best-effort: on macOS, prefer flang if it is available.
   if (
     isTRUE(getOption("quickr.prefer_flang_auto", TRUE)) && sysname == "Darwin"
   ) {
-    return(nzchar(quickr_flang_path(which = which)))
+    info <- quickr_flang_available(which = which, system2 = system2)
+    return(isTRUE(info$available))
   }
 
   FALSE
@@ -89,7 +140,8 @@ quickr_prefer_flang <- function(
 quickr_fcompiler_env <- function(
   build_dir,
   which = Sys.which,
-  prefer_flang = quickr_prefer_flang(which = which),
+  system2 = base::system2,
+  prefer_flang = quickr_prefer_flang(which = which, system2 = system2),
   prefer_flang_force = isTRUE(getOption("quickr.prefer_flang_force")) ||
     quickr_env_is_true("QUICKR_PREFER_FLANG"),
   write_lines = writeLines,
@@ -101,14 +153,27 @@ quickr_fcompiler_env <- function(
 
   use_openmp <- isTRUE(use_openmp)
   link_flags <- link_flags[nzchar(link_flags)]
+  explicit_request <- isTRUE(prefer_flang_force) ||
+    isTRUE(getOption("quickr.prefer_flang"))
 
   flang <- ""
   flang_runtime <- character()
   use_flang <- isTRUE(prefer_flang)
   if (use_flang) {
-    flang <- quickr_flang_path(which = which)
-    if (!nzchar(flang)) {
+    flang_info <- quickr_flang_available(which = which, system2 = system2)
+    flang <- flang_info$path
+    if (!isTRUE(flang_info$available)) {
+      if (isTRUE(explicit_request)) {
+        stop(
+          "quickr was configured to use flang, but flang was not available or could not be executed.\n",
+          "Ensure flang is on your PATH and that `flang --version` succeeds, or disable flang selection with:\n",
+          "  options(quickr.prefer_flang = FALSE)\n",
+          "or:\n",
+          "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
+        )
+      }
       use_flang <- FALSE
+      flang <- ""
     }
   }
   if (use_openmp && use_flang && !isTRUE(prefer_flang_force)) {
@@ -122,7 +187,7 @@ quickr_fcompiler_env <- function(
       character()
     }
     if (sysname == "Darwin" && !length(flang_runtime)) {
-      if (isTRUE(prefer_flang_force)) {
+      if (isTRUE(explicit_request)) {
         stop(
           "quickr was configured to use flang (",
           flang,
