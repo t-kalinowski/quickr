@@ -11,6 +11,53 @@ test_that("quickr_env_is_true recognizes common truthy values", {
   expect_true(quickr:::quickr_env_is_true("QUICKR_PREFER_FLANG"))
 })
 
+test_that("quickr_r_cmd_config_value captures only stdout", {
+  expect_identical(
+    deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),
+    "base::system2"
+  )
+
+  observed_stdout <- NULL
+  observed_stderr <- NULL
+  system2_stub <- function(
+    command,
+    args,
+    stdout = "",
+    stderr = "",
+    ...
+  ) {
+    observed_stdout <<- stdout
+    observed_stderr <<- stderr
+    " value "
+  }
+
+  expect_identical(
+    quickr:::quickr_r_cmd_config_value(
+      "CC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    "value"
+  )
+  expect_identical(observed_stdout, TRUE)
+  expect_identical(observed_stderr, FALSE)
+})
+
+test_that("quickr_r_cmd_config_value returns empty on command failure", {
+  system2_stub <- function(command, args, stdout = "", stderr = "", ...) {
+    structure(" value ", status = 1L)
+  }
+
+  expect_identical(
+    quickr:::quickr_r_cmd_config_value(
+      "CC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    ""
+  )
+})
+
 test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stubs", {
   which <- function(x) {
     if (x == "flang-new") {
@@ -73,4 +120,54 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   )
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
   expect_true(file.exists(sub("R_MAKEVARS_USER=", "", env, fixed = TRUE)))
+})
+
+test_that("compile cleans existing build directories and reports failures", {
+  fsub <- r2f(function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  })
+
+  build_dir <- withr::local_tempdir()
+  file.create(file.path(build_dir, "stale.txt"))
+
+  calls <- 0L
+  system2_stub <- function(
+    command,
+    args,
+    stdout = TRUE,
+    stderr = TRUE,
+    env = character(),
+    ...
+  ) {
+    if (
+      length(args) >= 3L &&
+        identical(args[[1L]], "CMD") &&
+        identical(args[[2L]], "config")
+    ) {
+      return("")
+    }
+    calls <<- calls + 1L
+    if (calls == 1L) {
+      return(structure("flang fail", status = 1))
+    }
+    structure("fallback fail", status = 2)
+  }
+
+  local_mocked_bindings(
+    system2 = system2_stub,
+    .package = "base"
+  )
+  local_mocked_bindings(
+    quickr_fcompiler_env = function(...) "ENV=1",
+    .package = "quickr"
+  )
+
+  expect_error(
+    quickr:::compile(fsub, build_dir = build_dir),
+    "Compilation Error",
+    fixed = TRUE
+  )
+  expect_true(dir.exists(build_dir))
+  expect_false(file.exists(file.path(build_dir, "stale.txt")))
 })

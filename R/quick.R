@@ -208,30 +208,45 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   writeLines(fsub, fsub_path)
   writeLines(c_wrapper, c_wrapper_path)
 
+  # Link against the same BLAS/LAPACK/Fortran libs as the running R
+  # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
+  cfg <- quickr_r_cmd_config_value
+  BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
+  LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
+  FLIBS <- strsplit(cfg("FLIBS"), "[[:space:]]+")[[1]]
+  BLAS_LIBS <- BLAS_LIBS[nzchar(BLAS_LIBS)]
+  LAPACK_LIBS <- LAPACK_LIBS[nzchar(LAPACK_LIBS)]
+  FLIBS <- FLIBS[nzchar(FLIBS)]
+  link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
+
+  use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
   suppressWarnings({
-    r_args <- c(
+    env <- quickr_fcompiler_env(
+      build_dir = build_dir,
+      use_openmp = use_openmp,
+      link_flags = link_flags
+    )
+    r_args_base <- c(
       "CMD SHLIB --use-LTO",
       "-o",
       dll_path,
       fsub_path,
       c_wrapper_path
     )
-    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
-    env <- quickr_fcompiler_env(
-      build_dir = build_dir,
-      use_openmp = use_openmp
-    )
+    r_args_libs <- c(r_args_base, link_flags)
+    is_windows <- identical(.Platform$OS.type, "windows")
+    r_args <- if (length(env) && !is_windows) r_args_base else r_args_libs
     result <- system2(
       R.home("bin/R"),
       r_args,
-      env = env,
       stdout = TRUE,
-      stderr = TRUE
+      stderr = TRUE,
+      env = env
     )
-    if (!is.null(attr(result, "status")) && length(env)) {
+    if (!is.null(attr(result, "status")) && length(env) && !use_openmp) {
       result2 <- system2(
         R.home("bin/R"),
-        r_args,
+        r_args_libs,
         stdout = TRUE,
         stderr = TRUE
       )
@@ -250,21 +265,150 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       }
     }
   })
-  if (!is.null(status <- attr(result, "status"))) {
+
+  status <- attr(result, "status")
+  if (!is.null(status)) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
     result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
     writeLines(result, stderr())
     cat("---\nCompiler exit status:", status, "\n", file = stderr())
+    if (use_openmp) {
+      openmp_abort(
+        paste(
+          "OpenMP was requested but compilation with OpenMP flags failed.",
+          "quickr will not fall back to a non-OpenMP build.",
+          "Resolve the OpenMP toolchain or remove the parallel declarations.",
+          sep = "\n"
+        ),
+        class = "quickr_openmp_ignored"
+      )
+    }
     stop("Compilation Error", call. = FALSE)
   }
 
+  quickr_windows_add_dll_paths(link_flags)
+
   # tryCatch(dyn.unload(dll_path), error = identity)
-  dll <- dyn.load(dll_path)
+  dll <- tryCatch(
+    dyn.load(dll_path),
+    error = function(e) {
+      if (use_openmp) {
+        openmp_abort(
+          paste(
+            "OpenMP was requested but the compiled shared library failed to load.",
+            "This usually means the OpenMP runtime (libgomp/libomp) was not found.",
+            "Original error:",
+            conditionMessage(e),
+            sep = "\n"
+          ),
+          class = "quickr_openmp_load_failed"
+        )
+      }
+      stop(e)
+    }
+  )
   c_wrapper_name <- paste0(fsub@name, "_")
   ptr <- getNativeSymbolInfo(c_wrapper_name, dll)$address
 
   create_quick_closure(fsub@name, fsub@closure, native_symbol = ptr)
+}
+
+quickr_windows_add_dll_paths <- function(
+  flags,
+  os_type = .Platform$OS.type,
+  config_value = quickr_r_cmd_config_value,
+  which = Sys.which
+) {
+  if (!identical(os_type, "windows")) {
+    return(invisible(FALSE))
+  }
+  dirs <- flags[grepl("^-L", flags)]
+  dirs <- sub("^-L", "", dirs)
+  dirs <- dirs[nzchar(dirs)]
+
+  bin_siblings <- file.path(dirs, "..", "bin")
+
+  config_values <- c(
+    config_value("BINPREF"),
+    config_value("FC"),
+    config_value("F77"),
+    config_value("CC"),
+    config_value("CXX")
+  )
+  config_paths <- vapply(
+    config_values,
+    function(value) {
+      value <- trimws(value)
+      if (!nzchar(value)) {
+        return("")
+      }
+      value <- sub("^\"([^\"]+)\".*", "\\1", value)
+      value <- sub("^'([^']+)'.*", "\\1", value)
+      strsplit(value, "\\s+")[[1L]][[1L]]
+    },
+    character(1)
+  )
+  config_bins <- unique(dirname(config_paths[nzchar(config_paths)]))
+
+  r_bin <- R.home("bin")
+  r_bin_x64 <- file.path(r_bin, "x64")
+  r_bin_i386 <- file.path(r_bin, "i386")
+
+  rtools_roots <- Sys.getenv(c(
+    "RTOOLS45_HOME",
+    "RTOOLS44_HOME",
+    "RTOOLS43_HOME",
+    "RTOOLS42_HOME",
+    "RTOOLS40_HOME",
+    "RTOOLS_HOME"
+  ))
+  rtools_roots <- rtools_roots[nzchar(rtools_roots)]
+  rtools_bins <- unique(c(
+    file.path(rtools_roots, "usr", "bin"),
+    file.path(rtools_roots, "mingw64", "bin"),
+    file.path(rtools_roots, "ucrt64", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32.static.posix", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32.static", "bin"),
+    file.path(rtools_roots, "x86_64-w64-mingw32", "bin")
+  ))
+
+  compilers <- which(c("gfortran", "gcc", "clang", "flang"))
+  compilers <- compilers[nzchar(compilers)]
+  compiler_bins <- unique(dirname(compilers))
+
+  dirs <- unique(c(
+    dirs,
+    bin_siblings,
+    config_bins,
+    r_bin,
+    r_bin_x64,
+    r_bin_i386,
+    rtools_bins,
+    compiler_bins
+  ))
+  dirs <- dirs[nzchar(dirs)]
+  dirs <- dirs[dir.exists(dirs)]
+  if (!length(dirs)) {
+    return(invisible(FALSE))
+  }
+
+  path <- Sys.getenv("PATH", unset = "")
+  existing <- strsplit(path, ";", fixed = TRUE)[[1]]
+  existing <- existing[nzchar(existing)]
+  existing_norm <- tolower(normalizePath(
+    existing,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+  dirs_norm <- tolower(normalizePath(dirs, winslash = "\\", mustWork = FALSE))
+  to_add <- dirs[!dirs_norm %in% existing_norm]
+  if (length(to_add)) {
+    Sys.setenv(PATH = paste(c(to_add, existing), collapse = ";"))
+    return(invisible(TRUE))
+  }
+
+  invisible(FALSE)
 }
 
 

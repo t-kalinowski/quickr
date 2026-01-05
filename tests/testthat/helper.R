@@ -87,15 +87,11 @@ openmp_supported_or_skip <- local({
           })
           TRUE
         },
-        error = function(e) {
-          msg <- conditionMessage(e)
-          if (grepl("OpenMP", msg, fixed = TRUE)) {
-            return(FALSE)
-          }
-          stop(e)
-        }
+        quickr_openmp_unavailable = function(e) FALSE
       )
     }
-    skip_if(!isTRUE(supported), "OpenMP unavailable in this toolchain")
+    if (!isTRUE(supported)) {
+      skip("OpenMP toolchain not available")
+    }
   }
 })

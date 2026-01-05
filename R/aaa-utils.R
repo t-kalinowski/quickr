@@ -6,6 +6,43 @@ NULL
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+quickr_r_cmd <- function(
+  os_type = .Platform$OS.type,
+  r_home = R.home,
+  file_exists = file.exists
+) {
+  r_cmd <- r_home("bin/R")
+  if (identical(os_type, "windows") && !file_exists(r_cmd)) {
+    r_cmd <- paste0(r_cmd, ".exe")
+  }
+  r_cmd
+}
+
+quickr_r_cmd_config_value <- function(
+  name,
+  r_cmd = quickr_r_cmd(),
+  system2 = base::system2
+) {
+  out <- tryCatch(
+    suppressWarnings(system2(
+      r_cmd,
+      c("CMD", "config", name),
+      stdout = TRUE,
+      stderr = FALSE
+    )),
+    error = function(e) character()
+  )
+  status <- attr(out, "status")
+  if (!is.null(status)) {
+    return("")
+  }
+  value <- trimws(paste(out, collapse = " "))
+  if (!nzchar(value) || grepl("^ERROR:", value)) {
+    return("")
+  }
+  value
+}
+
 
 # @export
 # This will be exported by S7 next release.
