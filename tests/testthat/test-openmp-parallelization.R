@@ -73,22 +73,25 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
     "}; out })",
     collapse = " "
   )
-  code <- paste(
-    load_snippet,
-    iter_parallel_line,
-    sprintf("n <- %dL", as.integer(n)),
-    sprintf("iters <- %dL", as.integer(iters)),
-    "set.seed(1)",
-    "x <- runif(n)",
-    "invisible(iter_parallel(x, n, iters))",
-    "timing <- system.time(iter_parallel(x, n, iters))",
-    "cpu_fields <- intersect(names(timing), c('user.self', 'sys.self', 'user.child', 'sys.child', 'user', 'system'))",
-    "cpu <- sum(timing[cpu_fields])",
-    "cat(sprintf('elapsed=%.6f cpu=%.6f\\n', timing[['elapsed']], cpu))",
-    sep = "; "
-  )
+  make_code <- function(iters) {
+    paste(
+      load_snippet,
+      iter_parallel_line,
+      sprintf("n <- %dL", as.integer(n)),
+      sprintf("iters <- %dL", as.integer(iters)),
+      "set.seed(1)",
+      "x <- runif(n)",
+      "invisible(iter_parallel(x, n, iters))",
+      "timing <- system.time(iter_parallel(x, n, iters))",
+      "cpu_fields <- intersect(names(timing), c('user.self', 'sys.self', 'user.child', 'sys.child', 'user', 'system'))",
+      "cpu <- sum(timing[cpu_fields])",
+      "cat(sprintf('elapsed=%.6f cpu=%.6f\\n', timing[['elapsed']], cpu))",
+      sep = "; "
+    )
+  }
 
-  run_one <- function(threads) {
+  run_one <- function(threads, iters) {
+    code <- make_code(iters)
     out <- system2(
       R.home("bin/R"),
       c("--vanilla", "--slave", "-e", shQuote(code)),
@@ -112,20 +115,25 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
     list(elapsed = parsed$elapsed, cpu = parsed$cpu)
   }
 
-  two_threads <- run_one(2)
-  four_threads <- run_one(4)
-  eight_threads <- run_one(8)
-
-  if (
-    two_threads$elapsed < 0.1 ||
-      four_threads$elapsed < 0.1 ||
-      eight_threads$elapsed < 0.1
-  ) {
-    skip("Workload too small to assess OpenMP thread controls")
+  scale_iters <- as.integer(iters)
+  for (attempt in seq_len(5L)) {
+    two_threads <- run_one(2, scale_iters)
+    four_threads <- run_one(4, scale_iters)
+    eight_threads <- run_one(8, scale_iters)
+    min_elapsed <- min(
+      c(two_threads$elapsed, four_threads$elapsed, eight_threads$elapsed)
+    )
+    if (min_elapsed >= 0.1) {
+      break
+    }
+    scale_iters <- as.integer(scale_iters * 4L)
   }
 
   thread_info <- paste0(
     label,
+    " (iters=",
+    scale_iters,
+    ")",
     ": threads=2 elapsed=",
     signif(two_threads$elapsed, 3),
     " cpu=",
@@ -158,10 +166,14 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
 test_that("parallel loops show parallelism without large slowdowns", {
   skip_if_no_openmp()
 
-  serial <- function(x, n) {
-    declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
+  serial <- function(x, n, iters) {
+    declare(
+      type(x = double(n)),
+      type(n = integer(1)),
+      type(iters = integer(1)),
+      type(out = double(n))
+    )
     out <- double(n)
-    iters <- 12L
     for (i in seq_len(n)) {
       v <- x[i]
       for (k in seq_len(iters)) {
@@ -173,10 +185,14 @@ test_that("parallel loops show parallelism without large slowdowns", {
     out
   }
 
-  parallel <- function(x, n) {
-    declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
+  parallel <- function(x, n, iters) {
+    declare(
+      type(x = double(n)),
+      type(n = integer(1)),
+      type(iters = integer(1)),
+      type(out = double(n))
+    )
     out <- double(n)
-    iters <- 12L
     declare(parallel())
     for (i in seq_len(n)) {
       v <- x[i]
@@ -195,11 +211,18 @@ test_that("parallel loops show parallelism without large slowdowns", {
   serial_q <- quick(serial)
   parallel_q <- quick(parallel)
 
-  serial_q(x, n)
+  iters <- 12L
+  serial_q(x, n, iters)
   gc()
 
   reps <- 1L
-  serial_time <- timed_run(serial_q, x, n, reps = reps)
+  for (attempt in seq_len(5L)) {
+    serial_time <- timed_run(serial_q, x, n, iters, reps = reps)
+    if (serial_time$elapsed >= 0.1) {
+      break
+    }
+    iters <- as.integer(iters * 4L)
+  }
   parallel_time <- withr::with_envvar(
     c(
       OMP_NUM_THREADS = "2",
@@ -207,17 +230,16 @@ test_that("parallel loops show parallelism without large slowdowns", {
       OMP_DYNAMIC = "false"
     ),
     {
-      parallel_q(x, n)
+      parallel_q(x, n, iters)
       gc()
-      timed_run(parallel_q, x, n, reps = reps)
+      timed_run(parallel_q, x, n, iters, reps = reps)
     }
   )
 
-  if (serial_time$elapsed < 0.1) {
-    skip("Workload too small to assess OpenMP parallelism")
-  }
-
   info <- paste0(
+    "iters=",
+    iters,
+    "; ",
     "serial elapsed=",
     signif(serial_time$elapsed, 3),
     " (sys=",
