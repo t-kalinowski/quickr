@@ -30,6 +30,9 @@ test_that("symbol_name_or_null recognizes identifiers", {
   f_paren <- quickr:::Fortran("(x)", var, r = quote((x)))
   expect_identical(quickr:::symbol_name_or_null(f_paren), "x")
 
+  f_nested <- quickr:::Fortran("(((x)))", var, r = quote((((x)))))
+  expect_identical(quickr:::symbol_name_or_null(f_nested), "x")
+
   f_expr <- quickr:::Fortran("x + 1", var, r = quote(x + 1))
   expect_null(quickr:::symbol_name_or_null(f_expr))
 })

@@ -284,10 +284,65 @@ test_that("matrix multiplication avoids unsafe in-place aliasing", {
   expect_equal(out, fn(A_orig, B))
 })
 
+test_that("matrix multiplication handles expression inputs without mutating sources", {
+  fn <- function(A, B) {
+    declare(type(A = double(2, 2)), type(B = double(2, 2)))
+    A <- (A + 1) %*% B
+    A
+  }
+
+  set.seed(101)
+  A0 <- matrix(rnorm(4), nrow = 2)
+  B <- matrix(rnorm(4), nrow = 2)
+
+  qfn <- quick(fn)
+  A_orig <- A0 + 0
+  out <- qfn(A0, B)
+
+  expect_identical(A0, A_orig)
+  expect_equal(out, fn(A_orig, B))
+})
+
+test_that("crossprod handles parenthesized inputs without aliasing", {
+  fn <- function(A) {
+    declare(type(A = double(2, 2)))
+    A <- crossprod(((A)))
+    A
+  }
+
+  set.seed(202)
+  A0 <- matrix(rnorm(4), nrow = 2)
+
+  qfn <- quick(fn)
+  A_orig <- A0 + 0
+  out <- qfn(A0)
+
+  expect_identical(A0, A_orig)
+  expect_equal(out, fn(A_orig))
+})
+
 test_that("triangular solves can write into the RHS variable safely", {
   fn <- function(U, b) {
     declare(type(U = double(2, 2)), type(b = double(2)))
     b <- backsolve(U, b)
+    b
+  }
+
+  U <- matrix(c(2, 1, 0, 3), nrow = 2, byrow = TRUE)
+  b0 <- c(1.25, -0.5)
+
+  qfn <- quick(fn)
+  b_orig <- b0 + 0
+  out <- qfn(U, b0)
+
+  expect_identical(b0, b_orig)
+  expect_equal(out, fn(U, b_orig))
+})
+
+test_that("triangular solves accept parenthesized RHS safely", {
+  fn <- function(U, b) {
+    declare(type(U = double(2, 2)), type(b = double(2)))
+    b <- backsolve(U, (b))
     b
   }
 
