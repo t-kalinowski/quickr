@@ -11,6 +11,48 @@ test_that("quickr_env_is_true recognizes common truthy values", {
   expect_true(quickr:::quickr_env_is_true("QUICKR_PREFER_FLANG"))
 })
 
+test_that("quickr_r_cmd_config_value captures only stdout", {
+  observed_stdout <- NULL
+  observed_stderr <- NULL
+  system2_stub <- function(
+    command,
+    args,
+    stdout = "",
+    stderr = "",
+    ...
+  ) {
+    observed_stdout <<- stdout
+    observed_stderr <<- stderr
+    " value "
+  }
+
+  expect_identical(
+    quickr:::quickr_r_cmd_config_value(
+      "CC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    "value"
+  )
+  expect_identical(observed_stdout, TRUE)
+  expect_identical(observed_stderr, FALSE)
+})
+
+test_that("quickr_r_cmd_config_value returns empty on command failure", {
+  system2_stub <- function(command, args, stdout = "", stderr = "", ...) {
+    structure(" value ", status = 1L)
+  }
+
+  expect_identical(
+    quickr:::quickr_r_cmd_config_value(
+      "CC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    ""
+  )
+})
+
 test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stubs", {
   which <- function(x) {
     if (x == "flang-new") {

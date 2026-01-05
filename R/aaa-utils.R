@@ -28,7 +28,7 @@ quickr_r_cmd_config_value <- function(
       r_cmd,
       c("CMD", "config", name),
       stdout = TRUE,
-      stderr = TRUE
+      stderr = FALSE
     )),
     error = function(e) character()
   )
