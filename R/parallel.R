@@ -138,7 +138,7 @@ openmp_directives <- function(parallel, private = NULL) {
 openmp_config_value <- local({
   cached <- NULL
 
-  function(name) {
+  function(name, config_value = quickr_r_cmd_config_value) {
     if (is.null(cached)) {
       cached <<- list()
     }
@@ -146,29 +146,9 @@ openmp_config_value <- local({
     if (!is.null(cached_value)) {
       return(cached_value)
     }
-
-    r_cmd <- R.home("bin/R")
-    if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
-      r_cmd <- paste0(r_cmd, ".exe")
-    }
-    out <- tryCatch(
-      suppressWarnings(system2(
-        r_cmd,
-        c("CMD", "config", name),
-        stdout = TRUE,
-        stderr = TRUE
-      )),
-      error = function(e) character()
-    )
-    status <- attr(out, "status")
-    if (!is.null(status)) {
-      cached[[name]] <<- ""
-      return("")
-    }
-    value <- trimws(paste(out, collapse = " "))
-    if (!nzchar(value) || grepl("^ERROR:", value)) {
-      cached[[name]] <<- ""
-      return("")
+    value <- config_value(name)
+    if (!nzchar(value)) {
+      value <- ""
     }
     cached[[name]] <<- value
     value

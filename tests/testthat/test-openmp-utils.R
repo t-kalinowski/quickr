@@ -40,19 +40,19 @@ test_that("openmp_makevars_lines errors when linker flags are missing", {
 test_that("openmp_config_value caches toolchain lookups", {
   cache_env <- environment(quickr:::openmp_config_value)
   old_cache <- cache_env$cached
-  old_system2 <- cache_env$system2
+  old_config <- cache_env$quickr_r_cmd_config_value
   withr::defer(cache_env$cached <- old_cache)
   withr::defer({
-    if (is.null(old_system2)) {
-      rm(system2, envir = cache_env)
+    if (is.null(old_config)) {
+      rm(quickr_r_cmd_config_value, envir = cache_env)
     } else {
-      cache_env$system2 <- old_system2
+      cache_env$quickr_r_cmd_config_value <- old_config
     }
   })
   cache_env$cached <- NULL
 
   calls <- 0
-  cache_env$system2 <- function(...) {
+  cache_env$quickr_r_cmd_config_value <- function(...) {
     calls <<- calls + 1
     "value"
   }

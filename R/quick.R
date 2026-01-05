@@ -210,25 +210,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 
   # Link against the same BLAS/LAPACK/Fortran libs as the running R
   # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
-  cfg <- function(var) {
-    r_cmd <- R.home("bin/R")
-    if (identical(.Platform$OS.type, "windows") && !file.exists(r_cmd)) {
-      r_cmd <- paste0(r_cmd, ".exe")
-    }
-    tryCatch(
-      {
-        out <- system2(
-          r_cmd,
-          c("CMD", "config", var),
-          stdout = TRUE,
-          stderr = FALSE
-        )
-        paste(out, collapse = " ")
-      },
-      error = function(e) ""
-    )
-  }
-
+  cfg <- quickr_r_cmd_config_value
   BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
   LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
   FLIBS <- strsplit(cfg("FLIBS"), "[[:space:]]+")[[1]]
@@ -237,8 +219,8 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   FLIBS <- FLIBS[nzchar(FLIBS)]
   link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
 
+  use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
   suppressWarnings({
-    use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
     env <- quickr_fcompiler_env(
       build_dir = build_dir,
       use_openmp = use_openmp,
@@ -261,42 +243,37 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       stderr = TRUE,
       env = env
     )
-    if (!is.null(attr(result, "status")) && length(env)) {
-      if (use_openmp) {
-        attr(result, "quickr_openmp_failed") <- TRUE
+    if (!is.null(attr(result, "status")) && length(env) && !use_openmp) {
+      result2 <- system2(
+        R.home("bin/R"),
+        r_args_libs,
+        stdout = TRUE,
+        stderr = TRUE
+      )
+      if (is.null(attr(result2, "status"))) {
+        result <- result2
       } else {
-        result2 <- system2(
-          R.home("bin/R"),
-          r_args_libs,
-          stdout = TRUE,
-          stderr = TRUE
+        # Prefer to show the flang attempt first, then the fallback attempt.
+        result <- c(
+          "--- flang attempt ---",
+          result,
+          "",
+          "--- fallback attempt ---",
+          result2
         )
-        if (is.null(attr(result2, "status"))) {
-          result <- result2
-        } else {
-          # Prefer to show the flang attempt first, then the fallback attempt.
-          result <- c(
-            "--- flang attempt ---",
-            result,
-            "",
-            "--- fallback attempt ---",
-            result2
-          )
-          attr(result, "status") <- attr(result2, "status")
-        }
+        attr(result, "status") <- attr(result2, "status")
       }
     }
   })
 
   status <- attr(result, "status")
-  openmp_failed <- isTRUE(attr(result, "quickr_openmp_failed"))
   if (!is.null(status)) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
     result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
     writeLines(result, stderr())
     cat("---\nCompiler exit status:", status, "\n", file = stderr())
-    if (openmp_failed) {
+    if (use_openmp) {
       openmp_abort(
         paste(
           "OpenMP was requested but compilation with OpenMP flags failed.",
@@ -340,7 +317,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 quickr_windows_add_dll_paths <- function(
   flags,
   os_type = .Platform$OS.type,
-  config_value = openmp_config_value,
+  config_value = quickr_r_cmd_config_value,
   which = Sys.which
 ) {
   if (!identical(os_type, "windows")) {

@@ -75,17 +75,23 @@ openmp_supported_or_skip <- local({
     skip_on_cran()
     skip_if_not_installed("pkgload")
     if (is.null(supported)) {
-      supported <<- {
-        quick(function(x) {
-          declare(type(x = double(1)))
-          declare(parallel())
-          for (i in seq_len(1L)) {
-            x[i] <- x[i] + 1
-          }
-          x
-        })
-        TRUE
-      }
+      supported <<- tryCatch(
+        {
+          quick(function(x) {
+            declare(type(x = double(1)))
+            declare(parallel())
+            for (i in seq_len(1L)) {
+              x[i] <- x[i] + 1
+            }
+            x
+          })
+          TRUE
+        },
+        quickr_openmp_unavailable = function(e) FALSE
+      )
+    }
+    if (!isTRUE(supported)) {
+      skip("OpenMP toolchain not available")
     }
   }
 })

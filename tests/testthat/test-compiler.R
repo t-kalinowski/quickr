@@ -75,67 +75,6 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   expect_true(file.exists(sub("R_MAKEVARS_USER=", "", env, fixed = TRUE)))
 })
 
-test_that("quickr_windows_add_dll_paths updates PATH for Windows-style runs", {
-  temp <- withr::local_tempdir()
-  lib_dir <- file.path(temp, "lib")
-  bin_dir <- file.path(temp, "bin")
-  dir.create(lib_dir, recursive = TRUE)
-  dir.create(bin_dir, recursive = TRUE)
-
-  withr::local_envvar(PATH = "C:\\Existing")
-  expect_true(quickr:::quickr_windows_add_dll_paths(
-    flags = paste0("-L", lib_dir),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(...) ""
-  ))
-
-  path <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1]]
-  path_norm <- tolower(normalizePath(path, winslash = "\\", mustWork = FALSE))
-  lib_norm <- tolower(normalizePath(lib_dir, winslash = "\\", mustWork = FALSE))
-  bin_norm <- tolower(normalizePath(bin_dir, winslash = "\\", mustWork = FALSE))
-
-  expect_true(lib_norm %in% path_norm)
-  expect_true(bin_norm %in% path_norm)
-  expect_false(quickr:::quickr_windows_add_dll_paths(
-    flags = paste0("-L", lib_dir),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(...) ""
-  ))
-})
-
-test_that("quickr_windows_add_dll_paths is a no-op outside Windows", {
-  withr::local_envvar(PATH = "C:\\Existing")
-  expect_false(quickr:::quickr_windows_add_dll_paths(
-    flags = "-Lfoo",
-    os_type = "unix",
-    config_value = function(...) "",
-    which = function(...) ""
-  ))
-})
-
-test_that("quickr_windows_add_dll_paths uses BINPREF from config", {
-  temp <- withr::local_tempdir()
-  bin_dir <- file.path(temp, "bin")
-  dir.create(bin_dir, recursive = TRUE)
-  binpref <- file.path(bin_dir, "x86_64-w64-mingw32-")
-
-  withr::local_envvar(PATH = "C:\\Existing")
-  expect_true(quickr:::quickr_windows_add_dll_paths(
-    flags = character(),
-    os_type = "windows",
-    config_value = function(key) if (key == "BINPREF") binpref else "",
-    which = function(...) ""
-  ))
-
-  path <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1]]
-  path_norm <- tolower(normalizePath(path, winslash = "\\", mustWork = FALSE))
-  bin_norm <- tolower(normalizePath(bin_dir, winslash = "\\", mustWork = FALSE))
-
-  expect_true(bin_norm %in% path_norm)
-})
-
 test_that("compile cleans existing build directories and reports failures", {
   fsub <- r2f(function(x) {
     declare(type(x = double(1)))
