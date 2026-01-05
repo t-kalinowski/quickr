@@ -311,7 +311,7 @@ r2f_handlers[["backsolve"]] <- function(
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
-  r_expr <- x@r
+  r_expr <- unwrap_parens(x@r)
   if (is.symbol(r_expr)) {
     return(as.character(r_expr))
   }
@@ -426,8 +426,10 @@ assert_conformable <- function(left, right, context) {
 
 # Unwrap t() calls to infer transpose flags and normalize scalars/vectors.
 unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
-  if (is_call(arg, quote(t)) && length(arg) == 2L) {
-    inner <- r2f(arg[[2L]], scope, ..., hoist = hoist)
+  arg_unwrapped <- unwrap_parens(arg)
+  if (is_call(arg_unwrapped, quote(t)) && length(arg_unwrapped) == 2L) {
+    inner_arg <- unwrap_parens(arg_unwrapped[[2L]])
+    inner <- r2f(inner_arg, scope, ..., hoist = hoist)
     inner <- maybe_cast_double(inner)
     if (inner@value@rank == 2L) {
       return(list(value = inner, trans = "T"))
@@ -475,7 +477,13 @@ assert_dest_dims_compatible <- function(dest, expected_dims, context) {
 }
 
 # Determine if output can safely write into dest without aliasing.
-can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
+can_use_output <- function(
+  dest,
+  input_names = character(),
+  expected_dims = NULL,
+  context,
+  allow_alias = character()
+) {
   if (is.null(dest)) {
     return(FALSE)
   }
@@ -484,9 +492,17 @@ can_use_output <- function(dest, left, right, expected_dims = NULL, context) {
   }
   assert_dest_dims_compatible(dest, expected_dims, context)
   output_name <- dest@name
-  # check output name is not the same as left or right
-  !identical(output_name, as.character(left)) &&
-    !identical(output_name, as.character(right))
+  if (is.null(output_name) || !nzchar(output_name)) {
+    return(FALSE)
+  }
+
+  input_names <- unique(as.character(input_names))
+  input_names <- input_names[nzchar(input_names)]
+  allow_alias <- unique(as.character(allow_alias))
+  allow_alias <- allow_alias[nzchar(allow_alias)]
+  disallowed <- setdiff(input_names, allow_alias)
+
+  !output_name %in% disallowed
 }
 
 # Ensure a BLAS operand is named, hoisting into a temp if needed.
@@ -549,8 +565,7 @@ gemm <- function(
   if (
     can_use_output(
       dest,
-      left,
-      right,
+      input_names = c(A_name, B_name),
       expected_dims = list(m, n),
       context = context
     )
@@ -596,15 +611,14 @@ gemv <- function(
   if (
     can_use_output(
       dest,
-      A,
-      x,
+      input_names = c(A_name, x_name),
       expected_dims = out_dims,
       context = context
     )
   ) {
     # Assign output to output destination
     hoist$emit(glue(
-      "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1, 0.0_c_double, {dest@name}, 1)"
+      "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {dest@name}, 1_c_int)"
     ))
     out <- Fortran(dest@name, dest)
     attr(out, "writes_to_dest") <- TRUE
@@ -613,9 +627,25 @@ gemv <- function(
   # Else assign to a temporary variable
   output_var <- hoist$declare_tmp(mode = "double", dims = out_dims)
   hoist$emit(glue(
-    "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1, 0.0_c_double, {output_var@name}, 1)"
+    "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {output_var@name}, 1_c_int)"
   ))
   Fortran(output_var@name, output_var)
+}
+
+symmetrize_upper_to_lower <- function(target, n, hoist) {
+  stopifnot(is_string(target), inherits(hoist, "environment"))
+
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  n_int <- blas_int(n)
+  hoist$emit(glue(
+    "
+do {idx_j@name} = 1_c_int, {n_int} - 1_c_int
+  do {idx_i@name} = {idx_j@name} + 1_c_int, {n_int}
+    {target}({idx_i@name}, {idx_j@name}) = {target}({idx_j@name}, {idx_i@name})
+  end do
+end do"
+  ))
 }
 
 # Centralized SYRK emission for symmetric rank-k update
@@ -649,50 +679,36 @@ syrk <- function(
   lda <- x_dims$rows
 
   # Output is symmetric n x n matrix
+  writes_to_dest <- FALSE
+  out_var <- NULL
+  out_name <- NULL
+
   if (
     can_use_output(
       dest,
-      X,
-      X,
+      input_names = X_name,
       expected_dims = list(n, n),
       context = context
     )
   ) {
-    hoist$emit(glue(
-      "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {dest@name}, {blas_int(n)})"
-    ))
-    # Fill lower triangle from upper
-    idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-    idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-    hoist$emit(glue(
-      "
-do {idx_j@name} = 1_c_int, {n} - 1_c_int
-  do {idx_i@name} = {idx_j@name} + 1_c_int, {n}
-    {dest@name}({idx_i@name}, {idx_j@name}) = {dest@name}({idx_j@name}, {idx_i@name})
-  end do
-end do"
-    ))
-    out <- Fortran(dest@name, dest)
-    attr(out, "writes_to_dest") <- TRUE
-    return(out)
+    writes_to_dest <- TRUE
+    out_var <- dest
+    out_name <- dest@name
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+    out_name <- out_var@name
   }
 
-  output_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
   hoist$emit(glue(
-    "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {output_var@name}, {blas_int(n)})"
+    "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {out_name}, {blas_int(n)})"
   ))
-  # Fill lower triangle from upper
-  idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-  idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-  hoist$emit(glue(
-    "
-do {idx_j@name} = 1_c_int, {n} - 1_c_int
-  do {idx_i@name} = {idx_j@name} + 1_c_int, {n}
-    {output_var@name}({idx_i@name}, {idx_j@name}) = {output_var@name}({idx_j@name}, {idx_i@name})
-  end do
-end do"
-  ))
-  Fortran(output_var@name, output_var)
+  symmetrize_upper_to_lower(out_name, n, hoist = hoist)
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
 }
 
 # Emit BLAS outer product for vectors or scalars with optional destination.
@@ -724,15 +740,14 @@ outer_mul <- function(
   if (
     can_use_output(
       dest,
-      x,
-      y,
+      input_names = c(x_name, y_name),
       expected_dims = list(m, n),
       context = context
     )
   ) {
     hoist$emit(glue("{dest@name} = 0.0_c_double"))
     hoist$emit(glue(
-      "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {dest@name}, {blas_int(m)})"
+      "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {dest@name}, {blas_int(m)})"
     ))
     out <- Fortran(dest@name, dest)
     attr(out, "writes_to_dest") <- TRUE
@@ -742,7 +757,7 @@ outer_mul <- function(
   output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{output_var@name} = 0.0_c_double"))
   hoist$emit(glue(
-    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1, {y_name}, 1, {output_var@name}, {blas_int(m)})"
+    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {output_var@name}, {blas_int(m)})"
   ))
   Fortran(output_var@name, output_var)
 }
@@ -789,14 +804,15 @@ triangular_solve <- function(
   }
 
   A_name <- ensure_blas_operand_name(A, hoist)
+  B_input_name <- symbol_name_or_null(B)
 
   if (
     can_use_output(
       dest,
-      A,
-      B,
+      input_names = c(A_name, B_input_name),
       expected_dims = B@value@dims,
-      context = context
+      context = context,
+      allow_alias = B_input_name
     )
   ) {
     hoist$emit(glue("{dest@name} = {B}"))
@@ -815,7 +831,7 @@ triangular_solve <- function(
 
   if (b_rank <= 1L) {
     hoist$emit(glue(
-      "call dtrsv('{uplo}', '{trans}', '{diag}', {blas_int(n)}, {A_name}, {blas_int(n)}, {B_name}, 1)"
+      "call dtrsv('{uplo}', '{trans}', '{diag}', {blas_int(n)}, {A_name}, {blas_int(n)}, {B_name}, 1_c_int)"
     ))
   } else {
     nrhs <- dim_or_one(B, 2L)
@@ -897,6 +913,7 @@ crossprod_like <- function(
 
 # Infer a variable from a symbol in the current scope.
 infer_symbol_var <- function(arg, scope) {
+  arg <- unwrap_parens(arg)
   if (!is.symbol(arg)) {
     return(NULL)
   }
@@ -906,6 +923,7 @@ infer_symbol_var <- function(arg, scope) {
 
 # Infer a matrix argument, handling t() and scalar/vector promotion.
 infer_matrix_arg <- function(arg, scope) {
+  arg <- unwrap_parens(arg)
   if (is_call(arg, quote(t)) && length(arg) == 2L) {
     inner <- infer_symbol_var(arg[[2L]], scope)
     if (is.null(inner)) {

@@ -27,6 +27,9 @@ test_that("symbol_name_or_null recognizes identifiers", {
   f_str <- quickr:::Fortran("x", var)
   expect_identical(quickr:::symbol_name_or_null(f_str), "x")
 
+  f_paren <- quickr:::Fortran("(x)", var, r = quote((x)))
+  expect_identical(quickr:::symbol_name_or_null(f_paren), "x")
+
   f_expr <- quickr:::Fortran("x + 1", var, r = quote(x + 1))
   expect_null(quickr:::symbol_name_or_null(f_expr))
 })
@@ -41,22 +44,11 @@ test_that("destination helpers handle NULL and mode mismatches", {
   )
 
   dest <- quickr:::Variable("integer", list(1L), name = "out")
-  left <- quickr:::Fortran(
-    "x",
-    quickr:::Variable("double", list(1L), name = "x"),
-    r = quote(x)
-  )
-  right <- quickr:::Fortran(
-    "y",
-    quickr:::Variable("double", list(1L), name = "y"),
-    r = quote(y)
-  )
 
   expect_false(
     quickr:::can_use_output(
       dest,
-      left,
-      right,
+      input_names = c("x", "y"),
       expected_dims = list(1L),
       context = "ctx"
     )

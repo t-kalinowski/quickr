@@ -228,6 +228,80 @@ test_that("matrix multiplication rejects incompatible destinations", {
   expect_error(quick(dest_mismatch), "incompatible rank for %\\*%")
 })
 
+test_that("BLAS matrix ops coerce integer and logical inputs to double", {
+  matmul_int <- function(A, B) {
+    declare(type(A = integer(2, 2)), type(B = integer(2, 2)))
+    A %*% B
+  }
+
+  crossprod_int <- function(x) {
+    declare(type(x = integer(3, 2)))
+    crossprod(x)
+  }
+
+  outer_int <- function(x, y) {
+    declare(type(x = integer(2)), type(y = integer(3)))
+    outer(x, y)
+  }
+
+  matmul_lgl <- function(A, B) {
+    declare(type(A = logical(2, 2)), type(B = logical(2, 2)))
+    A %*% B
+  }
+
+  A <- matrix(as.integer(c(1, 2, 3, 4)), nrow = 2)
+  B <- matrix(as.integer(c(2, 0, 1, -1)), nrow = 2)
+  x <- matrix(as.integer(1:6), nrow = 3)
+  v2 <- as.integer(c(1, -2))
+  v3 <- as.integer(c(3, 0, 4))
+
+  set.seed(123)
+  A_lgl <- matrix(sample(c(TRUE, FALSE), 4, TRUE), nrow = 2)
+  B_lgl <- matrix(sample(c(TRUE, FALSE), 4, TRUE), nrow = 2)
+
+  expect_quick_equal(matmul_int, list(A = A, B = B))
+  expect_quick_equal(crossprod_int, list(x = x))
+  expect_quick_equal(outer_int, list(x = v2, y = v3))
+  expect_quick_equal(matmul_lgl, list(A = A_lgl, B = B_lgl))
+})
+
+test_that("matrix multiplication avoids unsafe in-place aliasing", {
+  fn <- function(A, B) {
+    declare(type(A = double(2, 2)), type(B = double(2, 2)))
+    A <- (A) %*% B
+    A
+  }
+
+  set.seed(42)
+  A0 <- matrix(rnorm(4), nrow = 2)
+  B <- matrix(rnorm(4), nrow = 2)
+
+  qfn <- quick(fn)
+  A_orig <- A0 + 0
+  out <- qfn(A0, B)
+
+  expect_identical(A0, A_orig)
+  expect_equal(out, fn(A_orig, B))
+})
+
+test_that("triangular solves can write into the RHS variable safely", {
+  fn <- function(U, b) {
+    declare(type(U = double(2, 2)), type(b = double(2)))
+    b <- backsolve(U, b)
+    b
+  }
+
+  U <- matrix(c(2, 1, 0, 3), nrow = 2, byrow = TRUE)
+  b0 <- c(1.25, -0.5)
+
+  qfn <- quick(fn)
+  b_orig <- b0 + 0
+  out <- qfn(U, b0)
+
+  expect_identical(b0, b_orig)
+  expect_equal(out, fn(U, b_orig))
+})
+
 test_that("crossprod and tcrossprod match R", {
   cross_fun <- function(x, y) {
     declare(
