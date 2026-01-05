@@ -21,7 +21,7 @@ quickr_r_cmd <- function(
 quickr_r_cmd_config_value <- function(
   name,
   r_cmd = quickr_r_cmd(),
-  system2 = system2
+  system2 = base::system2
 ) {
   out <- tryCatch(
     suppressWarnings(system2(

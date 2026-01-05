@@ -12,6 +12,11 @@ test_that("quickr_env_is_true recognizes common truthy values", {
 })
 
 test_that("quickr_r_cmd_config_value captures only stdout", {
+  expect_identical(
+    deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),
+    "base::system2"
+  )
+
   observed_stdout <- NULL
   observed_stderr <- NULL
   system2_stub <- function(
