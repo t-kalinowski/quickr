@@ -156,7 +156,7 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
 }
 
 test_that("parallel loops show parallelism without large slowdowns", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   serial <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
@@ -259,7 +259,7 @@ test_that("parallel loops show parallelism without large slowdowns", {
 })
 
 test_that("openmp responds to OMP_NUM_THREADS across sessions", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   check_thread_scaling_subprocess(
     label = "iter-map",
