@@ -304,9 +304,6 @@ num2fortran <- function(x) {
 }
 
 
-r2f_handlers := new.env(parent = emptyenv())
-
-
 get_r2f_handler <- function(name) {
   stopifnot("All functions called must be named as symbols" = is.symbol(name))
   get0(name, r2f_handlers) %||%
@@ -353,14 +350,6 @@ r2f_default_handler <- function(args, scope = NULL, ..., calls) {
   x <- lapply(args, r2f, scope = scope, calls = calls, ...)
   s <- sprintf("%s(%s)", last(calls), str_flatten_commas(x[-1]))
   Fortran(s)
-}
-
-## ??? export as S7::convert() methods?
-register_r2f_handler <- function(name, fun) {
-  for (nm in name) {
-    r2f_handlers[[nm]] <- fun
-  }
-  invisible(fun)
 }
 
 .r2f_handler_not_implemented_yet <- function(e, scope, ...) {
@@ -1071,8 +1060,23 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ...) {
 
 # ---- pure elemental unary math intrinsics ----
 
+register_unary_intrinsic <- function(
+  name,
+  mode_fun,
+  expr_fun
+) {
+  handler <- function(args, scope, ...) {
+    stopifnot(length(args) == 1L)
+    arg <- r2f(args[[1L]], scope, ...)
+    val <- Variable(mode = mode_fun(arg), dims = arg@value@dims)
+    Fortran(expr_fun(arg, last(list(...)$calls)), val)
+  }
+  register_r2f_handler(name, handler)
+  invisible(handler)
+}
+
 ## real and complex intrinsics
-register_r2f_handler(
+register_unary_intrinsic(
   c(
     "sin",
     "cos",
@@ -1086,15 +1090,8 @@ register_r2f_handler(
     "floor",
     "ceiling"
   ),
-  function(args, scope, ...) {
-    stopifnot(length(args) == 1L)
-    arg <- r2f(args[[1]], scope, ...)
-    intrinsic <- last(list(...)$calls)
-    Fortran(
-      glue("{intrinsic}({arg})"),
-      Variable(mode = arg@value@mode, dims = arg@value@dims)
-    )
-  }
+  mode_fun = function(arg) arg@value@mode,
+  expr_fun = function(arg, intrinsic) glue("{intrinsic}({arg})")
 )
 
 r2f_handlers[["log10"]] <- function(args, scope, ...) {
@@ -1115,54 +1112,42 @@ r2f_handlers[["log10"]] <- function(args, scope, ...) {
 r2f_handlers[["abs"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
-  val <- if (arg@value@mode == "complex") {
-    Variable(mode = "double", dims = arg@value@dims)
-  } else {
-    Variable(mode = arg@value@mode, dims = arg@value@dims)
-  }
-  Fortran(glue("abs({arg})"), val)
+  out_mode <- if (arg@value@mode == "complex") "double" else arg@value@mode
+  Fortran(glue("abs({arg})"), Variable(mode = out_mode, dims = arg@value@dims))
 }
 
 
 # ---- complex elemental unary intrinsics ----
 
-r2f_handlers[["Re"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  val <- Variable(mode = "double", dims = arg@value@dims)
-  Fortran(glue("real({arg})"), val)
-}
+register_unary_intrinsic(
+  "Re",
+  mode_fun = function(arg) "double",
+  expr_fun = function(arg, intrinsic) glue("real({arg})")
+)
 
-r2f_handlers[["Im"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  val <- Variable(mode = "double", dims = arg@value@dims)
-  Fortran(glue("aimag({arg})"), val)
-}
+register_unary_intrinsic(
+  "Im",
+  mode_fun = function(arg) "double",
+  expr_fun = function(arg, intrinsic) glue("aimag({arg})")
+)
 
-# Modulus (magnitude)
-r2f_handlers[["Mod"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  val <- Variable(mode = "double", dims = arg@value@dims)
-  Fortran(glue("abs({arg})"), val)
-}
+register_unary_intrinsic(
+  "Mod",
+  mode_fun = function(arg) "double",
+  expr_fun = function(arg, intrinsic) glue("abs({arg})")
+)
 
-# Argument (phase angle, radians)
-r2f_handlers[["Arg"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  val <- Variable(mode = "double", dims = arg@value@dims)
-  Fortran(glue("atan2(aimag({arg}), real({arg}))"), val)
-}
+register_unary_intrinsic(
+  "Arg",
+  mode_fun = function(arg) "double",
+  expr_fun = function(arg, intrinsic) glue("atan2(aimag({arg}), real({arg}))")
+)
 
-# conjg() returns a complex value; R uses Conj()
-r2f_handlers[["Conj"]] <- function(args, scope, ...) {
-  stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
-  val <- Variable(mode = "complex", dims = arg@value@dims)
-  Fortran(glue("conjg({arg})"), val)
-}
+register_unary_intrinsic(
+  "Conj",
+  mode_fun = function(arg) "complex",
+  expr_fun = function(arg, intrinsic) glue("conjg({arg})")
+)
 
 
 # ---- elemental binary infix operators ----
@@ -1375,297 +1360,6 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
 }
 
 
-r2f_handlers[["cbind"]] <- function(e, scope) {
-  .NotYetImplemented()
-  ee <- lapply(e[-1], r2f, scope)
-  ncols <- lapply(ee, function(f) {
-    if (f@value@rank %in% c(0, 1)) {
-      1
-    } else if (f@value@rank == 2) {
-      f@value@dims[[2]]
-    }
-  })
-  ncols <- Reduce(\(a, b) call("+", a, b), ncols)
-  ncols <- eval(ncols, scope@sizes)
-}
-
-r2f_handlers[["<-"]] <- function(args, scope, ..., hoist = NULL) {
-  target <- args[[1]]
-  if (is.call(target)) {
-    # given a call like `foo(x) <- y`, dispatch to `foo<-`
-    target_callable <- target[[1]]
-    stopifnot(is.symbol(target_callable))
-    name <- as.symbol(paste0(as.character(target_callable), "<-"))
-    handler <- get_r2f_handler(name)
-    return(handler(args, scope, ..., hoist = hoist)) # new hoist target
-  }
-
-  # It sure seems like it's be nice if the Fortran() constructor
-  # took mode and dims as args directly,
-  # without needing to go through Variable...
-  stopifnot(is.symbol(target))
-  name <- as.character(target)
-
-  rhs <- args[[2]]
-
-  # Fall-through assignment: `a <- b <- expr` (or `a <- (b <- expr)`).
-  # R evaluates this right-to-left and returns the assigned value, i.e.
-  # `a <- (b <- expr)` is equivalent to `b <- expr; a <- b`.
-  rhs_unwrapped <- rhs
-  while (is_call(rhs_unwrapped, "(") && length(rhs_unwrapped) == 2L) {
-    rhs_unwrapped <- rhs_unwrapped[[2L]]
-  }
-  if (
-    (is_call(rhs_unwrapped, "<-") || is_call(rhs_unwrapped, "=")) &&
-      length(rhs_unwrapped) == 3L &&
-      is.symbol(rhs_unwrapped[[2L]])
-  ) {
-    inner_target <- rhs_unwrapped[[2L]]
-    inner_rhs <- rhs_unwrapped[[3L]]
-
-    inner_stmt <- r2f(
-      call("<-", inner_target, inner_rhs),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    outer_stmt <- r2f(
-      call("<-", target, inner_target),
-      scope,
-      ...,
-      hoist = hoist
-    )
-
-    return(Fortran(str_flatten_lines(inner_stmt, outer_stmt)))
-  }
-
-  # Local closure definition: `f <- function(i) ...`
-  if (is_function_call(rhs)) {
-    scope[[name]] <- as_local_closure(
-      rhs,
-      environment(scope@closure),
-      name = name
-    )
-    return(Fortran(""))
-  }
-
-  # Local closure call: `x <- f(...)` where `f <- function(...) ...` in scope.
-  if (
-    is.call(rhs) &&
-      is.symbol(rhs[[1L]]) &&
-      inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
-  ) {
-    return(compile_closure_call_assignment(
-      name,
-      rhs,
-      scope,
-      ...,
-      hoist = hoist
-    ))
-  }
-
-  # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
-  if (is_sapply_call(rhs)) {
-    parallel <- take_pending_parallel(scope)
-    return(
-      compile_sapply_assignment(
-        name,
-        rhs,
-        scope,
-        ...,
-        hoist = hoist,
-        parallel = parallel
-      )
-    )
-  }
-
-  dest_allowed <- dest_supported_for_call(rhs)
-
-  # If target already exists (declared), thread destination hint to a single BLAS-capable child
-  var <- get0(name, scope, inherits = FALSE)
-  existing_binding <- !is.null(var) && inherits(var, Variable)
-  inferred_var <- NULL
-  fortran_name <- NULL
-  if (!existing_binding && dest_allowed) {
-    inferred_var <- dest_infer_for_call(rhs, scope)
-    fortran_name <- if (
-      scope_is_closure(scope) && inherits(get0(name, scope), Variable)
-    ) {
-      make_shadow_fortran_name(scope, name)
-    } else {
-      name
-    }
-  }
-
-  if (existing_binding) {
-    value <- if (dest_allowed) {
-      r2f(rhs, scope, ..., hoist = hoist, dest = var)
-    } else {
-      r2f(rhs, scope, ..., hoist = hoist)
-    }
-  } else if (inherits(inferred_var, Variable)) {
-    var <- inferred_var
-    var@name <- fortran_name
-    value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
-  } else {
-    value <- r2f(rhs, scope, ..., hoist = hoist)
-  }
-
-  # immutable / copy-on-modify usage of Variable()
-  if (!existing_binding) {
-    # The var does not exist -> this is a binding to a new symbol
-    # Create a fresh Variable carrying only mode/dims and a new name.
-    if (!inherits(var, Variable)) {
-      src <- value@value
-      var <- Variable(mode = src@mode, dims = src@dims)
-    }
-    if (is.null(fortran_name)) {
-      fortran_name <- if (
-        scope_is_closure(scope) && inherits(get0(name, scope), Variable)
-      ) {
-        make_shadow_fortran_name(scope, name)
-      } else {
-        name
-      }
-    }
-    var@name <- fortran_name
-    # keep a reference to the R expression assigned, if available
-    tryCatch(
-      var@r <- attr(value, "r", TRUE),
-      error = function(e) NULL
-    )
-    scope[[name]] <- var
-  } else {
-    # The var already exists, this assignment is a modification / reassignment
-    check_assignment_compatible(var, value@value)
-    var@modified <- TRUE
-    # could probably drop this @modified property, and instead track
-    # if the var populated by declare is identical at the end (e.g., perhaps by
-    # address, or by attaching a unique id to each var, or ???)
-    assign(name, var, scope)
-  }
-
-  # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
-  if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
-    Fortran("")
-  } else {
-    Fortran(glue("{var@name} = {value}"))
-  }
-}
-
-r2f_handlers[["[<-"]] <- function(args, scope = NULL, ...) {
-  # TODO: handle logical subsetting here, which must become a where a construct like:
-  #   x[lgl] <- val
-  # becomes
-  # where (lgl)
-  #   x = val
-  # end where
-  # ! but if {va} references {x}, it will only see the subset x, not the full {x}
-  # e.g.,
-  # sum(x) is not the same as `where lgl \n sum(x) \n end where`
-  # ditto for ifelse() ?
-  # e <- as.list(e)
-
-  stopifnot(is_call(target_call <- args[[1L]], "["))
-
-  lhs <- compile_subscript_lhs(target_call, scope, ..., target = "local")
-  value <- r2f(args[[2L]], scope, ...)
-
-  Fortran(str_flatten_lines(lhs$pre, glue("{lhs$lhs} = {value}")))
-}
-
-r2f_handlers[["<<-"]] <- function(args, scope, ..., hoist = NULL) {
-  if (is.null(scope) || !identical(scope@kind, "closure")) {
-    stop("<<- is only supported inside local closures")
-  }
-
-  target <- args[[1L]]
-  if (is.call(target)) {
-    target_callable <- target[[1L]]
-    stopifnot(is.symbol(target_callable))
-    name <- as.symbol(paste0(as.character(target_callable), "<<-"))
-    handler <- get_r2f_handler(name)
-    return(handler(args, scope, ..., hoist = hoist))
-  }
-
-  stopifnot(is.symbol(target))
-  name <- as.character(target)
-
-  formal_names <- names(formals(scope@closure)) %||% character()
-  if (name %in% formal_names) {
-    stop("<<- targets must not shadow closure formals: ", name)
-  }
-
-  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
-  if (name %in% forbidden) {
-    stop("closure must not superassign to its output variable: ", name)
-  }
-
-  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
-  host_var <- get0(name, host_scope)
-  if (!inherits(host_var, Variable)) {
-    stop(
-      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-      name
-    )
-  }
-
-  host_var@modified <- TRUE
-  host_scope[[name]] <- host_var
-
-  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
-  check_assignment_compatible(host_var, value@value)
-
-  Fortran(glue("{host_var@name} = {value}"))
-}
-
-r2f_handlers[["[<<-"]] <- function(args, scope, ..., hoist = NULL) {
-  if (is.null(scope) || !identical(scope@kind, "closure")) {
-    stop("<<- is only supported inside local closures")
-  }
-
-  stopifnot(is_call(target <- args[[1L]], "["))
-  subset_call <- target
-
-  base <- subset_call[[2L]]
-  if (!is.symbol(base)) {
-    stop("only superassignment to x[...] is supported")
-  }
-  name <- as.character(base)
-
-  formal_names <- names(formals(scope@closure)) %||% character()
-  if (name %in% formal_names) {
-    stop("<<- targets must not shadow closure formals: ", name)
-  }
-
-  forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||% character()
-  if (name %in% forbidden) {
-    stop("closure must not superassign to its output variable: ", name)
-  }
-
-  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
-  host_var <- get0(name, host_scope)
-  if (!inherits(host_var, Variable)) {
-    stop(
-      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-      name
-    )
-  }
-
-  host_var@modified <- TRUE
-  host_scope[[name]] <- host_var
-
-  lhs <- compile_subscript_lhs(
-    subset_call,
-    scope,
-    ...,
-    hoist = hoist,
-    target = "host"
-  )
-  value <- r2f(args[[2L]], scope, ..., hoist = hoist)
-  Fortran(glue("{lhs$lhs} = {value}"))
-}
-
 reduce_promoted_mode <- function(...) {
   getmode <- function(d) {
     if (inherits(d, Fortran)) {
@@ -1692,25 +1386,29 @@ reduce_promoted_mode <- function(...) {
 }
 
 
-r2f_handlers[["="]] <- r2f_handlers[["<-"]]
+register_r2f_handler(
+  "logical",
+  function(args, scope, ...) {
+    Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
+  },
+  match_fun = FALSE
+)
 
-r2f_handlers[["logical"]] <- function(args, scope, ...) {
-  Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
-}
-attr(r2f_handlers[["logical"]], "match.fun") <- FALSE
+register_r2f_handler(
+  "integer",
+  function(args, scope, ...) {
+    Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
+  },
+  match_fun = FALSE
+)
 
-r2f_handlers[["integer"]] <- function(args, scope, ...) {
-  Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
-}
-attr(r2f_handlers[["integer"]], "match.fun") <- FALSE
-
-r2f_handlers[["double"]] <- function(args, scope, ...) {
-  Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
-}
-attr(r2f_handlers[["double"]], "match.fun") <- FALSE
-
-r2f_handlers[["numeric"]] <- r2f_handlers[["double"]]
-attr(r2f_handlers[["numeric"]], "match.fun") <- FALSE
+register_r2f_handler(
+  c("double", "numeric"),
+  function(args, scope, ...) {
+    Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
+  },
+  match_fun = FALSE
+)
 
 r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
   attr(scope, "uses_rng") <- TRUE
@@ -1895,9 +1593,6 @@ r2f_handlers[["dim"]] <- function(args, scope, ...) {
 
 
 # this is just `[` handler
-r2f_slice <- function(args, scope, ...) {}
-
-
 # ---- control flow ----
 
 r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {

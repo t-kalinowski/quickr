@@ -118,8 +118,12 @@ quick_seq(1L, 5L)
 quickr compiles via \verb{R CMD SHLIB} and will normally use the same toolchain
 that R was built/configured with.
 
-On macOS, quickr will speculatively prefer LLVM flang when it is available on
-\code{PATH} (falling back to R's default toolchain if compilation fails).
+quickr only uses LLVM flang when it is explicitly requested or, on macOS,
+when flang is available on \code{PATH} (and \code{flang --version} succeeds). If flang
+is requested but unavailable, compilation errors. If flang compilation
+fails, quickr retries with the default toolchain; on success it emits a
+one-time warning and disables automatic flang preference for the rest of the
+session.
 
 In interactive use, you can explicitly control this with:
 
