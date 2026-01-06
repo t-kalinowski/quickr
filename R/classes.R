@@ -389,8 +389,6 @@ FortranSubroutine := new_class(
   )
 )
 
-`%error%` <- function(x, y) tryCatch(x, error = function(e) y)
-
 try_prop <- function(object, name) S7::prop(object, name) %error% NULL
 
 emit <- function(..., sep = "", end = "\n") cat(..., end, sep = sep)

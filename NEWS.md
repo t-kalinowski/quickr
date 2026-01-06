@@ -6,6 +6,9 @@
 
   The plan is to add more functions in the future (#77 @mns-nordicals)
 
+- Added support for `cbind()` and `rbind()` for rank-0/1/2 inputs, with scalar
+  recycling only and strict length checks for non-scalar inputs.
+
 - On macOS, quickr will use LLVM flang (`flang-new`) for compilation when
   available (e.g. `brew install flang`). This is optional and can be disabled
   with `options(quickr.prefer_flang = FALSE)`.

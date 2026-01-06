@@ -108,18 +108,21 @@
 #' quickr compiles via `R CMD SHLIB` and will normally use the same toolchain
 #' that R was built/configured with.
 #'
-#' On macOS, quickr will speculatively prefer LLVM flang when it is available on
-#' `PATH` (falling back to R's default toolchain if compilation fails).
+#' quickr only uses LLVM flang when it is explicitly requested or, on macOS,
+#' when flang is available on `PATH` (and `flang --version` succeeds). If flang
+#' is requested but unavailable, compilation errors. If flang compilation
+#' fails, quickr retries with the default toolchain; on success it emits a
+#' one-time warning and disables automatic flang preference for the rest of the
+#' session.
 #'
 #' In interactive use, you can explicitly control this with:
 #'
 #' ```r
-#' options(quickr.prefer_flang = TRUE)
+#' options(quickr.fortran_compiler = "flang")
 #' ```
 #'
-#' To disable the macOS auto-preference, set `options(quickr.prefer_flang_auto = FALSE)`
-#' (or set `options(quickr.prefer_flang = FALSE)` to opt out entirely).
-#' In non-interactive scripts, set `Sys.setenv(QUICKR_PREFER_FLANG = "1")`.
+#' To disable the macOS auto-preference, set
+#' `options(quickr.fortran_compiler = "gfortran")`.
 #'
 #' @returns A quicker R function.
 #' @export
@@ -252,6 +255,8 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
       )
       if (is.null(attr(result2, "status"))) {
         result <- result2
+        quickr_disable_flang_auto()
+        quickr_warn_flang_fallback_once()
       } else {
         # Prefer to show the flang attempt first, then the fallback attempt.
         result <- c(
@@ -271,8 +276,12 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     # Adjust the compiler error so RStudio console formatter doesn't mangle
     # the actual error message https://github.com/rstudio/rstudio/issues/16365
     result <- gsub("Error: ", "Compiler Error: ", result, fixed = TRUE)
-    writeLines(result, stderr())
-    cat("---\nCompiler exit status:", status, "\n", file = stderr())
+    quickr_warn_compiler_failure_once(
+      paste(
+        c(result, "---", sprintf("Compiler exit status: %s", status)),
+        collapse = "\n"
+      )
+    )
     if (use_openmp) {
       openmp_abort(
         paste(

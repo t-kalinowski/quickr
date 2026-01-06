@@ -69,7 +69,7 @@ set_seed_and_call <- function(fun, ...) {
   fun(...)
 }
 
-openmp_supported_or_skip <- local({
+skip_if_no_openmp <- local({
   supported <- NULL
   function() {
     skip_on_cran()

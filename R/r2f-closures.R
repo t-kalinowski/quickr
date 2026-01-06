@@ -372,6 +372,57 @@ closure_formal_vars <- function(args_f, formal_names) {
   formal_vars
 }
 
+match_closure_call_args <- function(
+  call_expr,
+  closure_obj,
+  scope,
+  ...,
+  hoist = NULL
+) {
+  stopifnot(is.call(call_expr), inherits(closure_obj, LocalClosure))
+  fun <- closure_obj@fun
+  call_expr <- match.call(fun, call_expr)
+  args_expr <- as.list(call_expr)[-1L]
+
+  formal_names <- names(formals(fun)) %||% character()
+  if (!identical((names(args_expr) %||% character()), formal_names)) {
+    stop("internal error: match.call did not align closure args")
+  }
+
+  args_f <- lapply(args_expr, r2f, scope, ..., hoist = hoist)
+  formal_vars <- closure_formal_vars(args_f, formal_names)
+
+  list(
+    call_expr = call_expr,
+    args_expr = args_expr,
+    args_f = args_f,
+    formal_names = formal_names,
+    formal_vars = formal_vars
+  )
+}
+
+compile_local_closure_proc <- function(
+  proc_name,
+  closure_obj,
+  scope,
+  formal_vars,
+  res_var,
+  allow_void_return = FALSE,
+  forbid_superassign = character()
+) {
+  proc <- compile_internal_subroutine(
+    proc_name,
+    closure_obj,
+    scope,
+    formal_vars = formal_vars,
+    res_var = res_var,
+    allow_void_return = allow_void_return,
+    forbid_superassign = forbid_superassign
+  )
+  scope_root(scope)@add_internal_proc(proc)
+  proc
+}
+
 compile_closure_call <- function(
   call_expr,
   closure_obj,
@@ -390,32 +441,29 @@ compile_closure_call <- function(
     is_bool(needs_value)
   )
 
-  fun <- closure_obj@fun
-  call_expr <- match.call(fun, call_expr)
-  args_expr <- as.list(call_expr)[-1L]
+  call_info <- match_closure_call_args(
+    call_expr,
+    closure_obj,
+    scope,
+    ...,
+    hoist = hoist
+  )
+  args_f <- call_info$args_f
+  formal_vars <- call_info$formal_vars
 
-  formal_names <- names(formals(fun)) %||% character()
-  if (!identical((names(args_expr) %||% character()), formal_names)) {
-    stop("internal error: match.call did not align closure args")
-  }
-
-  args_f <- lapply(args_expr, r2f, scope, ..., hoist = hoist)
-  formal_vars <- closure_formal_vars(args_f, formal_names)
-
-  last_expr <- closure_last_expr(fun)
+  last_expr <- closure_last_expr(closure_obj@fun)
 
   if (is.null(last_expr)) {
     if (needs_value) {
       stop("local closure calls that return `NULL` cannot be used as values")
     }
-    proc <- compile_internal_subroutine(
+    proc <- compile_local_closure_proc(
       proc_name,
       closure_obj,
       scope,
       formal_vars = formal_vars,
       res_var = NULL
     )
-    scope_root(scope)@add_internal_proc(proc)
 
     call_args <- unname(args_f)
     if (length(call_args)) {
@@ -424,7 +472,7 @@ compile_closure_call <- function(
     return(Fortran(glue("call {proc$name}()")))
   }
 
-  proc <- compile_internal_subroutine(
+  proc <- compile_local_closure_proc(
     proc_name,
     closure_obj,
     scope,
@@ -432,7 +480,6 @@ compile_closure_call <- function(
     res_var = Variable(),
     allow_void_return = !needs_value
   )
-  scope_root(scope)@add_internal_proc(proc)
 
   if (!needs_value && is.null(proc$res)) {
     call_args <- unname(args_f)
@@ -484,19 +531,13 @@ compile_closure_call_assignment <- function(
   target_var <- get0(target_name, scope)
   target_exists <- inherits(target_var, Variable)
 
-  fun <- closure_obj@fun
-  if (is.null(closure_last_expr(fun))) {
+  if (is.null(closure_last_expr(closure_obj@fun))) {
     stop("local closure calls that return `NULL` cannot be assigned")
   }
-  call_expr <- match.call(fun, call_expr)
-  args_expr <- as.list(call_expr)[-1L]
-  formal_names <- names(formals(fun)) %||% character()
-  if (!identical((names(args_expr) %||% character()), formal_names)) {
-    stop("internal error: match.call did not align closure args")
-  }
-
-  args_f <- lapply(args_expr, r2f, scope, ...)
-  formal_vars <- closure_formal_vars(args_f, formal_names)
+  call_info <- match_closure_call_args(call_expr, closure_obj, scope, ...)
+  args_expr <- call_info$args_expr
+  args_f <- call_info$args_f
+  formal_vars <- call_info$formal_vars
 
   return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
   res_var <- if (target_exists) {
@@ -513,7 +554,7 @@ compile_closure_call_assignment <- function(
     Variable()
   }
 
-  proc <- compile_internal_subroutine(
+  proc <- compile_local_closure_proc(
     closure_name,
     closure_obj,
     scope,
@@ -539,7 +580,7 @@ compile_closure_call_assignment <- function(
       res_var <- Variable(mode = target_var@mode, dims = target_var@dims)
       res_var@name <- target_name
       res_var@logical_as_int <- TRUE
-      proc <- compile_internal_subroutine(
+      proc <- compile_local_closure_proc(
         closure_name,
         closure_obj,
         scope,

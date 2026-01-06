@@ -1,5 +1,5 @@
 test_that("declare(parallel()) and declare(omp()) parallelize loops", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   parallel_for <- function(x, n) {
     declare(type(x = double(n)), type(n = integer(1)), type(out = double(n)))
@@ -26,7 +26,7 @@ test_that("declare(parallel()) and declare(omp()) parallelize loops", {
 })
 
 test_that("parallel sapply supports axpy patterns", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   axpy <- function(x, y, a) {
     declare(
@@ -65,7 +65,7 @@ test_that("parallel sapply supports axpy patterns", {
 })
 
 test_that("parallel sapply supports seq_len(nrow(x))", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   row_sums <- function(x) {
     declare(type(x = double(NA, NA)))
@@ -79,7 +79,7 @@ test_that("parallel sapply supports seq_len(nrow(x))", {
 })
 
 test_that("parallel for-loops support value iteration", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   value_iter <- function(x) {
     declare(
@@ -102,7 +102,7 @@ test_that("parallel for-loops support value iteration", {
 })
 
 test_that("parallel declarations require supported targets", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   wrong_target <- function(x) {
     declare(type(x = double(1)))
@@ -128,7 +128,7 @@ test_that("parallel declarations require supported targets", {
 })
 
 test_that("parallel declarations do not cross control flow boundaries", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   if_decl <- function(x) {
     declare(type(x = double(1)))
@@ -163,7 +163,7 @@ test_that("parallel declarations do not cross control flow boundaries", {
 })
 
 test_that("openmp functions that use BLAS load and run", {
-  openmp_supported_or_skip()
+  skip_if_no_openmp()
 
   blas_parallel <- function(x, n) {
     declare(

@@ -27,6 +27,12 @@ test_that("symbol_name_or_null recognizes identifiers", {
   f_str <- quickr:::Fortran("x", var)
   expect_identical(quickr:::symbol_name_or_null(f_str), "x")
 
+  f_paren <- quickr:::Fortran("(x)", var, r = quote((x)))
+  expect_identical(quickr:::symbol_name_or_null(f_paren), "x")
+
+  f_nested <- quickr:::Fortran("(((x)))", var, r = quote((((x)))))
+  expect_identical(quickr:::symbol_name_or_null(f_nested), "x")
+
   f_expr <- quickr:::Fortran("x + 1", var, r = quote(x + 1))
   expect_null(quickr:::symbol_name_or_null(f_expr))
 })
@@ -41,26 +47,176 @@ test_that("destination helpers handle NULL and mode mismatches", {
   )
 
   dest <- quickr:::Variable("integer", list(1L), name = "out")
-  left <- quickr:::Fortran(
-    "x",
-    quickr:::Variable("double", list(1L), name = "x"),
-    r = quote(x)
-  )
-  right <- quickr:::Fortran(
-    "y",
-    quickr:::Variable("double", list(1L), name = "y"),
-    r = quote(y)
-  )
 
   expect_false(
     quickr:::can_use_output(
       dest,
-      left,
-      right,
+      input_names = c("x", "y"),
       expected_dims = list(1L),
       context = "ctx"
     )
   )
+})
+
+test_that("bind output helpers handle type coercion edge cases", {
+  make_value <- function(mode, dims = list(1L), name = "x") {
+    Fortran(
+      name,
+      Variable(mode, dims, name = name),
+      r = as.symbol(name)
+    )
+  }
+
+  val_logical <- make_value("logical", name = "l")
+  val_integer <- make_value("integer", name = "i")
+  val_double <- make_value("double", name = "d")
+  val_complex <- make_value("complex", name = "z")
+  val_raw <- make_value("raw", name = "r")
+  val_character <- make_value("character", name = "c")
+  val_unknown <- make_value(NULL, name = "u")
+
+  expect_identical(
+    bind_output_mode(list(val_integer, val_logical), "bind"),
+    "integer"
+  )
+  expect_identical(
+    bind_output_mode(list(val_double, val_integer), "bind"),
+    "double"
+  )
+
+  expect_error(
+    bind_output_mode(list(val_unknown), "bind"),
+    "inputs must have a known type"
+  )
+  expect_error(
+    bind_output_mode(list(val_complex, val_double), "bind"),
+    "does not support mixing complex"
+  )
+  expect_error(
+    bind_output_mode(list(val_raw, val_character), "bind"),
+    "does not support mixing raw with other types"
+  )
+
+  cast_double <- bind_cast_value(val_integer, "double", "bind")
+  expect_identical(cast_double@value@mode, "double")
+  expect_identical(cast_double@value@dims, val_integer@value@dims)
+
+  cast_int <- bind_cast_value(val_logical, "integer", "bind")
+  expect_identical(cast_int@value@mode, "integer")
+  expect_identical(
+    as.character(cast_int),
+    paste0("merge(1_c_int, 0_c_int, ", as.character(val_logical), ")")
+  )
+
+  expect_error(
+    bind_cast_value(val_double, "integer", "bind"),
+    "does not support coercion from"
+  )
+})
+
+test_that("bind dimension helpers cover scalar, symbolic, and unknown sizes", {
+  expect_error(
+    bind_dim_sum(list(NA_integer_), "ctx", "row"),
+    "requires inputs with known row sizes"
+  )
+
+  expr <- bind_dim_sum(list(quote(n), 2L), "ctx", "column")
+  expect_true(is.language(expr))
+  expect_identical(expr[[1L]], quote(`+`))
+
+  expect_identical(
+    bind_common_dim(list(1L, 1L), c(TRUE, TRUE), "ctx", "row"),
+    1L
+  )
+  expect_warning(
+    common <- bind_common_dim(
+      list(quote(n), quote(m)),
+      c(FALSE, FALSE),
+      "ctx",
+      "row"
+    ),
+    "cannot verify conformability in ctx"
+  )
+  expect_identical(common, quote(n))
+
+  expect_identical(bind_dim_string(3L), "3")
+  expect_identical(
+    bind_dim_string(quote(n + 1L)),
+    "n + 1"
+  )
+  expect_identical(bind_dim_int(quote(n + 1L)), "int(n + 1)")
+})
+
+test_that("bind matrix expression helpers protect against unsupported ranks", {
+  scalar <- Fortran(
+    "s",
+    Variable("double", name = "s"),
+    r = quote(s)
+  )
+  mat <- Fortran(
+    "A",
+    Variable("double", list(2L, 2L), name = "A"),
+    r = quote(A)
+  )
+  rank3 <- Fortran(
+    "arr",
+    Variable("double", list(2L, 2L, 2L), name = "arr"),
+    r = quote(arr)
+  )
+
+  expect_identical(
+    bind_col_matrix_expr(
+      mat,
+      rows = 2L,
+      is_scalar = FALSE,
+      context = "ctx"
+    ),
+    "A"
+  )
+  expect_identical(
+    bind_row_matrix_expr(
+      mat,
+      cols = 2L,
+      is_scalar = FALSE,
+      context = "ctx"
+    ),
+    "A"
+  )
+
+  expect_error(
+    bind_col_matrix_expr(
+      rank3,
+      rows = 2L,
+      is_scalar = FALSE,
+      context = "ctx"
+    ),
+    "only supports rank 0-2 inputs"
+  )
+  expect_error(
+    bind_row_matrix_expr(
+      rank3,
+      cols = 2L,
+      is_scalar = FALSE,
+      context = "ctx"
+    ),
+    "only supports rank 0-2 inputs"
+  )
+
+  spread_col <- bind_col_matrix_expr(
+    scalar,
+    rows = quote(n),
+    is_scalar = TRUE,
+    context = "ctx"
+  )
+  expect_match(spread_col, "spread", fixed = FALSE)
+
+  spread_row <- bind_row_matrix_expr(
+    scalar,
+    cols = quote(m),
+    is_scalar = TRUE,
+    context = "ctx"
+  )
+  expect_match(spread_row, "spread", fixed = FALSE)
 })
 
 test_that("unwrap_transpose_arg handles scalar inputs and rank errors", {
