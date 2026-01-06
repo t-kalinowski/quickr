@@ -152,6 +152,289 @@ r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
   }
 }
 
+bind_output_mode <- function(values, context) {
+  modes <- unique(vapply(
+    values,
+    function(val) val@value@mode %||% NA_character_,
+    character(1)
+  ))
+  if (anyNA(modes) || any(!nzchar(modes))) {
+    stop(context, " inputs must have a known type", call. = FALSE)
+  }
+  if ("complex" %in% modes) {
+    if (length(modes) > 1L) {
+      stop(
+        context,
+        " does not support mixing complex with other types",
+        call. = FALSE
+      )
+    }
+    return("complex")
+  }
+  if ("double" %in% modes) {
+    return("double")
+  }
+  if ("integer" %in% modes) {
+    return("integer")
+  }
+  if ("logical" %in% modes) {
+    return("logical")
+  }
+  if ("raw" %in% modes) {
+    if (length(modes) > 1L) {
+      stop(
+        context,
+        " does not support mixing raw with other types",
+        call. = FALSE
+      )
+    }
+    return("raw")
+  }
+  stop(context, " does not support input mode(s): ", str_flatten_commas(modes))
+}
+
+bind_cast_value <- function(value, mode, context) {
+  if (identical(value@value@mode, mode)) {
+    return(value)
+  }
+  if (identical(mode, "double")) {
+    return(maybe_cast_double(value))
+  }
+  if (identical(mode, "integer") && identical(value@value@mode, "logical")) {
+    return(Fortran(
+      glue("merge(1_c_int, 0_c_int, {value})"),
+      Variable("integer", value@value@dims)
+    ))
+  }
+  stop(
+    context,
+    " does not support coercion from ",
+    value@value@mode,
+    " to ",
+    mode,
+    call. = FALSE
+  )
+}
+
+bind_dim_sum <- function(values, context, label) {
+  if (!length(values)) {
+    return(0L)
+  }
+  if (any(map_lgl(values, is_scalar_na))) {
+    stop(
+      context,
+      " requires inputs with known ",
+      label,
+      " sizes",
+      call. = FALSE
+    )
+  }
+  if (all(map_lgl(values, is_wholenumber))) {
+    return(sum(as.integer(values)))
+  }
+  reduce(values, \(a, b) call("+", a, b))
+}
+
+bind_common_dim <- function(dim_list, scalar_flags, context, label) {
+  non_scalar <- which(!scalar_flags)
+  if (!length(non_scalar)) {
+    return(1L)
+  }
+  target <- dim_list[[non_scalar[[1L]]]]
+  if (is_scalar_na(target)) {
+    stop(
+      context,
+      " requires inputs with known ",
+      label,
+      " counts",
+      call. = FALSE
+    )
+  }
+  if (length(non_scalar) > 1L) {
+    for (idx in non_scalar[-1L]) {
+      conform <- check_conformable(target, dim_list[[idx]])
+      if (!conform$ok) {
+        stop(
+          context,
+          " requires inputs with a common ",
+          label,
+          " count",
+          call. = FALSE
+        )
+      }
+      if (conform$unknown) {
+        warn_conformability_unknown(target, dim_list[[idx]], context)
+      }
+    }
+  }
+  target
+}
+
+bind_dim_string <- function(dim) {
+  if (is.character(dim)) {
+    dim
+  } else if (is_wholenumber(dim)) {
+    as.character(as.integer(dim))
+  } else if (is.numeric(dim)) {
+    as.character(dim)
+  } else {
+    gsub("([0-9]+)L\\b", "\\1", deparse1(dim))
+  }
+}
+
+bind_dim_int <- function(dim) {
+  paste0("int(", bind_dim_string(dim), ")")
+}
+
+bind_col_matrix_expr <- function(value, rows, is_scalar, context) {
+  rows_int <- bind_dim_int(rows)
+  if (is_scalar) {
+    vec <- glue("spread({value}, 1, {rows_int})")
+    return(glue("reshape({vec}, [{rows_int}, 1])"))
+  }
+  if (value@value@rank == 1L) {
+    return(glue("reshape({value}, [{rows_int}, 1])"))
+  }
+  if (value@value@rank == 2L) {
+    return(as.character(value))
+  }
+  stop(context, " only supports rank 0-2 inputs", call. = FALSE)
+}
+
+bind_row_matrix_expr <- function(value, cols, is_scalar, context) {
+  cols_int <- bind_dim_int(cols)
+  if (is_scalar) {
+    vec <- glue("spread({value}, 1, {cols_int})")
+    return(glue("reshape({vec}, [1, {cols_int}])"))
+  }
+  if (value@value@rank == 1L) {
+    return(glue("reshape({value}, [1, {cols_int}])"))
+  }
+  if (value@value@rank == 2L) {
+    return(as.character(value))
+  }
+  stop(context, " only supports rank 0-2 inputs", call. = FALSE)
+}
+
+register_r2f_handler(
+  "cbind",
+  function(args, scope, ..., hoist = NULL) {
+    context <- "cbind()"
+    if (!is.null(args$deparse.level) && !is_missing(args$deparse.level)) {
+      args$deparse.level <- NULL
+    }
+    args <- args[!vapply(args, is_missing, logical(1))]
+    args <- args[
+      !vapply(
+        args,
+        \(x) is.null(x) || identical(x, quote(NULL)),
+        logical(1)
+      )
+    ]
+    if (!length(args)) {
+      stop("cbind() requires at least one argument", call. = FALSE)
+    }
+
+    values <- lapply(args, r2f, scope, ..., hoist = hoist)
+    for (val in values) {
+      if (is.null(val@value) || is.null(val@value@mode)) {
+        stop(context, " inputs must have a value", call. = FALSE)
+      }
+      if (val@value@rank > 2L) {
+        stop(context, " only supports rank 0-2 inputs", call. = FALSE)
+      }
+    }
+
+    mode <- bind_output_mode(values, context)
+    values <- lapply(values, bind_cast_value, mode = mode, context = context)
+
+    dims <- lapply(values, matrix_dims, orientation = "colvec")
+    scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
+    row_sizes <- lapply(dims, `[[`, "rows")
+    col_sizes <- lapply(dims, `[[`, "cols")
+
+    rows <- bind_common_dim(row_sizes, scalar_flags, context, "row")
+    cols <- bind_dim_sum(col_sizes, context, "column")
+
+    col_exprs <- vector("list", length(values))
+    for (i in seq_along(values)) {
+      col_exprs[[i]] <- bind_col_matrix_expr(
+        value = values[[i]],
+        rows = rows,
+        is_scalar = scalar_flags[[i]],
+        context = context
+      )
+    }
+
+    data_expr <- glue("[{str_flatten_commas(col_exprs)}]")
+    out_expr <- glue(
+      "reshape({data_expr}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
+    )
+    Fortran(out_expr, Variable(mode, list(rows, cols)))
+  }
+)
+
+register_r2f_handler(
+  "rbind",
+  function(args, scope, ..., hoist = NULL) {
+    context <- "rbind()"
+    if (!is.null(args$deparse.level) && !is_missing(args$deparse.level)) {
+      args$deparse.level <- NULL
+    }
+    args <- args[!vapply(args, is_missing, logical(1))]
+    args <- args[
+      !vapply(
+        args,
+        \(x) is.null(x) || identical(x, quote(NULL)),
+        logical(1)
+      )
+    ]
+    if (!length(args)) {
+      stop("rbind() requires at least one argument", call. = FALSE)
+    }
+
+    values <- lapply(args, r2f, scope, ..., hoist = hoist)
+    for (val in values) {
+      if (is.null(val@value) || is.null(val@value@mode)) {
+        stop(context, " inputs must have a value", call. = FALSE)
+      }
+      if (val@value@rank > 2L) {
+        stop(context, " only supports rank 0-2 inputs", call. = FALSE)
+      }
+    }
+
+    mode <- bind_output_mode(values, context)
+    values <- lapply(values, bind_cast_value, mode = mode, context = context)
+
+    dims <- lapply(values, matrix_dims, orientation = "rowvec")
+    scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
+    row_sizes <- lapply(dims, `[[`, "rows")
+    col_sizes <- lapply(dims, `[[`, "cols")
+
+    cols <- bind_common_dim(col_sizes, scalar_flags, context, "column")
+    rows <- bind_dim_sum(row_sizes, context, "row")
+
+    row_exprs <- vector("list", length(values))
+    for (i in seq_along(values)) {
+      row_exprs[[i]] <- bind_row_matrix_expr(
+        value = values[[i]],
+        cols = cols,
+        is_scalar = scalar_flags[[i]],
+        context = context
+      )
+    }
+    transposed <- lapply(row_exprs, \(expr) glue("transpose({expr})"))
+
+    data_expr <- glue("[{str_flatten_commas(transposed)}]")
+    combined <- glue(
+      "reshape({data_expr}, [{bind_dim_int(cols)}, {bind_dim_int(rows)}])"
+    )
+    out_expr <- glue("transpose({combined})")
+
+    Fortran(out_expr, Variable(mode, list(rows, cols)))
+  }
+)
+
 
 # Handle crossprod(), using SYRK for single-arg and GEMM for two-arg forms.
 register_r2f_handler(

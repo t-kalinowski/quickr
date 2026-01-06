@@ -1359,12 +1359,6 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
   Fortran(s, Variable(mode, list(len)))
 }
 
-r2f_handlers[["cbind"]] <- function(args, scope = NULL, ...) {
-  # TODO: implement cbind() lowering.
-  stop("cbind() not implemented yet", call. = FALSE)
-}
-
-
 reduce_promoted_mode <- function(...) {
   getmode <- function(d) {
     if (inherits(d, Fortran)) {
