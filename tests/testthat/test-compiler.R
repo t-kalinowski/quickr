@@ -1,16 +1,5 @@
 # Unit tests for compiler selection helpers
 
-test_that("quickr_env_is_true recognizes common truthy values", {
-  withr::local_envvar(c(QUICKR_PREFER_FLANG = ""))
-  expect_false(quickr:::quickr_env_is_true("QUICKR_PREFER_FLANG"))
-
-  withr::local_envvar(c(QUICKR_PREFER_FLANG = "1"))
-  expect_true(quickr:::quickr_env_is_true("QUICKR_PREFER_FLANG"))
-
-  withr::local_envvar(c(QUICKR_PREFER_FLANG = "YeS"))
-  expect_true(quickr:::quickr_env_is_true("QUICKR_PREFER_FLANG"))
-})
-
 test_that("quickr_r_cmd_config_value captures only stdout", {
   expect_identical(
     deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),
@@ -74,12 +63,7 @@ test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stub
 
   expect_identical(quickr:::quickr_flang_path(which = which), "/tmp/flang-new")
 
-  withr::local_options(
-    quickr.prefer_flang = NULL,
-    quickr.prefer_flang_force = NULL,
-    quickr.prefer_flang_auto = TRUE
-  )
-  withr::local_envvar(c(QUICKR_PREFER_FLANG = ""))
+  withr::local_options(quickr.fortran_compiler = "auto")
 
   expect_true(quickr:::quickr_prefer_flang(
     sysname = "Darwin",
@@ -87,15 +71,32 @@ test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stub
     system2 = system2_stub
   ))
   expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
+})
 
-  withr::local_options(quickr.prefer_flang = FALSE)
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin", which = which))
+test_that("quickr_prefer_flang respects quickr.fortran_compiler", {
+  withr::local_options(quickr.fortran_compiler = "flang")
+  expect_true(quickr:::quickr_prefer_flang(sysname = "Linux"))
 
-  withr::local_options(
-    quickr.prefer_flang = NULL,
-    quickr.prefer_flang_force = TRUE
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin"))
+})
+
+test_that("quickr_fortran_compiler_option validates values", {
+  withr::local_options(quickr.fortran_compiler = "auto")
+  expect_null(quickr:::quickr_fortran_compiler_option())
+
+  withr::local_options(quickr.fortran_compiler = "flang")
+  expect_identical(quickr:::quickr_fortran_compiler_option(), "flang")
+
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  expect_identical(quickr:::quickr_fortran_compiler_option(), "gfortran")
+
+  withr::local_options(quickr.fortran_compiler = "nope")
+  expect_error(
+    quickr:::quickr_fortran_compiler_option(),
+    "options(quickr.fortran_compiler)",
+    fixed = TRUE
   )
-  expect_true(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
 })
 
 test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
@@ -118,12 +119,11 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   build_dir <- file.path(temp, "build")
   dir.create(build_dir)
 
+  withr::local_options(quickr.fortran_compiler = "flang")
   env <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
     which = which,
     system2 = function(...) "",
-    prefer_flang = TRUE,
-    prefer_flang_force = TRUE,
     sysname = "Darwin"
   )
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
@@ -133,13 +133,12 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
 test_that("quickr_fcompiler_env errors when flang is explicitly requested but unavailable", {
   build_dir <- withr::local_tempdir()
 
+  withr::local_options(quickr.fortran_compiler = "flang")
   expect_error(
     quickr:::quickr_fcompiler_env(
       build_dir = build_dir,
       which = function(cmd) "",
-      system2 = function(...) structure("", status = 1L),
-      prefer_flang = TRUE,
-      prefer_flang_force = TRUE
+      system2 = function(...) structure("", status = 1L)
     ),
     "configured to use flang",
     fixed = TRUE
@@ -188,7 +187,7 @@ test_that("compile cleans existing build directories and reports failures", {
   )
 
   expect_error(
-    quickr:::compile(fsub, build_dir = build_dir),
+    suppressWarnings(quickr:::compile(fsub, build_dir = build_dir)),
     "Compilation Error",
     fixed = TRUE
   )

@@ -127,12 +127,11 @@ session.
 
 In interactive use, you can explicitly control this with:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{options(quickr.prefer_flang = TRUE)
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{options(quickr.fortran_compiler = "flang")
 }\if{html}{\out{</div>}}
 
-To disable the macOS auto-preference, set \code{options(quickr.prefer_flang_auto = FALSE)}
-(or set \code{options(quickr.prefer_flang = FALSE)} to opt out entirely).
-In non-interactive scripts, set \code{Sys.setenv(QUICKR_PREFER_FLANG = "1")}.
+To disable the macOS auto-preference, set
+\code{options(quickr.fortran_compiler = "gfortran")}.
 }
 }
 \examples{

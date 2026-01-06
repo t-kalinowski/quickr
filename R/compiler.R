@@ -59,6 +59,24 @@ quickr_warn_flang_fallback_once <- function(state = quickr_flang_state) {
   invisible(TRUE)
 }
 
+quickr_compiler_warning_state <- local({
+  state <- new.env(parent = emptyenv())
+  state$warned <- FALSE
+  state
+})
+
+quickr_warn_compiler_failure_once <- function(
+  message,
+  state = quickr_compiler_warning_state
+) {
+  if (isTRUE(state$warned)) {
+    return(invisible(TRUE))
+  }
+  warning(message, call. = FALSE)
+  state$warned <- TRUE
+  invisible(TRUE)
+}
+
 quickr_flang_runtime_flags <- local({
   cache <- NULL
 
@@ -99,12 +117,33 @@ quickr_flang_runtime_flags <- local({
   }
 })
 
-quickr_env_is_true <- function(name) {
-  val <- Sys.getenv(name, unset = "")
-  if (!nzchar(val)) {
-    return(FALSE)
+quickr_fortran_compiler_option <- function(
+  opt = getOption("quickr.fortran_compiler")
+) {
+  if (is.null(opt)) {
+    return(NULL)
   }
-  tolower(val) %in% c("1", "true", "t", "yes", "y", "on")
+  if (!is_string(opt)) {
+    stop(
+      "`options(quickr.fortran_compiler)` must be a single string.",
+      call. = FALSE
+    )
+  }
+  opt <- tolower(trimws(opt))
+  if (!nzchar(opt) || opt %in% c("auto", "default", "system")) {
+    return(NULL)
+  }
+  if (opt %in% c("flang", "flang-new")) {
+    return("flang")
+  }
+  if (opt %in% c("gfortran", "gnu")) {
+    return("gfortran")
+  }
+  stop(
+    "`options(quickr.fortran_compiler)` must be one of ",
+    "\"flang\", \"gfortran\", or \"auto\".",
+    call. = FALSE
+  )
 }
 
 quickr_prefer_flang <- function(
@@ -112,24 +151,19 @@ quickr_prefer_flang <- function(
   which = Sys.which,
   system2 = base::system2
 ) {
-  opt <- getOption("quickr.prefer_flang")
-  if (isFALSE(opt)) {
-    return(FALSE)
-  }
-  explicit_request <- isTRUE(opt) ||
-    quickr_env_is_true("QUICKR_PREFER_FLANG") ||
-    isTRUE(getOption("quickr.prefer_flang_force"))
-  if (explicit_request) {
+  compiler_opt <- quickr_fortran_compiler_option()
+  if (identical(compiler_opt, "flang")) {
     return(TRUE)
+  }
+  if (identical(compiler_opt, "gfortran")) {
+    return(FALSE)
   }
   if (quickr_flang_auto_disabled()) {
     return(FALSE)
   }
 
   # Best-effort: on macOS, prefer flang if it is available.
-  if (
-    isTRUE(getOption("quickr.prefer_flang_auto", TRUE)) && sysname == "Darwin"
-  ) {
+  if (sysname == "Darwin") {
     info <- quickr_flang_available(which = which, system2 = system2)
     return(isTRUE(info$available))
   }
@@ -141,9 +175,6 @@ quickr_fcompiler_env <- function(
   build_dir,
   which = Sys.which,
   system2 = base::system2,
-  prefer_flang = quickr_prefer_flang(which = which, system2 = system2),
-  prefer_flang_force = isTRUE(getOption("quickr.prefer_flang_force")) ||
-    quickr_env_is_true("QUICKR_PREFER_FLANG"),
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
@@ -153,12 +184,16 @@ quickr_fcompiler_env <- function(
 
   use_openmp <- isTRUE(use_openmp)
   link_flags <- link_flags[nzchar(link_flags)]
-  explicit_request <- isTRUE(prefer_flang_force) ||
-    isTRUE(getOption("quickr.prefer_flang"))
+  compiler_opt <- quickr_fortran_compiler_option()
+  explicit_request <- identical(compiler_opt, "flang")
 
   flang <- ""
   flang_runtime <- character()
-  use_flang <- isTRUE(prefer_flang)
+  use_flang <- isTRUE(quickr_prefer_flang(
+    sysname = sysname,
+    which = which,
+    system2 = system2
+  ))
   if (use_flang) {
     flang_info <- quickr_flang_available(which = which, system2 = system2)
     flang <- flang_info$path
@@ -166,17 +201,15 @@ quickr_fcompiler_env <- function(
       if (isTRUE(explicit_request)) {
         stop(
           "quickr was configured to use flang, but flang was not available or could not be executed.\n",
-          "Ensure flang is on your PATH and that `flang --version` succeeds, or disable flang selection with:\n",
-          "  options(quickr.prefer_flang = FALSE)\n",
-          "or:\n",
-          "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
+          "Ensure flang is on your PATH and that `flang --version` succeeds, or switch compilers with:\n",
+          "  options(quickr.fortran_compiler = \"gfortran\")\n"
         )
       }
       use_flang <- FALSE
       flang <- ""
     }
   }
-  if (use_openmp && use_flang && !isTRUE(prefer_flang_force)) {
+  if (use_openmp && use_flang && !isTRUE(explicit_request)) {
     use_flang <- FALSE
     flang <- ""
   }
@@ -192,10 +225,8 @@ quickr_fcompiler_env <- function(
           "quickr was configured to use flang (",
           flang,
           ") but could not locate the flang runtime library (libflang_rt.runtime.dylib) to link against.\n",
-          "Either reinstall flang so the runtime is available, or disable flang selection with:\n",
-          "  options(quickr.prefer_flang = FALSE)\n",
-          "or:\n",
-          "  Sys.setenv(QUICKR_PREFER_FLANG = 0)\n"
+          "Either reinstall flang so the runtime is available, or switch compilers with:\n",
+          "  options(quickr.fortran_compiler = \"gfortran\")\n"
         )
       }
       use_flang <- FALSE
