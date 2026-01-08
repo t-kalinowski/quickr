@@ -187,3 +187,58 @@ test_that("iterable_is_singleton_one handles unknown iterable kinds", {
 
   expect_false(quickr:::iterable_is_singleton_one(quote(seq_len(1L)), scope))
 })
+
+test_that("quickr_r_cmd adds .exe extension on Windows when needed", {
+  result <- quickr:::quickr_r_cmd(
+    os_type = "windows",
+    r_home = function(sub) "/path/to/R",
+    file_exists = function(x) FALSE
+  )
+  expect_equal(result, "/path/to/R.exe")
+})
+
+test_that("set_names handles list argument", {
+  x <- 1:2
+  names(x) <- c("a", "b")
+  result <- quickr:::set_names(x, "c", "d")
+  expect_equal(names(result), c("c", "d"))
+})
+
+test_that("zip_lists reorders elements when names match but different order", {
+  a <- list(x = 1, y = 2)
+  b <- list(y = 4, x = 3)
+  result <- quickr:::zip_lists(a, b)
+  expect_equal(result$x, list(1, 3))
+  expect_equal(result$y, list(2, 4))
+})
+
+test_that("is_scalar returns correct values", {
+  expect_true(quickr:::is_scalar(1))
+  expect_true(quickr:::is_scalar("a"))
+  expect_false(quickr:::is_scalar(1:2))
+  expect_false(quickr:::is_scalar(character()))
+})
+
+test_that("quickr_ordered_env detects untracked names", {
+  env <- quickr:::new_ordered_env()
+  # Directly assign without going through [[<-
+  base::assign("sneaky", 1, envir = env)
+  expect_error(
+    suppressWarnings(names(env)),
+    "untracked name"
+  )
+})
+
+test_that("print.quickr_ordered_env outputs bindings", {
+  env <- quickr:::new_ordered_env()
+  env[["x"]] <- 1
+  env[["y"]] <- 2
+  out <- capture.output(print(env))
+  expect_true(any(grepl("x", out)))
+  expect_true(any(grepl("with bindings", out)))
+})
+
+test_that("check_assignment_compatible handles NULL value", {
+  target <- quickr:::Variable("double", list(1L))
+  expect_silent(quickr:::check_assignment_compatible(target, NULL))
+})

@@ -360,3 +360,48 @@ test_that("local closures can be called directly with multiple arguments", {
   set.seed(1)
   expect_quick_identical(fn, list(10L, 8L, 0.1, 0.01, 3L))
 })
+
+test_that("sapply errors for insufficient arguments", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      out <- sapply(seq_along(x))
+      out
+    }),
+    "sapply\\(\\) requires at least 2 arguments"
+  )
+})
+
+test_that("sapply errors for unsupported simplify value", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      out <- sapply(seq_along(x), function(i) x[i], simplify = FALSE)
+      out
+    }),
+    'Only `sapply.*simplify = "array".*is supported'
+  )
+})
+
+test_that("sapply errors for unsupported FUN", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      out <- sapply(seq_along(x), "mean")
+      out
+    }),
+    "unsupported FUN in sapply"
+  )
+})
+
+test_that("sapply errors when FUN has wrong number of arguments", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      f <- function(i, j) x[i] + x[j]
+      out <- sapply(seq_along(x), f)
+      out
+    }),
+    "sapply\\(\\) FUN must have exactly one named argument"
+  )
+})

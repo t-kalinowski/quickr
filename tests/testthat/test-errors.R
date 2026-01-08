@@ -98,3 +98,29 @@ test_that("reserved or underscored names are rejected", {
     fixed = TRUE
   )
 })
+
+test_that("closure return mode must match output mode", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(1)))
+      out <- integer(1)
+      compute <- function() x + 1
+      out <- compute()
+      out
+    }),
+    "closure result mode.*does not match output mode"
+  )
+})
+
+test_that("closure must return scalar for scalar outputs", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(3)))
+      s <- 0
+      compute <- function() x
+      s <- compute()
+      s
+    }),
+    "closure must return a scalar"
+  )
+})

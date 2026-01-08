@@ -166,3 +166,91 @@ test_that("matrix conformability warnings are surfaced", {
     "cannot verify conformability in %\\*%"
   )
 })
+
+test_that("infer_dest_crossprod returns NULL for non-symbol arg", {
+  scope <- quickr:::new_scope(function() NULL)
+  # Pass a literal instead of a symbol
+  args <- list(1L)
+  result <- quickr:::infer_dest_crossprod(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_tcrossprod returns NULL for non-symbol arg", {
+  scope <- quickr:::new_scope(function() NULL)
+  # Pass a literal instead of a symbol
+  args <- list(1L)
+  result <- quickr:::infer_dest_tcrossprod(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_outer returns NULL when x or y not resolved", {
+  scope <- quickr:::new_scope(function() NULL)
+  # Pass symbols that don't resolve
+  args <- list(quote(x), quote(y))
+  result <- quickr:::infer_dest_outer(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_outer returns NULL for rank > 1 inputs", {
+  scope <- quickr:::new_scope(function() NULL)
+  scope[["x"]] <- quickr:::Variable("double", list(2L, 2L))
+  scope[["y"]] <- quickr:::Variable("double", list(2L))
+  args <- list(quote(x), quote(y))
+  result <- quickr:::infer_dest_outer(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_outer works with valid vector inputs", {
+  scope <- quickr:::new_scope(function() NULL)
+  scope[["x"]] <- quickr:::Variable("double", list(2L))
+  scope[["y"]] <- quickr:::Variable("double", list(3L))
+  args <- list(quote(x), quote(y))
+  result <- quickr:::infer_dest_outer(args, scope)
+  expect_true(S7::S7_inherits(result, quickr:::Variable))
+  expect_equal(result@dims, list(2L, 3L))
+})
+
+test_that("infer_dest_triangular returns NULL for < 2 args", {
+  scope <- quickr:::new_scope(function() NULL)
+  args <- list(quote(A))
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_triangular returns NULL when A or B not resolved", {
+  scope <- quickr:::new_scope(function() NULL)
+  args <- list(quote(A), quote(B))
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_triangular returns NULL for wrong ranks", {
+  scope <- quickr:::new_scope(function() NULL)
+  # A not rank 2
+  scope[["A"]] <- quickr:::Variable("double", list(2L))
+  scope[["B"]] <- quickr:::Variable("double", list(2L))
+  args <- list(quote(A), quote(B))
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_null(result)
+
+  # B rank 0
+  scope[["A"]] <- quickr:::Variable("double", list(2L, 2L))
+  scope[["B"]] <- quickr:::Variable("double")
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_null(result)
+
+  # B rank > 2
+  scope[["B"]] <- quickr:::Variable("double", list(2L, 2L, 2L))
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_null(result)
+})
+
+test_that("infer_dest_triangular returns correct dims for valid inputs", {
+  scope <- quickr:::new_scope(function() NULL)
+  scope[["A"]] <- quickr:::Variable("double", list(2L, 2L))
+  scope[["B"]] <- quickr:::Variable("double", list(2L, 3L))
+  args <- list(quote(A), quote(B))
+  result <- quickr:::infer_dest_triangular(args, scope)
+  expect_true(S7::S7_inherits(result, quickr:::Variable))
+  expect_equal(result@dims, list(2L, 3L))
+})

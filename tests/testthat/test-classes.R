@@ -74,3 +74,36 @@ test_that("Fortran validates length and prints non-null properties", {
   expect_true(any(grepl("@value:", out, fixed = TRUE)))
   expect_true(any(grepl("@r:", out, fixed = TRUE)))
 })
+
+test_that("new_setter returns NULL when no coercion or set_once", {
+  result <- quickr:::new_setter(coerce = FALSE, set_once = FALSE)
+  expect_null(result)
+})
+
+test_that("new_setter handles coerce = NULL correctly", {
+  result <- quickr:::new_setter(coerce = NULL, set_once = FALSE)
+  expect_null(result)
+})
+
+test_that("new_setter handles TRUE coercion", {
+  Test <- S7::new_class(
+    name = "TestCoerce",
+    properties = list(
+      x = quickr:::prop_string(
+        default = NULL,
+        allow_null = TRUE,
+        coerce = TRUE
+      )
+    )
+  )
+  obj <- Test()
+  obj@x <- 123
+  expect_identical(obj@x, "123")
+})
+
+test_that("new_setter errors for invalid coerce argument", {
+  expect_error(
+    quickr:::new_setter(coerce = list()),
+    "coerce must be TRUE, FALSE, NULL"
+  )
+})
