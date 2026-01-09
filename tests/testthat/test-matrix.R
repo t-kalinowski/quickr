@@ -89,6 +89,24 @@ test_that("elementwise vector and singleton matrix keep matrix shape", {
   )
 })
 
+test_that("elementwise vector and singleton column matrix keep matrix shape", {
+  fn <- function(vec, mat) {
+    declare(
+      type(vec = double(n)),
+      type(mat = double(n, 1L))
+    )
+    left_side_vec <- vec + mat
+    right_side_vec <- mat + vec
+    out <- left_side_vec + right_side_vec
+    out
+  }
+
+  expect_quick_identical(
+    fn,
+    list(runif(4), matrix(runif(4), ncol = 1L))
+  )
+})
+
 test_that("elementwise ops reshape vectors for singleton matrices", {
   fn <- function(vec, mat) {
     declare(

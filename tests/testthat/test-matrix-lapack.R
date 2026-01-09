@@ -33,6 +33,33 @@ test_that("solve matches R for vector, matrix, and inverse", {
   expect_quick_equal(solve_inv, list(A = A))
 })
 
+test_that("solve handles column RHS matrices and 1x1 systems", {
+  solve_col <- function(A, B) {
+    declare(
+      type(A = double(n, n)),
+      type(B = double(n, 1L))
+    )
+    solve(A, B)
+  }
+
+  solve_scalar <- function(A, b) {
+    declare(
+      type(A = double(1L, 1L)),
+      type(b = double(1L))
+    )
+    solve(A, b)
+  }
+
+  set.seed(10)
+  n <- 4
+  base <- matrix(rnorm(n * n), n, n)
+  A <- crossprod(base) + diag(n)
+  B <- matrix(rnorm(n), n, 1L)
+
+  expect_quick_equal(solve_col, list(A = A, B = B))
+  expect_quick_equal(solve_scalar, list(A = matrix(2.5, 1L, 1L), b = 1.25))
+})
+
 test_that("chol and chol2inv match R", {
   chol_fn <- function(A) {
     declare(type(A = double(n, n)))
@@ -52,6 +79,22 @@ test_that("chol and chol2inv match R", {
 
   expect_quick_equal(chol_fn, list(A = A))
   expect_quick_equal(chol2inv_fn, list(A = A))
+})
+
+test_that("chol and chol2inv handle 1x1 matrices", {
+  chol_scalar <- function(A) {
+    declare(type(A = double(1L, 1L)))
+    chol(A)
+  }
+
+  chol2inv_scalar <- function(A) {
+    declare(type(A = double(1L, 1L)))
+    U <- chol(A)
+    chol2inv(U)
+  }
+
+  expect_quick_equal(chol_scalar, list(A = matrix(3.2, 1L, 1L)))
+  expect_quick_equal(chol2inv_scalar, list(A = matrix(3.2, 1L, 1L)))
 })
 
 test_that("diag matches R for vectors, matrices, and sizes", {
@@ -82,6 +125,31 @@ test_that("diag matches R for vectors, matrices, and sizes", {
   expect_quick_equal(diag_mat, list(A = A))
   expect_quick_equal(diag_size, list())
   expect_quick_equal(diag_value, list(x = 2.5))
+})
+
+test_that("diag handles missing x with nrow/ncol and 1x1 matrices", {
+  diag_nrow <- function(n) {
+    declare(type(n = integer(1)))
+    diag(nrow = n)
+  }
+
+  diag_ncol <- function(n) {
+    declare(type(n = integer(1)))
+    diag(ncol = n)
+  }
+
+  diag_rowvec <- function(A) {
+    declare(type(A = double(1L, n)))
+    diag(A)
+  }
+
+  expect_quick_equal(diag_nrow, list(n = 3L))
+  expect_error(diag_ncol(2L), "nrow")
+  expect_error(quick(diag_ncol)(2L), "nrow")
+  expect_quick_equal(
+    diag_rowvec,
+    list(A = matrix(runif(3), nrow = 1L))
+  )
 })
 
 test_that("linear model example matches R", {

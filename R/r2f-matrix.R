@@ -631,7 +631,10 @@ register_r2f_handler(
 register_r2f_handler(
   "diag",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
-    x_arg <- args$x %||% args[[1L]]
+    arg_names <- names(args)
+    first_named <- length(arg_names) >= 1L && nzchar(arg_names[[1L]])
+    first_is_dim <- first_named && arg_names[[1L]] %in% c("nrow", "ncol")
+    x_arg <- if (first_is_dim) NULL else args$x %||% args[[1L]]
     nrow_arg <- args$nrow
     ncol_arg <- args$ncol
     if (!is.null(args$names) && !is_missing(args$names)) {
@@ -643,6 +646,9 @@ register_r2f_handler(
 
     if (is.null(x_arg) || is_missing(x_arg)) {
       if (!has_nrow && !has_ncol) {
+        stop("argument \"nrow\" is missing, with no default", call. = FALSE)
+      }
+      if (!has_nrow && has_ncol) {
         stop("argument \"nrow\" is missing, with no default", call. = FALSE)
       }
       x_val <- Fortran("1.0_c_double", Variable("double"))
