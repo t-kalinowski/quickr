@@ -161,3 +161,61 @@ infer_dest_triangular <- function(args, scope) {
   }
   Variable("double", B@dims)
 }
+
+# Infer destination dimensions for solve().
+infer_dest_solve <- function(args, scope) {
+  a_arg <- args$a %||% args[[1L]]
+  if (is.null(a_arg)) {
+    return(NULL)
+  }
+  A <- infer_symbol_var(a_arg, scope)
+  if (is.null(A) || A@rank != 2L) {
+    return(NULL)
+  }
+  a_dims <- matrix_dims_var(A)
+  n <- a_dims$rows
+
+  b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
+  if (is.null(b_arg)) {
+    return(Variable("double", list(n, n)))
+  }
+  B <- infer_symbol_var(b_arg, scope)
+  if (is.null(B)) {
+    return(NULL)
+  }
+  if (B@rank == 1L) {
+    return(Variable("double", list(n)))
+  }
+  if (B@rank == 2L) {
+    return(Variable("double", list(n, B@dims[[2L]])))
+  }
+  NULL
+}
+
+# Infer destination dimensions for chol().
+infer_dest_chol <- function(args, scope) {
+  a_arg <- args[[1L]]
+  if (is.null(a_arg)) {
+    return(NULL)
+  }
+  A <- infer_symbol_var(a_arg, scope)
+  if (is.null(A) || A@rank != 2L) {
+    return(NULL)
+  }
+  a_dims <- matrix_dims_var(A)
+  Variable("double", list(a_dims$rows, a_dims$cols))
+}
+
+# Infer destination dimensions for chol2inv().
+infer_dest_chol2inv <- function(args, scope) {
+  r_arg <- args[[1L]]
+  if (is.null(r_arg)) {
+    return(NULL)
+  }
+  R <- infer_symbol_var(r_arg, scope)
+  if (is.null(R) || R@rank != 2L) {
+    return(NULL)
+  }
+  r_dims <- matrix_dims_var(R)
+  Variable("double", list(r_dims$rows, r_dims$cols))
+}

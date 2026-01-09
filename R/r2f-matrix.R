@@ -532,6 +532,198 @@ register_r2f_handler(
   dest_infer = infer_dest_outer
 )
 
+register_r2f_handler(
+  "solve",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    a_arg <- args$a %||% args[[1L]]
+    if (is.null(a_arg) || is_missing(a_arg)) {
+      stop("solve() expects `a`", call. = FALSE)
+    }
+    if (!is.null(args$tol) && !is_missing(args$tol)) {
+      stop("solve() does not support tol yet", call. = FALSE)
+    }
+    if (!is.null(args$LINPACK) && !is_missing(args$LINPACK)) {
+      stop("solve() does not support LINPACK yet", call. = FALSE)
+    }
+
+    b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
+    if (!is.null(b_arg) && is_missing(b_arg)) {
+      b_arg <- NULL
+    }
+
+    A <- r2f(a_arg, scope, ..., hoist = hoist)
+    if (is.null(b_arg)) {
+      return(lapack_inverse(
+        A,
+        scope = scope,
+        hoist = hoist,
+        dest = dest,
+        context = "solve"
+      ))
+    }
+
+    B <- r2f(b_arg, scope, ..., hoist = hoist)
+    lapack_solve(
+      A = A,
+      B = B,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "solve"
+    )
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_solve
+)
+
+register_r2f_handler(
+  "chol",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    x_arg <- args$x %||% args[[1L]]
+    if (is.null(x_arg) || is_missing(x_arg)) {
+      stop("chol() expects `x`", call. = FALSE)
+    }
+    pivot <- logical_arg_or_default(args, "pivot", FALSE, "chol()")
+    if (isTRUE(pivot)) {
+      stop("chol() does not support pivot = TRUE yet", call. = FALSE)
+    }
+    if (!is.null(args$LINPACK) && !is_missing(args$LINPACK)) {
+      stop("chol() does not support LINPACK yet", call. = FALSE)
+    }
+
+    x <- r2f(x_arg, scope, ..., hoist = hoist)
+    lapack_chol(
+      A = x,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "chol"
+    )
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_chol
+)
+
+register_r2f_handler(
+  "chol2inv",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    x_arg <- args[[1L]]
+    if (is.null(x_arg) || is_missing(x_arg)) {
+      stop("chol2inv() expects `x`", call. = FALSE)
+    }
+    if (!is.null(args$size) && !is_missing(args$size)) {
+      stop("chol2inv() does not support size yet", call. = FALSE)
+    }
+
+    x <- r2f(x_arg, scope, ..., hoist = hoist)
+    lapack_chol2inv(
+      R = x,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "chol2inv"
+    )
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_chol2inv
+)
+
+register_r2f_handler(
+  "diag",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    x_arg <- args$x %||% args[[1L]]
+    nrow_arg <- args$nrow
+    ncol_arg <- args$ncol
+    if (!is.null(args$names) && !is_missing(args$names)) {
+      logical_arg_or_default(args, "names", TRUE, "diag()")
+    }
+
+    has_nrow <- !is.null(nrow_arg) && !is_missing(nrow_arg)
+    has_ncol <- !is.null(ncol_arg) && !is_missing(ncol_arg)
+
+    if (is.null(x_arg) || is_missing(x_arg)) {
+      if (!has_nrow && !has_ncol) {
+        stop("argument \"nrow\" is missing, with no default", call. = FALSE)
+      }
+      x_val <- Fortran("1.0_c_double", Variable("double"))
+      nrow <- if (has_nrow) r2size(nrow_arg, scope) else r2size(ncol_arg, scope)
+      ncol <- if (has_ncol) r2size(ncol_arg, scope) else nrow
+      return(diag_matrix(
+        x = x_val,
+        nrow = nrow,
+        ncol = ncol,
+        scope = scope,
+        hoist = hoist,
+        dest = dest,
+        context = "diag"
+      ))
+    }
+
+    x <- r2f(x_arg, scope, ..., hoist = hoist)
+    x_rank <- x@value@rank
+
+    if (x_rank == 2L) {
+      if (has_nrow || has_ncol) {
+        stop(
+          "'nrow' or 'ncol' cannot be specified when 'x' is a matrix",
+          call. = FALSE
+        )
+      }
+      return(diag_extract(
+        x = x,
+        scope = scope,
+        hoist = hoist,
+        dest = dest,
+        context = "diag"
+      ))
+    }
+
+    if (x_rank > 2L) {
+      stop(
+        "diag() only supports scalar, vector, or matrix inputs",
+        call. = FALSE
+      )
+    }
+
+    if (!has_nrow && !has_ncol && x_rank == 0L) {
+      nrow <- r2size(x_arg, scope)
+      ncol <- nrow
+      x_val <- Fortran("1.0_c_double", Variable("double"))
+      return(diag_matrix(
+        x = x_val,
+        nrow = nrow,
+        ncol = ncol,
+        scope = scope,
+        hoist = hoist,
+        dest = dest,
+        context = "diag"
+      ))
+    }
+
+    nrow <- if (has_nrow) r2size(nrow_arg, scope) else NULL
+    ncol <- if (has_ncol) r2size(ncol_arg, scope) else NULL
+
+    if (is.null(nrow) && is.null(ncol)) {
+      nrow <- dim_or_one(x, 1L)
+      ncol <- nrow
+    } else if (is.null(nrow)) {
+      nrow <- ncol
+    } else if (is.null(ncol)) {
+      ncol <- nrow
+    }
+
+    diag_matrix(
+      x = x,
+      nrow = nrow,
+      ncol = ncol,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "diag"
+    )
+  }
+)
+
 # Handle forwardsolve() via triangular BLAS routines.
 register_r2f_handler(
   "forwardsolve",
