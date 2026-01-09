@@ -19,14 +19,19 @@ This document explains the changes made to support `solve()`, `chol()`,
     base R `chol()` output.
   - `lapack_chol2inv()` uses `dpotri` and mirrors the upper triangle to
     produce a full symmetric inverse.
-  - `diag_extract()` and `diag_matrix()` cover extraction and construction
-    forms for `diag()`.
+- `diag_extract()` and `diag_matrix()` cover extraction and construction
+  forms for `diag()`.
   - `diag_length_expr()` computes `min(nrow, ncol)` while keeping the
-    expression symbolic when needed.
+  expression symbolic when needed.
   - `zero_lower_triangle()` mirrors base R output by clearing the lower
-    triangle after `dpotrf`.
+  triangle after `dpotrf`.
 - Updated `blas_int()` to safely deparse language inputs so expressions like
   `int(min(a, b), kind=c_int)` render correctly.
+
+- Note: LAPACK status (`info`) is not propagated yet, so singular or
+  non-PD inputs will currently produce undefined numeric results instead of
+  R errors. This will be revisited once we have a reliable mechanism to
+  bubble Fortran failures back to R.
 
 ## 3) Destination inference for new handlers
 
