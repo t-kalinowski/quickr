@@ -66,6 +66,8 @@ allocations when possible.
     BLAS/LAPACK helpers (e.g., `crossprod(res)` emitting a temp in `syrk()`)
     are declared and in scope when immediately subscripted like
     `crossprod(res)[1]`.
+    This matters because Fortran cannot subscript arbitrary expressions, so
+    hoisting ensures the temp has a name and valid storage before `[...]`.
 
 ## 6) Tests added
 
@@ -129,3 +131,29 @@ x = runif(3)
 a = matrix(runif(3), nrow = 1)
 
 qf(x, a)
+
+## On changes to [ - handler
+In order to silence a warning form R that made tests fail codex add hoist to "[" handler. This creates a new tmp that we then acesss with []. 
+
+### Example
+
+fn <- function(x) {
+  declare(type(x = double(5,5)))
+  first_element <- t(x)[1]
+  second_row <- t(x)[2, ]
+  third_col <- t(x)[, 3]
+  sub_matrix <- t(x)[c(1,2), c(3,4)]
+  out <- list(
+    first_element = first_element,
+    second_row = second_row,
+    third_col = third_col,
+    sub_matrix = sub_matrix
+  )
+  out
+}
+
+x <- matrix(runif(5*5), 5, 5)
+
+qfn <- quick(fn)
+fn(x)
+qfn(x)

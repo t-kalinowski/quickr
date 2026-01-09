@@ -240,6 +240,20 @@ test_that("maybe_reshape_vector_matrix reshapes vectors for singleton matrices",
   expect_identical(reshaped$right@value@rank, 0L)
 })
 
+test_that("indexing matrix expressions can hoist temporaries", {
+  fn <- function(x) {
+    declare(type(x = double(n, k)))
+    t(x)[1]
+  }
+
+  code <- as.character(r2f(fn))
+  tmp <- regmatches(code, regexpr("btmp[0-9]+_", code))
+  expect_true(nzchar(tmp))
+  expect_match(code, paste0(tmp, " = transpose\\(x\\)"))
+  expect_match(code, paste0("out_ = ", tmp, "\\("))
+  expect_false(grepl("transpose\\(x\\)\\(", code))
+})
+
 test_that("unwrap_transpose_arg handles scalar inputs and rank errors", {
   scope <- quickr:::new_scope(NULL)
   scope@assign("a", quickr:::Variable("double", name = "a"))

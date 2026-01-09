@@ -95,6 +95,8 @@ test_that("linear model example matches R", {
     coef <- solve(XtX, Xty)
 
     res <- y - X %*% coef
+    ## crossprod(res)[1] was added by codex to silence 1x1 warnings in R
+    ##
     s2 <- crossprod(res)[1] / (n - k)
 
     U <- chol(XtX)
@@ -117,4 +119,15 @@ test_that("linear model example matches R", {
   y <- rnorm(n)
 
   expect_quick_equal(my_lm, list(X = X, y = y))
+})
+
+test_that("crossprod temp can be indexed directly", {
+  fn <- function(x) {
+    declare(type(x = double(n, k)))
+    crossprod(x)[1]
+  }
+
+  set.seed(11)
+  x <- matrix(rnorm(6), 3, 2)
+  expect_quick_equal(fn, list(x = x))
 })

@@ -121,3 +121,22 @@ test_that("1x1 matrix preserves matrix result with length-1 vector", {
     list(runif(1), matrix(runif(1), nrow = 1L))
   )
 })
+
+test_that("indexing function like transposed expressions hoists temporaries that can be accessed", {
+  fn <- function(x) {
+    declare(type(x = double(5, 5)))
+    first_element <- t(x)[1]
+    second_row <- t(x)[2, ]
+    third_col <- t(x)[, 3]
+    sub_matrix <- t(x)[c(1, 2), c(3, 4)]
+    list(
+      first_element = first_element,
+      second_row = second_row,
+      third_col = third_col,
+      sub_matrix = sub_matrix
+    )
+  }
+
+  x <- matrix(runif(25), 5, 5)
+  expect_quick_identical(fn, list(x = x))
+})
