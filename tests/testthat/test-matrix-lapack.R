@@ -152,6 +152,77 @@ test_that("diag handles missing x with nrow/ncol and 1x1 matrices", {
   )
 })
 
+test_that("Test bad path in lapack functions", {
+  solve_bad_rank <- function(a, b) {
+    declare(type(a = double(n)), type(b = double(n)))
+    solve(a, b)
+  }
+
+  solve_non_square <- function(a, b) {
+    declare(type(a = double(2, 3)), type(b = double(2)))
+    solve(a, b)
+  }
+
+  solve_bad_rhs <- function(a, b) {
+    declare(type(a = double(2, 2)), type(b = double(2, 2, 2)))
+    solve(a, b)
+  }
+
+  chol_bad_rank <- function(a) {
+    declare(type(a = double(2, 2, 2)))
+    chol(a)
+  }
+
+  chol_pivot <- function(a) {
+    declare(type(a = double(2, 2)))
+    chol(a, pivot = TRUE)
+  }
+
+  chol_linpack <- function(a) {
+    declare(type(a = double(2, 2)))
+    chol(a, LINPACK = TRUE)
+  }
+
+  chol2inv_size <- function(a) {
+    declare(type(a = double(2, 2)))
+    chol2inv(a, size = 1L)
+  }
+
+  chol2inv_bad_rank <- function(a) {
+    declare(type(a = double(2)))
+    chol2inv(a)
+  }
+
+  diag_bad_rank <- function(a) {
+    declare(type(a = double(2, 2, 2)))
+    diag(a)
+  }
+
+  diag_matrix_nrow <- function(a) {
+    declare(type(a = double(2, 2)))
+    diag(a, nrow = 2L)
+  }
+
+  diag_missing <- function() {
+    diag()
+  }
+
+  expect_error(quick(solve_bad_rank), "expects a matrix")
+  expect_error(quick(solve_non_square), "requires a square matrix")
+  expect_error(quick(solve_bad_rhs), "only supports vector or matrix")
+  expect_error(quick(chol_bad_rank), "expects a matrix")
+  expect_error(quick(chol_pivot), "pivot = TRUE")
+  expect_error(quick(chol_linpack), "LINPACK")
+  expect_error(quick(chol2inv_size), "does not support size")
+  expect_error(quick(chol2inv_bad_rank), "expects a matrix")
+  expect_error(
+    quick(diag_bad_rank),
+    "only supports scalar, vector, or matrix"
+  )
+  expect_error(quick(diag_matrix_nrow), "cannot be specified")
+  expect_error(quick(diag_missing), "argument \"nrow\" is missing")
+})
+
 test_that("linear model example matches R", {
   my_lm <- function(X, y) {
     declare(type(X = double(n, k)), type(y = double(n)))

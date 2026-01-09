@@ -632,9 +632,12 @@ register_r2f_handler(
   "diag",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     arg_names <- names(args)
-    first_named <- length(arg_names) >= 1L && nzchar(arg_names[[1L]])
+    has_first <- length(args) >= 1L
+    first_named <- has_first &&
+      length(arg_names) >= 1L &&
+      nzchar(arg_names[[1L]])
     first_is_dim <- first_named && arg_names[[1L]] %in% c("nrow", "ncol")
-    x_arg <- if (first_is_dim) NULL else args$x %||% args[[1L]]
+    x_arg <- if (!has_first || first_is_dim) NULL else args$x %||% args[[1L]]
     nrow_arg <- args$nrow
     ncol_arg <- args$ncol
     if (!is.null(args$names) && !is_missing(args$names)) {
