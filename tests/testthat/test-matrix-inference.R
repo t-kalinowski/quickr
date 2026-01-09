@@ -65,7 +65,39 @@ test_that("matrix ops infer destination sizes for assignments", {
     out
   }
 
+  solve_vec_infer <- function(A, b) {
+    declare(type(A = double(n, n)), type(b = double(n)))
+    out <- solve(A, b)
+    out
+  }
+
+  solve_mat_infer <- function(A, B) {
+    declare(type(A = double(n, n)), type(B = double(n, k)))
+    out <- solve(A, B)
+    out
+  }
+
+  solve_inv_infer <- function(A) {
+    declare(type(A = double(n, n)))
+    out <- solve(A)
+    out
+  }
+
+  chol_infer <- function(A) {
+    declare(type(A = double(n, n)))
+    out <- chol(A)
+    out
+  }
+
+  chol2inv_infer <- function(A) {
+    declare(type(A = double(n, n)))
+    out <- chol2inv(chol(A))
+    out
+  }
+
   set.seed(99)
+  n <- 4
+  k <- 2
   A <- matrix(rnorm(6), nrow = 2)
   B <- matrix(rnorm(6), nrow = 3)
   x2 <- rnorm(2)
@@ -80,6 +112,10 @@ test_that("matrix ops infer destination sizes for assignments", {
   U <- matrix(c(2, 1, 0, 3), nrow = 2, byrow = TRUE)
   b_mat <- matrix(rnorm(4), nrow = 2)
   b_vec <- rnorm(2)
+  base <- matrix(rnorm(n * n), n, n)
+  A_pd <- crossprod(base) + diag(n)
+  b_solve <- rnorm(n)
+  B_solve <- matrix(rnorm(n * k), n, k)
 
   expect_quick_equal(matmul_infer, list(A = A, B = B))
   expect_quick_equal(matvec_infer, list(A = A, x = x3))
@@ -92,6 +128,11 @@ test_that("matrix ops infer destination sizes for assignments", {
   expect_quick_equal(outer_op_infer, list(x = v2, y = v3))
   expect_quick_equal(forward_infer, list(L = L, b = b_mat))
   expect_quick_equal(back_infer, list(U = U, b = b_vec))
+  expect_quick_equal(solve_vec_infer, list(A = A_pd, b = b_solve))
+  expect_quick_equal(solve_mat_infer, list(A = A_pd, B = B_solve))
+  expect_quick_equal(solve_inv_infer, list(A = A_pd))
+  expect_quick_equal(chol_infer, list(A = A_pd))
+  expect_quick_equal(chol2inv_infer, list(A = A_pd))
 })
 
 test_that("matrix helpers report unsupported inputs", {
