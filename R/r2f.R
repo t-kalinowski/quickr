@@ -1172,6 +1172,13 @@ dim_is_one <- function(x) {
   is_wholenumber(x) && identical(as.integer(x), 1L)
 }
 
+is_one_by_one <- function(x) {
+  stopifnot(inherits(x, Fortran))
+  x@value@rank == 2L &&
+    dim_is_one(x@value@dims[[1L]]) &&
+    dim_is_one(x@value@dims[[2L]])
+}
+
 dims_match <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     return(identical(as.integer(left), as.integer(right)))
@@ -1182,8 +1189,13 @@ dims_match <- function(left, right) {
 reshape_vector_for_matrix <- function(vec, rows, cols) {
   stopifnot(inherits(vec, Fortran))
   out_val <- Variable(vec@value@mode, list(rows, cols))
+  source <- if (passes_as_scalar(vec@value)) {
+    glue("[{vec}]")
+  } else {
+    glue("{vec}")
+  }
   out_expr <- glue(
-    "reshape({vec}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
+    "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
   )
   Fortran(out_expr, out_val)
 }
@@ -1207,23 +1219,6 @@ maybe_reshape_vector_matrix <- function(left, right) {
   left_rank <- left@value@rank
   right_rank <- right@value@rank
 
-  if (
-    left_rank == 2L &&
-      dim_is_one(left@value@dims[[1L]]) &&
-      dim_is_one(left@value@dims[[2L]])
-  ) {
-    left <- scalarize_matrix(left)
-    left_rank <- left@value@rank
-  }
-  if (
-    right_rank == 2L &&
-      dim_is_one(right@value@dims[[1L]]) &&
-      dim_is_one(right@value@dims[[2L]])
-  ) {
-    right <- scalarize_matrix(right)
-    right_rank <- right@value@rank
-  }
-
   if (left_rank == 1L && right_rank == 2L) {
     right_dims <- matrix_dims(right)
     left_len <- dim_or_one(left, 1L)
@@ -1245,6 +1240,20 @@ maybe_reshape_vector_matrix <- function(left, right) {
         dims_match(left_dims$cols, right_len)
     ) {
       right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
+    }
+  }
+
+  left_rank <- left@value@rank
+  right_rank <- right@value@rank
+  if (left_rank == 2L && right_rank == 1L && is_one_by_one(left)) {
+    right_len <- dim_or_one(right, 1L)
+    if (!dim_is_one(right_len)) {
+      left <- scalarize_matrix(left)
+    }
+  } else if (left_rank == 1L && right_rank == 2L && is_one_by_one(right)) {
+    left_len <- dim_or_one(left, 1L)
+    if (!dim_is_one(left_len)) {
+      right <- scalarize_matrix(right)
     }
   }
 

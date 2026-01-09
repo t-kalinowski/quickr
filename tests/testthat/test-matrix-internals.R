@@ -219,6 +219,27 @@ test_that("bind matrix expression helpers protect against unsupported ranks", {
   expect_match(spread_row, "spread", fixed = FALSE)
 })
 
+test_that("maybe_reshape_vector_matrix reshapes vectors for singleton matrices", {
+  vec <- quickr:::Fortran("v", quickr:::Variable("double", list(3L)))
+  mat_row <- quickr:::Fortran("m", quickr:::Variable("double", list(1L, 3L)))
+  mat_scalar <- quickr:::Fortran("s", quickr:::Variable("double", list(1L, 1L)))
+  vec_one <- quickr:::Fortran("w", quickr:::Variable("double", list(1L)))
+
+  reshaped <- quickr:::maybe_reshape_vector_matrix(vec, mat_row)
+  expect_identical(reshaped$left@value@rank, 2L)
+  expect_identical(reshaped$left@value@dims, list(1L, 3L))
+  expect_identical(reshaped$right@value@dims, list(1L, 3L))
+
+  reshaped <- quickr:::maybe_reshape_vector_matrix(vec_one, mat_scalar)
+  expect_identical(reshaped$left@value@rank, 2L)
+  expect_identical(reshaped$left@value@dims, list(1L, 1L))
+  expect_identical(reshaped$right@value@dims, list(1L, 1L))
+
+  reshaped <- quickr:::maybe_reshape_vector_matrix(vec, mat_scalar)
+  expect_identical(reshaped$left@value@rank, 1L)
+  expect_identical(reshaped$right@value@rank, 0L)
+})
+
 test_that("unwrap_transpose_arg handles scalar inputs and rank errors", {
   scope <- quickr:::new_scope(NULL)
   scope@assign("a", quickr:::Variable("double", name = "a"))

@@ -82,3 +82,50 @@ allocations when possible.
 - `R -q -e 'rcmdcheck::rcmdcheck(error_on = "warning")'`
 
 All tests and `R CMD check` completed without errors or warnings.
+
+
+## Ekstra notes
+
+### On maybe_reshape_vector_matrix
+Here’s what that helper is really doing, and why it was added.
+
+The immediate problem it solved
+
+After adding LAPACK-backed matrix ops, we started producing 1x1 matrices (e.g., crossprod(res)), then doing elementwise ops with vectors like diag(XtX_inv) * s2. In Fortran, rank‑1 + rank‑2 is illegal unless one side is a scalar.
+maybe_reshape_vector_matrix() fixes those rank mismatches by either:
+reshaping a vector to 1xN or Nx1 to match a singleton-dimension matrix, or
+scalarizing a 1x1 matrix into x(1,1) so it behaves as a scalar in elementwise ops.
+What base R actually does here
+
+In R, vector vs 1x1 matrix does recycle and returns a vector, but it emits a warning:
+“Recycling array of length 1 in vector‑array arithmetic is deprecated…”
+So the numeric result aligns with treating 1x1 as scalar, but R warns. We don’t currently model those warnings, so the Fortran path silently accepts it.
+Why it didn’t show up before
+
+Before the new matrix handlers, we rarely produced 1x1 matrices as intermediates (e.g., crossprod()/chol()/solve() results), so vector/matrix rank clashes weren’t common.
+The linear-model example added a realistic path where they show up (diag of a matrix + a 1x1 matrix scalar from crossprod).
+
+### On reshape_vector_for_matrix
+Why reshape_vector_for_matrix() still matters
+
+It’s needed when R would recycle a vector across a singleton matrix dimension (e.g., vector + N×1 or 1×N matrix). Fortran requires same-rank arrays for elementwise ops, so we reshape the vector to 1×N or N×1 to make the operation legal and preserve R’s result shape.
+It also handles the vector‑length‑1 case so a 1×1 matrix stays a 1×1 matrix (vector becomes 1×1 matrix) instead of forcing scalarization.
+
+#### Example
+f <- (vec, mat) {
+  declare(
+    type(vec = double(n)),
+    type(mat = double(1, n))
+  )
+  a <- vec + mat
+  b <- mat + vec
+  out <- a + b
+  out
+}
+
+qf <- quick(f)
+
+x = runif(3)
+a = matrix(runif(3), nrow = 1)
+
+qf(x, a)
