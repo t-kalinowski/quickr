@@ -440,8 +440,8 @@ register_r2f_handler(
 register_r2f_handler(
   "crossprod",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
-    x_arg <- args[[1L]]
-    y_arg <- if (length(args) > 1L) args[[2L]] else NULL
+    x_arg <- args$x %||% args[[1L]]
+    y_arg <- args$y %||% if (length(args) > 1L) args[[2L]] else NULL
     crossprod_like(
       x_arg = x_arg,
       y_arg = y_arg,
@@ -464,8 +464,8 @@ register_r2f_handler(
 register_r2f_handler(
   "tcrossprod",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
-    x_arg <- args[[1L]]
-    y_arg <- if (length(args) > 1L) args[[2L]] else NULL
+    x_arg <- args$x %||% args[[1L]]
+    y_arg <- args$y %||% if (length(args) > 1L) args[[2L]] else NULL
     crossprod_like(
       x_arg = x_arg,
       y_arg = y_arg,
@@ -607,7 +607,7 @@ register_r2f_handler(
 register_r2f_handler(
   "chol2inv",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
-    x_arg <- args[[1L]]
+    x_arg <- args$x %||% args[[1L]]
     if (is.null(x_arg) || is_missing(x_arg)) {
       stop("chol2inv() expects `x`", call. = FALSE)
     }
@@ -631,24 +631,37 @@ register_r2f_handler(
 register_r2f_handler(
   "diag",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
+    # R signature: diag(x = 1, nrow, ncol, names = TRUE)
+    # Handle both named and positional arguments
     arg_names <- names(args)
     if (is.null(arg_names)) {
       arg_names <- rep("", length(args))
     }
+    unnamed_idx <- which(!nzchar(arg_names) | is.na(arg_names))
+
+    # Extract x (named or position 1)
     x_arg <- NULL
     if (!is.null(args$x) && !is_missing(args$x)) {
       x_arg <- args$x
-    } else if (length(args) >= 1L) {
-      unnamed_idx <- which(!nzchar(arg_names) | is.na(arg_names))
-      if (length(unnamed_idx) >= 1L) {
-        candidate <- args[[unnamed_idx[[1L]]]]
-        if (!is_missing(candidate)) {
-          x_arg <- candidate
-        }
+    } else if (length(unnamed_idx) >= 1L) {
+      candidate <- args[[unnamed_idx[[1L]]]]
+      if (!is_missing(candidate)) {
+        x_arg <- candidate
       }
     }
+
+    # Extract nrow (named or position 2)
     nrow_arg <- args$nrow
+    if (is.null(nrow_arg) && length(unnamed_idx) >= 2L) {
+      nrow_arg <- args[[unnamed_idx[[2L]]]]
+    }
+
+    # Extract ncol (named or position 3)
     ncol_arg <- args$ncol
+    if (is.null(ncol_arg) && length(unnamed_idx) >= 3L) {
+      ncol_arg <- args[[unnamed_idx[[3L]]]]
+    }
+
     if (!is.null(args$names) && !is_missing(args$names)) {
       logical_arg_or_default(args, "names", TRUE, "diag()")
     }
@@ -739,7 +752,9 @@ register_r2f_handler(
       dest = dest,
       context = "diag"
     )
-  }
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_diag
 )
 
 # Handle forwardsolve() via triangular BLAS routines.
@@ -764,8 +779,10 @@ register_r2f_handler(
     )
     diag_unit <- logical_arg_or_default(args, "diag", FALSE, "forwardsolve()")
 
-    A <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    l_arg <- args$l %||% args[[1L]]
+    x_arg <- args$x %||% args[[2L]]
+    A <- r2f(l_arg, scope, ..., hoist = hoist)
+    B <- r2f(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,
@@ -795,8 +812,10 @@ register_r2f_handler(
     transpose <- logical_arg_or_default(args, "transpose", FALSE, "backsolve()")
     diag_unit <- logical_arg_or_default(args, "diag", FALSE, "backsolve()")
 
-    A <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    B <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    r_arg <- args$r %||% args[[1L]]
+    x_arg <- args$x %||% args[[2L]]
+    A <- r2f(r_arg, scope, ..., hoist = hoist)
+    B <- r2f(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,

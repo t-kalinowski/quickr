@@ -98,11 +98,13 @@ infer_dest_matmul <- function(args, scope) {
 
 # Shared inference for crossprod/tcrossprod destination sizes.
 infer_dest_crossprod_like <- function(args, scope, trans) {
-  x <- infer_symbol_var(args[[1L]], scope)
+  x_arg <- args$x %||% args[[1L]]
+  x <- infer_symbol_var(x_arg, scope)
   if (is.null(x)) {
     return(NULL)
   }
-  y <- if (length(args) > 1L) infer_symbol_var(args[[2L]], scope) else NULL
+  y_arg <- args$y %||% if (length(args) > 1L) args[[2L]] else NULL
+  y <- if (!is.null(y_arg)) infer_symbol_var(y_arg, scope) else NULL
   x_dims <- matrix_dims_var(x)
   if (is.null(y)) {
     n <- if (identical(trans, "T")) x_dims$cols else x_dims$rows
@@ -144,12 +146,17 @@ infer_dest_outer <- function(args, scope) {
 }
 
 # Infer destination dimensions for forwardsolve() and backsolve().
+# forwardsolve(l, x, ...), backsolve(r, x, ...)
 infer_dest_triangular <- function(args, scope) {
   if (length(args) < 2L) {
     return(NULL)
   }
-  A <- infer_symbol_var(args[[1L]], scope)
-  B <- infer_symbol_var(args[[2L]], scope)
+  # First arg is l (forwardsolve) or r (backsolve)
+  a_arg <- args$l %||% args$r %||% args[[1L]]
+  # Second arg is x
+  b_arg <- args$x %||% args[[2L]]
+  A <- infer_symbol_var(a_arg, scope)
+  B <- infer_symbol_var(b_arg, scope)
   if (is.null(A) || is.null(B)) {
     return(NULL)
   }
@@ -194,28 +201,151 @@ infer_dest_solve <- function(args, scope) {
 
 # Infer destination dimensions for chol().
 infer_dest_chol <- function(args, scope) {
-  a_arg <- args[[1L]]
-  if (is.null(a_arg)) {
+  x_arg <- args$x %||% args[[1L]]
+  if (is.null(x_arg)) {
     return(NULL)
   }
-  A <- infer_symbol_var(a_arg, scope)
-  if (is.null(A) || A@rank != 2L) {
+  X <- infer_symbol_var(x_arg, scope)
+  if (is.null(X) || X@rank != 2L) {
     return(NULL)
   }
-  a_dims <- matrix_dims_var(A)
-  Variable("double", list(a_dims$rows, a_dims$cols))
+  x_dims <- matrix_dims_var(X)
+  Variable("double", list(x_dims$rows, x_dims$cols))
 }
 
 # Infer destination dimensions for chol2inv().
 infer_dest_chol2inv <- function(args, scope) {
-  r_arg <- args[[1L]]
-  if (is.null(r_arg)) {
+  x_arg <- args$x %||% args[[1L]]
+  if (is.null(x_arg)) {
     return(NULL)
   }
-  R <- infer_symbol_var(r_arg, scope)
-  if (is.null(R) || R@rank != 2L) {
+  X <- infer_symbol_var(x_arg, scope)
+  if (is.null(X) || X@rank != 2L) {
     return(NULL)
   }
-  r_dims <- matrix_dims_var(R)
-  Variable("double", list(r_dims$rows, r_dims$cols))
+  x_dims <- matrix_dims_var(X)
+  Variable("double", list(x_dims$rows, x_dims$cols))
+}
+
+# Helper to infer a size from a literal or symbol.
+infer_size <- function(arg, scope) {
+  if (is.null(arg) || is_missing(arg)) {
+    return(NULL)
+  }
+  if (is.numeric(arg) && length(arg) == 1L && is_wholenumber(arg)) {
+    return(as.integer(arg))
+  }
+  if (is.symbol(arg)) {
+    var <- get0(as.character(arg), scope, inherits = FALSE)
+    if (!inherits(var, Variable)) {
+      return(NULL)
+    }
+    # Scalar (rank 0) or length-1 vector (rank 1 with dim 1)
+    if (var@rank == 0L) {
+      return(arg)
+    }
+    if (var@rank == 1L && length(var@dims) == 1L) {
+      d <- var@dims[[1L]]
+      if (is_wholenumber(d) && identical(as.integer(d), 1L)) {
+        return(arg)
+      }
+    }
+  }
+  NULL
+}
+
+# Infer destination dimensions for diag().
+infer_dest_diag <- function(args, scope) {
+  # R signature: diag(x = 1, nrow, ncol, names = TRUE)
+  # Handle both named and positional arguments
+  arg_names <- names(args)
+  if (is.null(arg_names)) {
+    arg_names <- rep("", length(args))
+  }
+  unnamed_idx <- which(!nzchar(arg_names) | is.na(arg_names))
+
+  # Extract x (named or position 1)
+  x_arg <- NULL
+  if (!is.null(args$x) && !is_missing(args$x)) {
+    x_arg <- args$x
+  } else if (length(unnamed_idx) >= 1L) {
+    candidate <- args[[unnamed_idx[[1L]]]]
+    if (!is_missing(candidate)) {
+      x_arg <- candidate
+    }
+  }
+
+  # Extract nrow (named or position 2)
+  nrow_arg <- args$nrow
+  if (is.null(nrow_arg) && length(unnamed_idx) >= 2L) {
+    nrow_arg <- args[[unnamed_idx[[2L]]]]
+  }
+
+  # Extract ncol (named or position 3)
+  ncol_arg <- args$ncol
+  if (is.null(ncol_arg) && length(unnamed_idx) >= 3L) {
+    ncol_arg <- args[[unnamed_idx[[3L]]]]
+  }
+
+  has_nrow <- !is.null(nrow_arg) && !is_missing(nrow_arg)
+  has_ncol <- !is.null(ncol_arg) && !is_missing(ncol_arg)
+
+  # Case: no x, just nrow (identity matrix)
+  if (is.null(x_arg) || is_missing(x_arg)) {
+    if (!has_nrow) {
+      return(NULL)
+    }
+    nrow <- infer_size(nrow_arg, scope)
+    if (is.null(nrow)) {
+      return(NULL)
+    }
+    ncol <- if (has_ncol) infer_size(ncol_arg, scope) else nrow
+    if (is.null(ncol)) {
+      return(NULL)
+    }
+    return(Variable("double", list(nrow, ncol)))
+  }
+
+  x <- infer_symbol_var(x_arg, scope)
+
+  # Case: x is a matrix -> extract diagonal (returns vector)
+  if (!is.null(x) && x@rank == 2L) {
+    x_dims <- matrix_dims_var(x)
+    diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, "diag")
+    return(Variable("double", list(diag_len)))
+  }
+
+  # Case: x is a scalar literal (identity matrix of that size)
+  if (is.null(x) && is.numeric(x_arg) && length(x_arg) == 1L) {
+    if (!has_nrow && !has_ncol && is_wholenumber(x_arg)) {
+      n <- as.integer(x_arg)
+      return(Variable("double", list(n, n)))
+    }
+  }
+
+  # Case: x is a scalar symbol without nrow/ncol (identity matrix)
+  if (!is.null(x) && x@rank == 0L && !has_nrow && !has_ncol) {
+    return(NULL)
+  }
+
+ # Case: x is a vector or scalar, construct diagonal matrix
+  if (!is.null(x) && x@rank <= 1L) {
+    if (has_nrow || has_ncol) {
+      nrow <- if (has_nrow) infer_size(nrow_arg, scope) else NULL
+      ncol <- if (has_ncol) infer_size(ncol_arg, scope) else NULL
+      if (is.null(nrow) && is.null(ncol)) {
+        return(NULL)
+      }
+      if (is.null(nrow)) nrow <- ncol
+      if (is.null(ncol)) ncol <- nrow
+      return(Variable("double", list(nrow, ncol)))
+    }
+    # No nrow/ncol: square matrix from vector length
+    if (x@rank == 1L) {
+      len <- var_dim_or_one(x, 1L)
+      return(Variable("double", list(len, len)))
+    }
+  }
+
+  NULL
 }
