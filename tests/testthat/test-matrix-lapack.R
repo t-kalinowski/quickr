@@ -256,7 +256,10 @@ test_that("solve with scalar RHS is rejected", {
     solve(A, b[1])
   }
 
-  expect_error(quick(solve_scalar_rhs), "non-conformable arguments|expects a vector or matrix")
+  expect_error(
+    quick(solve_scalar_rhs),
+    "non-conformable arguments|expects a vector or matrix"
+  )
 })
 
 test_that("diag with various nrow/ncol combinations", {

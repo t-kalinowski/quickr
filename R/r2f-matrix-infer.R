@@ -328,7 +328,7 @@ infer_dest_diag <- function(args, scope) {
     return(NULL)
   }
 
- # Case: x is a vector or scalar, construct diagonal matrix
+  # Case: x is a vector or scalar, construct diagonal matrix
   if (!is.null(x) && x@rank <= 1L) {
     if (has_nrow || has_ncol) {
       nrow <- if (has_nrow) infer_size(nrow_arg, scope) else NULL
@@ -336,8 +336,12 @@ infer_dest_diag <- function(args, scope) {
       if (is.null(nrow) && is.null(ncol)) {
         return(NULL)
       }
-      if (is.null(nrow)) nrow <- ncol
-      if (is.null(ncol)) ncol <- nrow
+      if (is.null(nrow)) {
+        nrow <- ncol
+      }
+      if (is.null(ncol)) {
+        ncol <- nrow
+      }
       return(Variable("double", list(nrow, ncol)))
     }
     # No nrow/ncol: square matrix from vector length

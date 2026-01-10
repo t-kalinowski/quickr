@@ -238,6 +238,10 @@ test_that("maybe_reshape_vector_matrix reshapes vectors for singleton matrices",
   reshaped <- quickr:::maybe_reshape_vector_matrix(vec, mat_scalar)
   expect_identical(reshaped$left@value@rank, 1L)
   expect_identical(reshaped$right@value@rank, 0L)
+
+  reshaped <- quickr:::maybe_reshape_vector_matrix(mat_scalar, vec)
+  expect_identical(reshaped$left@value@rank, 0L)
+  expect_identical(reshaped$right@value@rank, 1L)
 })
 
 test_that("indexing matrix expressions can hoist temporaries", {
@@ -270,6 +274,117 @@ test_that("unwrap_transpose_arg handles scalar inputs and rank errors", {
   expect_error(
     quickr:::unwrap_transpose_arg(quote(t(arr)), scope, hoist = hoist),
     "t\\(\\) only supports rank 0-2 inputs"
+  )
+})
+
+test_that("symbol_name_or_null recognizes bare Fortran names", {
+  val <- quickr:::Variable("double")
+  A <- quickr:::Fortran("A", val, r = NULL)
+  expect_identical(quickr:::symbol_name_or_null(A), "A")
+})
+
+test_that("assert_hoist_env validates hoist environments", {
+  expect_error(
+    quickr:::assert_hoist_env(NULL),
+    "hoist must be a hoist environment"
+  )
+  expect_invisible(quickr:::assert_hoist_env(new.env(parent = emptyenv())))
+})
+
+test_that("rank assertion helpers validate matrix and vector inputs", {
+  mat <- quickr:::Fortran(
+    "A",
+    quickr:::Variable("double", list(2L, 2L), name = "A")
+  )
+  vec <- quickr:::Fortran(
+    "v",
+    quickr:::Variable("double", list(2L), name = "v")
+  )
+  arr <- quickr:::Fortran(
+    "arr",
+    quickr:::Variable("double", list(2L, 2L, 2L), name = "arr")
+  )
+
+  expect_invisible(quickr:::assert_rank2_matrix(mat, "matrix needed"))
+  expect_error(
+    quickr:::assert_rank2_matrix(vec, "matrix needed"),
+    "matrix needed"
+  )
+
+  expect_invisible(quickr:::assert_rank_leq1(vec, "vector needed"))
+  expect_error(
+    quickr:::assert_rank_leq1(mat, "vector needed"),
+    "vector needed"
+  )
+
+  expect_invisible(quickr:::assert_rank_leq2(mat, "rank 0-2 needed"))
+  expect_error(
+    quickr:::assert_rank_leq2(arr, "rank 0-2 needed"),
+    "rank 0-2 needed"
+  )
+})
+
+test_that("rhs and conformability helpers validate inputs", {
+  expect_error(
+    quickr:::assert_rhs_rank(
+      0L,
+      err_scalar = "scalar rhs",
+      err_high = "high rhs"
+    ),
+    "scalar rhs"
+  )
+  expect_error(
+    quickr:::assert_rhs_rank(
+      3L,
+      err_scalar = "scalar rhs",
+      err_high = "high rhs"
+    ),
+    "high rhs"
+  )
+  expect_invisible(
+    quickr:::assert_rhs_rank(
+      1L,
+      err_scalar = "scalar rhs",
+      err_high = "high rhs"
+    )
+  )
+
+  expect_invisible(
+    quickr:::assert_conformable_dims(
+      2L,
+      2L,
+      context = "test",
+      err_msg = "non-conformable"
+    )
+  )
+  expect_error(
+    quickr:::assert_conformable_dims(
+      2L,
+      3L,
+      context = "test",
+      err_msg = "non-conformable"
+    ),
+    "non-conformable"
+  )
+  expect_warning(
+    quickr:::assert_conformable_dims(
+      quote(n),
+      quote(m),
+      context = "test",
+      err_msg = "non-conformable"
+    ),
+    "cannot verify conformability in test"
+  )
+})
+
+test_that("diag_length_expr requires known dimensions", {
+  expect_error(
+    quickr:::diag_length_expr(NA, 2L, "diag"),
+    "requires known dimensions"
+  )
+  expect_error(
+    quickr:::diag_length_expr(2L, NA, "diag"),
+    "requires known dimensions"
   )
 })
 
@@ -327,6 +442,57 @@ test_that("blas helpers require a hoist environment", {
       "L",
       "N",
       "N",
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::lapack_solve(
+      A,
+      x,
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::lapack_inverse(
+      A,
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::lapack_chol(
+      A,
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::lapack_chol2inv(
+      A,
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::diag_extract(
+      A,
+      scope = scope,
+      hoist = NULL
+    ),
+    "hoist must be a hoist environment"
+  )
+  expect_error(
+    quickr:::diag_matrix(
+      x,
+      nrow = 1L,
+      ncol = 1L,
       scope = scope,
       hoist = NULL
     ),
@@ -427,6 +593,196 @@ test_that("triangular_solve rejects scalar right-hand sides", {
     ),
     "expects a vector or matrix right-hand side"
   )
+})
+
+test_that("lapack_solve validates right-hand side and conformability", {
+  scope <- quickr:::new_scope(NULL)
+  hoist <- quickr:::new_hoist(scope)
+
+  A <- quickr:::Fortran(
+    "A",
+    quickr:::Variable("double", list(2L, 2L), name = "A"),
+    r = quote(A)
+  )
+  b_scalar <- quickr:::Fortran("b", quickr:::Variable("double"), r = quote(b))
+  b_vec <- quickr:::Fortran(
+    "b",
+    quickr:::Variable("double", list(2L), name = "b"),
+    r = quote(b)
+  )
+  b_bad <- quickr:::Fortran(
+    "b",
+    quickr:::Variable("double", list(3L), name = "b"),
+    r = quote(b)
+  )
+
+  expect_error(
+    quickr:::lapack_solve(
+      A,
+      b_scalar,
+      scope = scope,
+      hoist = hoist,
+      context = "solve"
+    ),
+    "expects a vector or matrix right-hand side"
+  )
+  expect_error(
+    quickr:::lapack_solve(
+      A,
+      b_bad,
+      scope = scope,
+      hoist = hoist,
+      context = "solve"
+    ),
+    "non-conformable arguments in solve"
+  )
+  out <- quickr:::lapack_solve(
+    A,
+    b_vec,
+    scope = scope,
+    hoist = hoist,
+    context = "solve"
+  )
+  expect_identical(out@value@dims, list(2L))
+})
+
+test_that("lapack_solve warns on unknown conformability", {
+  scope <- quickr:::new_scope(NULL)
+  hoist <- quickr:::new_hoist(scope)
+
+  A <- quickr:::Fortran(
+    "A",
+    quickr:::Variable("double", list(quote(n), quote(n)), name = "A"),
+    r = quote(A)
+  )
+  b_vec <- quickr:::Fortran(
+    "b",
+    quickr:::Variable("double", list(quote(m)), name = "b"),
+    r = quote(b)
+  )
+
+  expect_warning(
+    quickr:::lapack_solve(
+      A,
+      b_vec,
+      scope = scope,
+      hoist = hoist,
+      context = "solve"
+    ),
+    "cannot verify conformability in solve"
+  )
+})
+
+test_that("lapack_inverse and diag helpers allocate temporaries", {
+  scope <- quickr:::new_scope(NULL)
+  hoist <- quickr:::new_hoist(scope)
+
+  A <- quickr:::Fortran(
+    "A",
+    quickr:::Variable("double", list(2L, 2L), name = "A"),
+    r = quote(A)
+  )
+  v <- quickr:::Fortran(
+    "v",
+    quickr:::Variable("double", list(3L), name = "v"),
+    r = quote(v)
+  )
+
+  expect_error(
+    quickr:::lapack_inverse(v, scope = scope, hoist = hoist, context = "solve"),
+    "expects a matrix for `a`"
+  )
+
+  inv <- quickr:::lapack_inverse(A, scope = scope, hoist = hoist)
+  expect_identical(inv@value@dims, list(2L, 2L))
+
+  diag_out <- quickr:::diag_extract(A, scope = scope, hoist = hoist)
+  expect_identical(diag_out@value@dims, list(2L))
+
+  mat_out <- quickr:::diag_matrix(
+    v,
+    nrow = 3L,
+    ncol = 3L,
+    scope = scope,
+    hoist = hoist
+  )
+  expect_identical(mat_out@value@dims, list(3L, 3L))
+})
+
+test_that("diag helpers validate input ranks", {
+  scope <- quickr:::new_scope(NULL)
+  hoist <- quickr:::new_hoist(scope)
+
+  mat <- quickr:::Fortran(
+    "A",
+    quickr:::Variable("double", list(2L, 2L), name = "A"),
+    r = quote(A)
+  )
+  vec <- quickr:::Fortran(
+    "v",
+    quickr:::Variable("double", list(2L), name = "v"),
+    r = quote(v)
+  )
+
+  expect_error(
+    quickr:::diag_extract(vec, scope = scope, hoist = hoist),
+    "expects a matrix input"
+  )
+  expect_error(
+    quickr:::diag_matrix(
+      mat,
+      nrow = 2L,
+      ncol = 2L,
+      scope = scope,
+      hoist = hoist
+    ),
+    "expects a vector or scalar input"
+  )
+})
+
+test_that("matrix inference covers triangular, solve, and diag variants", {
+  scope <- quickr:::new_scope(NULL)
+  scope@assign("A", quickr:::Variable("double", list(2L, 2L), name = "A"))
+  scope@assign("B", quickr:::Variable("double", list(2L, 3L), name = "B"))
+  scope@assign("L", quickr:::Variable("double", list(2L, 2L), name = "L"))
+  scope@assign("b", quickr:::Variable("double", list(2L), name = "b"))
+  scope@assign("n", quickr:::Variable("integer", name = "n"))
+  scope@assign("m", quickr:::Variable("integer", name = "m"))
+  scope@assign("v", quickr:::Variable("double", list(3L), name = "v"))
+
+  expect_null(quickr:::infer_dest_triangular(list(quote(L)), scope))
+  out_tri <- quickr:::infer_dest_triangular(
+    list(l = quote(L), x = quote(b)),
+    scope
+  )
+  expect_identical(out_tri@dims, list(2L))
+
+  out_solve <- quickr:::infer_dest_solve(list(quote(A)), scope)
+  expect_identical(out_solve@dims, list(2L, 2L))
+
+  out_solve_mat <- quickr:::infer_dest_solve(list(quote(A), quote(B)), scope)
+  expect_identical(out_solve_mat@dims, list(2L, 3L))
+
+  out_chol <- quickr:::infer_dest_chol(list(quote(A)), scope)
+  expect_identical(out_chol@dims, list(2L, 2L))
+
+  out_chol2 <- quickr:::infer_dest_chol2inv(list(quote(A)), scope)
+  expect_identical(out_chol2@dims, list(2L, 2L))
+
+  out_diag <- quickr:::infer_dest_diag(
+    list(quote(v), quote(n), quote(m)),
+    scope
+  )
+  expect_identical(out_diag@dims, list(quote(n), quote(m)))
+
+  out_diag_named <- quickr:::infer_dest_diag(
+    list(x = quote(v), nrow = quote(n), ncol = quote(m)),
+    scope
+  )
+  expect_identical(out_diag_named@dims, list(quote(n), quote(m)))
+
+  out_diag_nrow <- quickr:::infer_dest_diag(list(nrow = quote(n)), scope)
+  expect_identical(out_diag_nrow@dims, list(quote(n), quote(n)))
 })
 
 test_that("matrix argument inference handles transposes and ranks", {

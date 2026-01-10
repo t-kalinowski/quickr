@@ -340,9 +340,7 @@ register_r2f_handler(
       if (is.null(val@value) || is.null(val@value@mode)) {
         stop(context, " inputs must have a value", call. = FALSE)
       }
-      if (val@value@rank > 2L) {
-        stop(context, " only supports rank 0-2 inputs", call. = FALSE)
-      }
+      assert_rank_leq2(val, paste0(context, " only supports rank 0-2 inputs"))
     }
 
     mode <- bind_output_mode(values, context)
@@ -398,9 +396,7 @@ register_r2f_handler(
       if (is.null(val@value) || is.null(val@value@mode)) {
         stop(context, " inputs must have a value", call. = FALSE)
       }
-      if (val@value@rank > 2L) {
-        stop(context, " only supports rank 0-2 inputs", call. = FALSE)
-      }
+      assert_rank_leq2(val, paste0(context, " only supports rank 0-2 inputs"))
     }
 
     mode <- bind_output_mode(values, context)
@@ -709,12 +705,10 @@ register_r2f_handler(
       ))
     }
 
-    if (x_rank > 2L) {
-      stop(
-        "diag() only supports scalar, vector, or matrix inputs",
-        call. = FALSE
-      )
-    }
+    assert_rank_leq2(
+      x,
+      "diag() only supports scalar, vector, or matrix inputs"
+    )
 
     if (!has_nrow && !has_ncol && x_rank == 0L) {
       nrow <- r2size(x_arg, scope)

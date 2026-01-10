@@ -2,6 +2,78 @@
 
 # ---- shared matrix helpers (loaded early for implicit collation) ----
 
+# Assert hoist is a valid environment for BLAS/LAPACK helpers.
+assert_hoist_env <- function(hoist) {
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is a rank-2 matrix.
+assert_rank2_matrix <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank != 2L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is a scalar or vector.
+assert_rank_leq1 <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank > 1L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is rank 0-2.
+assert_rank_leq2 <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank > 2L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert right-hand side rank is vector or matrix.
+assert_rhs_rank <- function(
+  rank,
+  err_scalar,
+  err_high,
+  call_scalar = FALSE,
+  call_high = FALSE
+) {
+  stopifnot(
+    is_wholenumber(rank),
+    is_string(err_scalar),
+    is_string(err_high),
+    is_bool(call_scalar),
+    is_bool(call_high)
+  )
+  if (rank > 2L) {
+    stop(err_high, call. = call_high)
+  }
+  if (rank == 0L) {
+    stop(err_scalar, call. = call_scalar)
+  }
+  invisible(TRUE)
+}
+
+# Assert conformability and warn on unknown.
+assert_conformable_dims <- function(left, right, context, err_msg) {
+  stopifnot(is_string(context), is_string(err_msg))
+  conform <- check_conformable(left, right)
+  if (!conform$ok) {
+    stop(err_msg, call. = FALSE)
+  }
+  if (conform$unknown) {
+    warn_conformability_unknown(left, right, context)
+  }
+  invisible(TRUE)
+}
+
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -235,9 +307,7 @@ gemm <- function(
   dest = NULL,
   context = "gemm"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
@@ -281,9 +351,7 @@ gemv <- function(
   dest = NULL,
   context = "gemv"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
@@ -312,7 +380,8 @@ gemv <- function(
 }
 
 symmetrize_upper_to_lower <- function(target, n, hoist) {
-  stopifnot(is_string(target), inherits(hoist, "environment"))
+  stopifnot(is_string(target))
+  assert_hoist_env(hoist)
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
   idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
@@ -341,7 +410,8 @@ diag_length_expr <- function(nrow, ncol, context) {
 }
 
 zero_lower_triangle <- function(target, n, hoist) {
-  stopifnot(is_string(target), inherits(hoist, "environment"))
+  stopifnot(is_string(target))
+  assert_hoist_env(hoist)
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
   idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
@@ -368,9 +438,7 @@ syrk <- function(
   dest = NULL,
   context = "syrk"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   X_name <- ensure_blas_operand_name(X, hoist)
 
   x_dims <- matrix_dims(X)
@@ -428,9 +496,7 @@ outer_mul <- function(
   dest = NULL,
   context = "outer"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   x <- maybe_cast_double(x)
   y <- maybe_cast_double(y)
@@ -482,16 +548,12 @@ triangular_solve <- function(
   dest = NULL,
   context = "triangular solve"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   A <- maybe_cast_double(A)
   B <- maybe_cast_double(B)
 
-  if (A@value@rank != 2L) {
-    stop("triangular solve expects a matrix")
-  }
+  assert_rank2_matrix(A, "triangular solve expects a matrix")
 
   a_dims <- matrix_dims(A)
   conform <- check_conformable(a_dims$rows, a_dims$cols)
@@ -504,29 +566,27 @@ triangular_solve <- function(
   n <- a_dims$rows
 
   b_rank <- B@value@rank
-  if (b_rank > 2L) {
-    stop("triangular solve only supports vector or matrix right-hand sides")
-  }
-  if (b_rank == 0L) {
-    stop("triangular solve expects a vector or matrix right-hand side")
-  } else if (b_rank == 1L) {
+  assert_rhs_rank(
+    b_rank,
+    err_scalar = "triangular solve expects a vector or matrix right-hand side",
+    err_high = "triangular solve only supports vector or matrix right-hand sides"
+  )
+  if (b_rank == 1L) {
     b_len <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_len)
-    if (!conform$ok) {
-      stop("non-conformable arguments in triangular solve", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_len, "triangular solve")
-    }
+    assert_conformable_dims(
+      n,
+      b_len,
+      context = "triangular solve",
+      err_msg = "non-conformable arguments in triangular solve"
+    )
   } else {
     b_rows <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_rows)
-    if (!conform$ok) {
-      stop("non-conformable arguments in triangular solve", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_rows, "triangular solve")
-    }
+    assert_conformable_dims(
+      n,
+      b_rows,
+      context = "triangular solve",
+      err_msg = "non-conformable arguments in triangular solve"
+    )
   }
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -581,51 +641,45 @@ lapack_solve <- function(
   dest = NULL,
   context = "solve"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   A <- maybe_cast_double(A)
   B <- maybe_cast_double(B)
 
-  if (A@value@rank != 2L) {
-    stop(context, " expects a matrix for `a`", call. = FALSE)
-  }
+  assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims$rows, a_dims$cols, context)
   n <- a_dims$rows
 
   b_rank <- B@value@rank
-  if (b_rank > 2L) {
-    stop(
+  assert_rhs_rank(
+    b_rank,
+    err_scalar = paste0(context, " expects a vector or matrix right-hand side"),
+    err_high = paste0(
       context,
-      " only supports vector or matrix right-hand sides",
-      call. = FALSE
-    )
-  }
-  if (b_rank == 0L) {
-    stop(context, " expects a vector or matrix right-hand side", call. = FALSE)
-  }
+      " only supports vector or matrix right-hand sides"
+    ),
+    call_scalar = FALSE,
+    call_high = FALSE
+  )
 
   if (b_rank == 1L) {
     b_len <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_len)
-    if (!conform$ok) {
-      stop("non-conformable arguments in ", context, call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_len, context)
-    }
+    assert_conformable_dims(
+      n,
+      b_len,
+      context = context,
+      err_msg = paste0("non-conformable arguments in ", context)
+    )
   } else {
     b_rows <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_rows)
-    if (!conform$ok) {
-      stop("non-conformable arguments in ", context, call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_rows, context)
-    }
+    assert_conformable_dims(
+      n,
+      b_rows,
+      context = context,
+      err_msg = paste0("non-conformable arguments in ", context)
+    )
   }
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -669,14 +723,10 @@ lapack_solve <- function(
 }
 
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   A <- maybe_cast_double(A)
-  if (A@value@rank != 2L) {
-    stop(context, " expects a matrix for `a`", call. = FALSE)
-  }
+  assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims$rows, a_dims$cols, context)
@@ -723,14 +773,10 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
 }
 
 lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   A <- maybe_cast_double(A)
-  if (A@value@rank != 2L) {
-    stop(context, " expects a matrix", call. = FALSE)
-  }
+  assert_rank2_matrix(A, paste0(context, " expects a matrix"))
 
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims$rows, a_dims$cols, context)
@@ -778,14 +824,10 @@ lapack_chol2inv <- function(
   dest = NULL,
   context = "chol2inv"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   R <- maybe_cast_double(R)
-  if (R@value@rank != 2L) {
-    stop(context, " expects a matrix", call. = FALSE)
-  }
+  assert_rank2_matrix(R, paste0(context, " expects a matrix"))
 
   r_dims <- matrix_dims(R)
   assert_square_matrix(r_dims$rows, r_dims$cols, context)
@@ -827,14 +869,10 @@ lapack_chol2inv <- function(
 }
 
 diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   x <- maybe_cast_double(x)
-  if (x@value@rank != 2L) {
-    stop(context, " expects a matrix input", call. = FALSE)
-  }
+  assert_rank2_matrix(x, paste0(context, " expects a matrix input"))
 
   x_dims <- matrix_dims(x)
   diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, context)
@@ -882,14 +920,10 @@ diag_matrix <- function(
   dest = NULL,
   context = "diag"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   x <- maybe_cast_double(x)
-  if (x@value@rank > 1L) {
-    stop(context, " expects a vector or scalar input", call. = FALSE)
-  }
+  assert_rank_leq1(x, paste0(context, " expects a vector or scalar input"))
 
   diag_len <- diag_length_expr(nrow, ncol, context)
   x_scalar <- passes_as_scalar(x@value)
