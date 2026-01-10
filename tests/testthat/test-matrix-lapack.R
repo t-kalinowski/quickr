@@ -117,6 +117,11 @@ test_that("diag matches R for vectors, matrices, and sizes", {
     diag(x, nrow = 2, ncol = 3)
   }
 
+  diag_named_order <- function(x) {
+    declare(type(x = double(n)))
+    diag(nrow = 3L, x = x)
+  }
+
   set.seed(3)
   x <- rnorm(4)
   A <- matrix(rnorm(2 * 3), nrow = 2)
@@ -125,6 +130,7 @@ test_that("diag matches R for vectors, matrices, and sizes", {
   expect_quick_equal(diag_mat, list(A = A))
   expect_quick_equal(diag_size, list())
   expect_quick_equal(diag_value, list(x = 2.5))
+  expect_quick_equal(diag_named_order, list(x = c(1, 2)))
 })
 
 test_that("diag handles missing x with nrow/ncol and 1x1 matrices", {
