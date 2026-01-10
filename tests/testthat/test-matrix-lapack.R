@@ -229,6 +229,61 @@ test_that("Test bad path in lapack functions", {
   expect_error(quick(diag_missing), "argument \"nrow\" is missing")
 })
 
+test_that("lapack functions test non-square matrix errors", {
+  solve_rect <- function(A, b) {
+    declare(type(A = double(3, 2)), type(b = double(3)))
+    solve(A, b)
+  }
+
+  chol_rect <- function(A) {
+    declare(type(A = double(3, 2)))
+    chol(A)
+  }
+
+  chol2inv_rect <- function(R) {
+    declare(type(R = double(3, 2)))
+    chol2inv(R)
+  }
+
+  expect_error(quick(solve_rect), "requires a square matrix")
+  expect_error(quick(chol_rect), "requires a square matrix")
+  expect_error(quick(chol2inv_rect), "requires a square matrix")
+})
+
+test_that("solve with scalar RHS is rejected", {
+  solve_scalar_rhs <- function(A, b) {
+    declare(type(A = double(2, 2)), type(b = double(1)))
+    solve(A, b[1])
+  }
+
+  expect_error(quick(solve_scalar_rhs), "non-conformable arguments|expects a vector or matrix")
+})
+
+test_that("diag with various nrow/ncol combinations", {
+  diag_with_nrow <- function(n) {
+    declare(type(n = integer(1)))
+    diag(nrow = n)
+  }
+
+  diag_with_ncol <- function(n, m) {
+    declare(type(n = integer(1)), type(m = integer(1)))
+    diag(nrow = n, ncol = m)
+  }
+
+  diag_vec_nrow_ncol <- function(x, n, m) {
+    declare(
+      type(x = double(3)),
+      type(n = integer(1)),
+      type(m = integer(1))
+    )
+    diag(x, nrow = n, ncol = m)
+  }
+
+  expect_quick_equal(diag_with_nrow, list(n = 3L))
+  expect_quick_equal(diag_with_ncol, list(n = 2L, m = 3L))
+  expect_quick_equal(diag_vec_nrow_ncol, list(x = c(1, 2, 3), n = 4L, m = 4L))
+})
+
 test_that("linear model example matches R", {
   my_lm <- function(X, y) {
     declare(type(X = double(n, k)), type(y = double(n)))

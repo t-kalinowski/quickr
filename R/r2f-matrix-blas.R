@@ -119,6 +119,20 @@ warn_conformability_unknown <- function(left, right, context) {
   invisible(FALSE)
 }
 
+# Assert that dimensions represent a square matrix (rows == cols).
+# Throws an error if dimensions are known to be non-conformable,
+# and warns if conformability cannot be verified at compile time.
+assert_square_matrix <- function(rows, cols, context) {
+  conform <- check_conformable(rows, cols)
+  if (!conform$ok) {
+    stop(context, " requires a square matrix", call. = FALSE)
+  }
+  if (conform$unknown) {
+    warn_conformability_unknown(rows, cols, context)
+  }
+  invisible(TRUE)
+}
+
 # ---- BLAS emitters ----
 
 # Check that destination dimensions match expected output dimensions.
@@ -579,13 +593,7 @@ lapack_solve <- function(
   }
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, context)
-  }
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
   n <- a_dims$rows
 
   b_rank <- B@value@rank
@@ -671,13 +679,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   }
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, context)
-  }
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -731,13 +733,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   }
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, context)
-  }
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -792,13 +788,7 @@ lapack_chol2inv <- function(
   }
 
   r_dims <- matrix_dims(R)
-  conform <- check_conformable(r_dims$rows, r_dims$cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(r_dims$rows, r_dims$cols, context)
-  }
+  assert_square_matrix(r_dims$rows, r_dims$cols, context)
   n <- r_dims$rows
 
   R_name <- ensure_blas_operand_name(R, hoist)

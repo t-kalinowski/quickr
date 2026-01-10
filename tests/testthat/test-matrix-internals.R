@@ -493,3 +493,98 @@ test_that("matrix destination inference covers common shapes", {
   out_t <- quickr:::infer_dest_matmul(list(quote(t(A)), quote(t(B))), scope)
   expect_identical(out_t@dims, list(3L, 3L))
 })
+
+test_that("infer_dest_solve handles NULL returns", {
+  scope <- quickr:::new_scope(NULL)
+  scope@assign("A", quickr:::Variable("double", list(2L, 2L), name = "A"))
+  scope@assign("v", quickr:::Variable("double", list(2L), name = "v"))
+  scope@assign("s", quickr:::Variable("double", name = "s"))
+
+  # NULL when a_arg is NULL (empty args with no names)
+  expect_null(quickr:::infer_dest_solve(list(a = NULL), scope))
+
+  # NULL when A is NULL
+  expect_null(quickr:::infer_dest_solve(list(quote(missing)), scope))
+
+  # NULL when A is not rank 2
+  expect_null(quickr:::infer_dest_solve(list(quote(v)), scope))
+
+  # NULL when b is NULL but can't infer
+  expect_null(quickr:::infer_dest_solve(list(quote(A), quote(missing)), scope))
+
+  # Returns Variable for rank 1 b
+  out_vec <- quickr:::infer_dest_solve(list(quote(A), quote(v)), scope)
+  expect_identical(out_vec@dims, list(2L))
+
+  # NULL when b is scalar (rank 0)
+  expect_null(quickr:::infer_dest_solve(list(quote(A), quote(s)), scope))
+})
+
+test_that("infer_size handles NULL returns", {
+  scope <- quickr:::new_scope(NULL)
+  scope@assign("n", quickr:::Variable("integer", name = "n"))
+  scope@assign("v", quickr:::Variable("integer", list(2L), name = "v"))
+  scope@assign("s", quickr:::Variable("integer", name = "s"))
+
+  # NULL for missing args
+  expect_null(quickr:::infer_size(NULL, scope))
+  expect_null(quickr:::infer_size(quote(expr), scope))
+
+  # Returns integer literal
+  expect_identical(quickr:::infer_size(3L, scope), 3L)
+  expect_identical(quickr:::infer_size(3.0, scope), 3L)
+
+  # Returns symbol for scalar variable
+  expect_identical(quickr:::infer_size(quote(s), scope), quote(s))
+
+  # NULL for non-scalar variable
+  expect_null(quickr:::infer_size(quote(v), scope))
+
+  # NULL for non-variable symbol
+  expect_null(quickr:::infer_size(quote(missing), scope))
+})
+
+test_that("infer_dest_diag handles NULL returns for various cases", {
+  scope <- quickr:::new_scope(NULL)
+  scope@assign("A", quickr:::Variable("double", list(2L, 3L), name = "A"))
+  scope@assign("v", quickr:::Variable("double", list(3L), name = "v"))
+  scope@assign("s", quickr:::Variable("double", name = "s"))
+  scope@assign("n", quickr:::Variable("integer", name = "n"))
+
+  # NULL when x is missing and no nrow
+  expect_null(quickr:::infer_dest_diag(list(), scope))
+
+  # Returns vector when x is matrix (extracts diagonal)
+  out_extract <- quickr:::infer_dest_diag(list(quote(A)), scope)
+  expect_identical(out_extract@dims, list(2L))
+
+  # Returns identity matrix from integer literal
+  out_identity <- quickr:::infer_dest_diag(list(3L), scope)
+  expect_identical(out_identity@dims, list(3L, 3L))
+
+  # NULL when x is scalar symbol without nrow/ncol
+  expect_null(quickr:::infer_dest_diag(list(quote(s)), scope))
+
+  # Returns square matrix from vector
+  out_vec <- quickr:::infer_dest_diag(list(quote(v)), scope)
+  expect_identical(out_vec@dims, list(3L, 3L))
+
+  # NULL when nrow is inferred but null
+  expect_null(
+    quickr:::infer_dest_diag(list(quote(v), nrow = quote(missing)), scope)
+  )
+})
+
+test_that("assert_square_matrix detects non-square matrices", {
+  expect_error(
+    quickr:::assert_square_matrix(2L, 3L, "test"),
+    "test requires a square matrix"
+  )
+
+  expect_invisible(quickr:::assert_square_matrix(2L, 2L, "test"))
+
+  expect_warning(
+    quickr:::assert_square_matrix(quote(n), quote(m), "test"),
+    "cannot verify conformability in test"
+  )
+})
