@@ -2,9 +2,9 @@
 
 - Added initial matrix/linear algebra handler support from base R, using the
   same BLAS/LAPACK as R: `%*%`, `t()`, `crossprod()`, `tcrossprod()`,
-  `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, and `backsolve()`.
+  `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, `backsolve()`, `diag()`, `t()`, `chol()`, `chol2inv()` and `solve()` 
 
-  The plan is to add more functions in the future (#77 @mns-nordicals)
+  The plan is to add more functions in the future (#77, #79 @mns-nordicals)
 
 - Added support for `cbind()` and `rbind()` for rank-0/1/2 inputs, with scalar
   recycling only and strict length checks for non-scalar inputs.

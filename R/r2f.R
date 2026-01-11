@@ -590,7 +590,7 @@ r2f_handlers[["["]] <- function(
   #   converted to an integer with
 
   var <- args[[1]]
-  var <- r2f(var, scope, ...)
+  var <- r2f(var, scope, ..., hoist = hoist)
 
   idx_args <- args[-1]
   drop <- idx_args$drop %||% TRUE
@@ -1168,6 +1168,98 @@ maybe_cast_double <- function(x) {
   }
 }
 
+dim_is_one <- function(x) {
+  is_wholenumber(x) && identical(as.integer(x), 1L)
+}
+
+is_one_by_one <- function(x) {
+  stopifnot(inherits(x, Fortran))
+  x@value@rank == 2L &&
+    dim_is_one(x@value@dims[[1L]]) &&
+    dim_is_one(x@value@dims[[2L]])
+}
+
+dims_match <- function(left, right) {
+  if (is_wholenumber(left) && is_wholenumber(right)) {
+    return(identical(as.integer(left), as.integer(right)))
+  }
+  identical(left, right)
+}
+
+reshape_vector_for_matrix <- function(vec, rows, cols) {
+  stopifnot(inherits(vec, Fortran))
+  out_val <- Variable(vec@value@mode, list(rows, cols))
+  source <- if (passes_as_scalar(vec@value)) {
+    glue("[{vec}]")
+  } else {
+    glue("{vec}")
+  }
+  out_expr <- glue(
+    "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
+  )
+  Fortran(out_expr, out_val)
+}
+
+scalarize_matrix <- function(mat) {
+  stopifnot(inherits(mat, Fortran))
+  out_val <- Variable(mat@value@mode)
+  Fortran(glue("{mat}(1, 1)"), out_val)
+}
+
+maybe_reshape_vector_matrix <- function(left, right) {
+  if (
+    !inherits(left, Fortran) ||
+      !inherits(right, Fortran) ||
+      is.null(left@value) ||
+      is.null(right@value)
+  ) {
+    return(list(left = left, right = right))
+  }
+
+  left_rank <- left@value@rank
+  right_rank <- right@value@rank
+
+  if (left_rank == 1L && right_rank == 2L) {
+    right_dims <- matrix_dims(right)
+    left_len <- dim_or_one(left, 1L)
+    if (dim_is_one(right_dims$cols) && dims_match(right_dims$rows, left_len)) {
+      left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
+    } else if (
+      dim_is_one(right_dims$rows) &&
+        dims_match(right_dims$cols, left_len)
+    ) {
+      left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
+    }
+  } else if (left_rank == 2L && right_rank == 1L) {
+    left_dims <- matrix_dims(left)
+    right_len <- dim_or_one(right, 1L)
+    if (dim_is_one(left_dims$cols) && dims_match(left_dims$rows, right_len)) {
+      right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
+    } else if (
+      dim_is_one(left_dims$rows) &&
+        dims_match(left_dims$cols, right_len)
+    ) {
+      right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
+    }
+  }
+
+  left_rank <- left@value@rank
+  right_rank <- right@value@rank
+  if (left_rank == 2L && right_rank == 1L && is_one_by_one(left)) {
+    right_len <- dim_or_one(right, 1L)
+    if (!dim_is_one(right_len)) {
+      left <- scalarize_matrix(left)
+    }
+  } else if (left_rank == 1L && right_rank == 2L && is_one_by_one(right)) {
+    left_len <- dim_or_one(left, 1L)
+    if (!dim_is_one(left_len)) {
+      right <- scalarize_matrix(right)
+    }
+  }
+
+  list(left = left, right = right)
+}
+
 r2f_handlers[["+"]] <- function(args, scope, ...) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
@@ -1175,6 +1267,9 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
+    reshaped <- maybe_reshape_vector_matrix(left, right)
+    left <- reshaped$left
+    right <- reshaped$right
     Fortran(glue("({left} + {right})"), conform(left@value, right@value))
   }
 }
@@ -1186,12 +1281,18 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
+    reshaped <- maybe_reshape_vector_matrix(left, right)
+    left <- reshaped$left
+    right <- reshaped$right
     Fortran(glue("({left} - {right})"), conform(left@value, right@value))
   }
 }
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  reshaped <- maybe_reshape_vector_matrix(left, right)
+  left <- reshaped$left
+  right <- reshaped$right
   Fortran(glue("({left} * {right})"), conform(left@value, right@value))
 }
 
@@ -1199,6 +1300,9 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
+  reshaped <- maybe_reshape_vector_matrix(left, right)
+  left <- reshaped$left
+  right <- reshaped$right
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
 }
 
@@ -1209,6 +1313,9 @@ r2f_handlers[["as.double"]] <- function(args, scope = NULL, ...) {
 
 r2f_handlers[["^"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  reshaped <- maybe_reshape_vector_matrix(left, right)
+  left <- reshaped$left
+  right <- reshaped$right
   Fortran(glue("({left} ** {right})"), conform(left@value, right@value))
 }
 
