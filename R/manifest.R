@@ -325,6 +325,14 @@ dims2f_eval_base_env[["length"]] <- function(x) {
     glue("size({x})")
   }
 }
+dims2f_eval_base_env[["min"]] <- function(...) {
+  args <- list(...)
+  glue("min({str_flatten_commas(args)})")
+}
+dims2f_eval_base_env[["max"]] <- function(...) {
+  args <- list(...)
+  glue("max({str_flatten_commas(args)})")
+}
 
 
 dims2f <- function(dims, scope) {
