@@ -2,6 +2,78 @@
 
 # ---- shared matrix helpers (loaded early for implicit collation) ----
 
+# Assert hoist is a valid environment for BLAS/LAPACK helpers.
+assert_hoist_env <- function(hoist) {
+  if (!inherits(hoist, "environment")) {
+    stop("internal: hoist must be a hoist environment")
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is a rank-2 matrix.
+assert_rank2_matrix <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank != 2L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is a scalar or vector.
+assert_rank_leq1 <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank > 1L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert a Fortran value is rank 0-2.
+assert_rank_leq2 <- function(x, message) {
+  stopifnot(inherits(x, Fortran), is_string(message))
+  if (x@value@rank > 2L) {
+    stop(message, call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
+# Assert right-hand side rank is vector or matrix.
+assert_rhs_rank <- function(
+  rank,
+  err_scalar,
+  err_high,
+  call_scalar = FALSE,
+  call_high = FALSE
+) {
+  stopifnot(
+    is_wholenumber(rank),
+    is_string(err_scalar),
+    is_string(err_high),
+    is_bool(call_scalar),
+    is_bool(call_high)
+  )
+  if (rank > 2L) {
+    stop(err_high, call. = call_high)
+  }
+  if (rank == 0L) {
+    stop(err_scalar, call. = call_scalar)
+  }
+  invisible(TRUE)
+}
+
+# Assert conformability and warn on unknown.
+assert_conformable_dims <- function(left, right, context, err_msg) {
+  stopifnot(is_string(context), is_string(err_msg))
+  conform <- check_conformable(left, right)
+  if (!conform$ok) {
+    stop(err_msg, call. = FALSE)
+  }
+  if (conform$unknown) {
+    warn_conformability_unknown(left, right, context)
+  }
+  invisible(TRUE)
+}
+
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -119,6 +191,20 @@ warn_conformability_unknown <- function(left, right, context) {
   invisible(FALSE)
 }
 
+# Assert that dimensions represent a square matrix (rows == cols).
+# Throws an error if dimensions are known to be non-conformable,
+# and warns if conformability cannot be verified at compile time.
+assert_square_matrix <- function(rows, cols, context) {
+  conform <- check_conformable(rows, cols)
+  if (!conform$ok) {
+    stop(context, " requires a square matrix", call. = FALSE)
+  }
+  if (conform$unknown) {
+    warn_conformability_unknown(rows, cols, context)
+  }
+  invisible(TRUE)
+}
+
 # ---- BLAS emitters ----
 
 # Check that destination dimensions match expected output dimensions.
@@ -191,7 +277,14 @@ ensure_blas_operand_name <- function(x, hoist) {
 
 # Wrap an expression as a BLAS int literal.
 blas_int <- function(x) {
-  glue("int({x}, kind=c_int)")
+  x_str <- if (is.language(x)) {
+    gsub("([0-9]+)L\\b", "\\1", deparse1(x))
+  } else if (is_wholenumber(x)) {
+    as.character(as.integer(x))
+  } else {
+    as.character(x)
+  }
+  glue("int({x_str}, kind=c_int)")
 }
 
 # Centralized GEMM emission with optional destination
@@ -214,9 +307,7 @@ gemm <- function(
   dest = NULL,
   context = "gemm"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
@@ -260,9 +351,7 @@ gemv <- function(
   dest = NULL,
   context = "gemv"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
@@ -291,7 +380,8 @@ gemv <- function(
 }
 
 symmetrize_upper_to_lower <- function(target, n, hoist) {
-  stopifnot(is_string(target), inherits(hoist, "environment"))
+  stopifnot(is_string(target))
+  assert_hoist_env(hoist)
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
   idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
@@ -301,6 +391,36 @@ symmetrize_upper_to_lower <- function(target, n, hoist) {
 do {idx_j@name} = 1_c_int, {n_int} - 1_c_int
   do {idx_i@name} = {idx_j@name} + 1_c_int, {n_int}
     {target}({idx_i@name}, {idx_j@name}) = {target}({idx_j@name}, {idx_i@name})
+  end do
+end do"
+  ))
+}
+
+diag_length_expr <- function(nrow, ncol, context) {
+  if (is_scalar_na(nrow) || is_scalar_na(ncol)) {
+    stop(context, " requires known dimensions", call. = FALSE)
+  }
+  if (is_wholenumber(nrow) && is_wholenumber(ncol)) {
+    return(as.integer(min(nrow, ncol)))
+  }
+  if (identical(nrow, ncol)) {
+    return(nrow)
+  }
+  call("min", nrow, ncol)
+}
+
+zero_lower_triangle <- function(target, n, hoist) {
+  stopifnot(is_string(target))
+  assert_hoist_env(hoist)
+
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  n_int <- blas_int(n)
+  hoist$emit(glue(
+    "
+do {idx_i@name} = 2_c_int, {n_int}
+  do {idx_j@name} = 1_c_int, {idx_i@name} - 1_c_int
+    {target}({idx_i@name}, {idx_j@name}) = 0.0_c_double
   end do
 end do"
   ))
@@ -318,9 +438,7 @@ syrk <- function(
   dest = NULL,
   context = "syrk"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
   X_name <- ensure_blas_operand_name(X, hoist)
 
   x_dims <- matrix_dims(X)
@@ -378,9 +496,7 @@ outer_mul <- function(
   dest = NULL,
   context = "outer"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   x <- maybe_cast_double(x)
   y <- maybe_cast_double(y)
@@ -432,16 +548,12 @@ triangular_solve <- function(
   dest = NULL,
   context = "triangular solve"
 ) {
-  if (!inherits(hoist, "environment")) {
-    stop("internal: hoist must be a hoist environment")
-  }
+  assert_hoist_env(hoist)
 
   A <- maybe_cast_double(A)
   B <- maybe_cast_double(B)
 
-  if (A@value@rank != 2L) {
-    stop("triangular solve expects a matrix")
-  }
+  assert_rank2_matrix(A, "triangular solve expects a matrix")
 
   a_dims <- matrix_dims(A)
   conform <- check_conformable(a_dims$rows, a_dims$cols)
@@ -454,29 +566,27 @@ triangular_solve <- function(
   n <- a_dims$rows
 
   b_rank <- B@value@rank
-  if (b_rank > 2L) {
-    stop("triangular solve only supports vector or matrix right-hand sides")
-  }
-  if (b_rank == 0L) {
-    stop("triangular solve expects a vector or matrix right-hand side")
-  } else if (b_rank == 1L) {
+  assert_rhs_rank(
+    b_rank,
+    err_scalar = "triangular solve expects a vector or matrix right-hand side",
+    err_high = "triangular solve only supports vector or matrix right-hand sides"
+  )
+  if (b_rank == 1L) {
     b_len <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_len)
-    if (!conform$ok) {
-      stop("non-conformable arguments in triangular solve", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_len, "triangular solve")
-    }
+    assert_conformable_dims(
+      n,
+      b_len,
+      context = "triangular solve",
+      err_msg = "non-conformable arguments in triangular solve"
+    )
   } else {
     b_rows <- dim_or_one(B, 1L)
-    conform <- check_conformable(n, b_rows)
-    if (!conform$ok) {
-      stop("non-conformable arguments in triangular solve", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(n, b_rows, "triangular solve")
-    }
+    assert_conformable_dims(
+      n,
+      b_rows,
+      context = "triangular solve",
+      err_msg = "non-conformable arguments in triangular solve"
+    )
   }
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -517,6 +627,347 @@ triangular_solve <- function(
   }
 
   out <- Fortran(B_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+lapack_solve <- function(
+  A,
+  B,
+  scope,
+  hoist,
+  dest = NULL,
+  context = "solve"
+) {
+  assert_hoist_env(hoist)
+
+  A <- maybe_cast_double(A)
+  B <- maybe_cast_double(B)
+
+  assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
+
+  a_dims <- matrix_dims(A)
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  n <- a_dims$rows
+
+  b_rank <- B@value@rank
+  assert_rhs_rank(
+    b_rank,
+    err_scalar = paste0(context, " expects a vector or matrix right-hand side"),
+    err_high = paste0(
+      context,
+      " only supports vector or matrix right-hand sides"
+    ),
+    call_scalar = FALSE,
+    call_high = FALSE
+  )
+
+  if (b_rank == 1L) {
+    b_len <- dim_or_one(B, 1L)
+    assert_conformable_dims(
+      n,
+      b_len,
+      context = context,
+      err_msg = paste0("non-conformable arguments in ", context)
+    )
+  } else {
+    b_rows <- dim_or_one(B, 1L)
+    assert_conformable_dims(
+      n,
+      b_rows,
+      context = context,
+      err_msg = paste0("non-conformable arguments in ", context)
+    )
+  }
+
+  A_name <- ensure_blas_operand_name(A, hoist)
+  B_input_name <- ensure_blas_operand_name(B, hoist)
+
+  A_work <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+  hoist$emit(glue("{A_work@name} = {A_name}"))
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = c(A_name, B_input_name),
+      expected_dims = B@value@dims,
+      context = context,
+      allow_alias = B_input_name
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = B@value@dims)
+    out_name <- out_var@name
+  }
+  hoist$emit(glue("{out_name} = {B_input_name}"))
+
+  ipiv <- hoist$declare_tmp(mode = "integer", dims = list(n))
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
+
+  hoist$emit(glue(
+    "call dgesv({blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(n)}, {ipiv@name}, {out_name}, {blas_int(n)}, {info@name})"
+  ))
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
+  assert_hoist_env(hoist)
+
+  A <- maybe_cast_double(A)
+  assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
+
+  a_dims <- matrix_dims(A)
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  n <- a_dims$rows
+
+  A_name <- ensure_blas_operand_name(A, hoist)
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = A_name,
+      expected_dims = list(n, n),
+      context = context,
+      allow_alias = A_name
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+    out_name <- out_var@name
+  }
+
+  hoist$emit(glue("{out_name} = {A_name}"))
+
+  ipiv <- hoist$declare_tmp(mode = "integer", dims = list(n))
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  work <- hoist$declare_tmp(mode = "double", dims = list(n))
+
+  hoist$emit(glue(
+    "call dgetrf({blas_int(n)}, {blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {info@name})"
+  ))
+  hoist$emit(glue(
+    "call dgetri({blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {work@name}, {blas_int(n)}, {info@name})"
+  ))
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
+  assert_hoist_env(hoist)
+
+  A <- maybe_cast_double(A)
+  assert_rank2_matrix(A, paste0(context, " expects a matrix"))
+
+  a_dims <- matrix_dims(A)
+  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  n <- a_dims$rows
+
+  A_name <- ensure_blas_operand_name(A, hoist)
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = A_name,
+      expected_dims = list(n, n),
+      context = context,
+      allow_alias = A_name
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+    out_name <- out_var@name
+  }
+
+  hoist$emit(glue("{out_name} = {A_name}"))
+
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  hoist$emit(glue(
+    "call dpotrf('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
+  ))
+  zero_lower_triangle(out_name, n, hoist = hoist)
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+lapack_chol2inv <- function(
+  R,
+  scope,
+  hoist,
+  dest = NULL,
+  context = "chol2inv"
+) {
+  assert_hoist_env(hoist)
+
+  R <- maybe_cast_double(R)
+  assert_rank2_matrix(R, paste0(context, " expects a matrix"))
+
+  r_dims <- matrix_dims(R)
+  assert_square_matrix(r_dims$rows, r_dims$cols, context)
+  n <- r_dims$rows
+
+  R_name <- ensure_blas_operand_name(R, hoist)
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = R_name,
+      expected_dims = list(n, n),
+      context = context,
+      allow_alias = R_name
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+    out_name <- out_var@name
+  }
+
+  hoist$emit(glue("{out_name} = {R_name}"))
+
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  hoist$emit(glue(
+    "call dpotri('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
+  ))
+  symmetrize_upper_to_lower(out_name, n, hoist = hoist)
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
+  assert_hoist_env(hoist)
+
+  x <- maybe_cast_double(x)
+  assert_rank2_matrix(x, paste0(context, " expects a matrix input"))
+
+  x_dims <- matrix_dims(x)
+  diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, context)
+
+  x_name <- ensure_blas_operand_name(x, hoist)
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = x_name,
+      expected_dims = list(diag_len),
+      context = context
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(diag_len))
+    out_name <- out_var@name
+  }
+
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  hoist$emit(glue(
+    "
+do {idx_i@name} = 1_c_int, {blas_int(diag_len)}
+  {out_name}({idx_i@name}) = {x_name}({idx_i@name}, {idx_i@name})
+end do"
+  ))
+
+  out <- Fortran(out_name, out_var)
+  if (writes_to_dest) {
+    attr(out, "writes_to_dest") <- TRUE
+  }
+  out
+}
+
+diag_matrix <- function(
+  x,
+  nrow,
+  ncol,
+  scope,
+  hoist,
+  dest = NULL,
+  context = "diag"
+) {
+  assert_hoist_env(hoist)
+
+  x <- maybe_cast_double(x)
+  assert_rank_leq1(x, paste0(context, " expects a vector or scalar input"))
+
+  diag_len <- diag_length_expr(nrow, ncol, context)
+  x_scalar <- passes_as_scalar(x@value)
+  x_len <- if (x_scalar) 1L else dim_or_one(x, 1L)
+
+  x_name <- ensure_blas_operand_name(x, hoist)
+
+  writes_to_dest <- FALSE
+  if (
+    can_use_output(
+      dest,
+      input_names = x_name,
+      expected_dims = list(nrow, ncol),
+      context = context
+    )
+  ) {
+    out_var <- dest
+    out_name <- dest@name
+    writes_to_dest <- TRUE
+  } else {
+    out_var <- hoist$declare_tmp(mode = "double", dims = list(nrow, ncol))
+    out_name <- out_var@name
+  }
+
+  hoist$emit(glue("{out_name} = 0.0_c_double"))
+
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  value_expr <- if (x_scalar) {
+    x_name
+  } else {
+    idx_expr <- glue(
+      "1_c_int + mod({idx_i@name} - 1_c_int, {blas_int(x_len)})"
+    )
+    glue("{x_name}({idx_expr})")
+  }
+
+  hoist$emit(glue(
+    "
+do {idx_i@name} = 1_c_int, {blas_int(diag_len)}
+  {out_name}({idx_i@name}, {idx_i@name}) = {value_expr}
+end do"
+  ))
+
+  out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
     attr(out, "writes_to_dest") <- TRUE
   }

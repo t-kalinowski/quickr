@@ -447,6 +447,90 @@ For example:
 my_fun <- quick(name = "my_fun", function(x) ....)
 ```
 
+## Basic support for matrix operations
+We have implemented a subset of matrix operations from base R. When you do a matrix multiplication like `A %*% B`, R calls BLAS/LAPACK functions linked to your R build. `quickr` is linked to the same BLAS/LAPACK implementation, so you can expect the same results and slightly faster computation due to lower overhead. There are multiple BLAS/LAPACK implementations, and performance therefore depends on what you have installed. 
+
+To illustrate the performance of matrix operations, we do a linear regression using the normal equation, which is fast but not the most numerically stable method. We compare with `RcppArmadillo`, which is a popular library for matrix operations. The `RcppArmadillo` implementation aims to match our R implementation. 
+
+```{r}
+lm <- function(X, y) {
+  declare(
+    type(X = double(n, k)), 
+    type(y = double(n))
+  )
+
+  df <- nrow(X) - ncol(X)
+
+  XtX <- crossprod(X)
+  Xty <- crossprod(X, y)
+  coef <- solve(XtX, Xty)
+  fit_val <- X %*% coef
+  resid <- y - fit_val
+  s2 <- crossprod(resid)[1]
+  s2 <- s2 / df
+
+  U <- chol(XtX)
+  XtX_inv <- chol2inv(U)
+  std_err <- sqrt(diag(XtX_inv) * s2)
+
+  list(
+    coefficients  = coef,
+    stderr        = std_err,
+    df.residual   = df,
+    fitted_values = fit_val,
+    residuals     = resid
+  )
+}
+
+qlm <- quick(lm)
+
+Rcpp::sourceCpp(
+  code = '#include <RcppArmadillo.h>
+// [[Rcpp::depends(RcppArmadillo)]]
+
+// [[Rcpp::export]]
+Rcpp::List RcppLm(const arma::mat& X, const arma::colvec& y) {
+    int n = X.n_rows;
+    int k = X.n_cols;
+    int df = n - k;
+    
+    arma::mat XtX = arma::trans(X) * X;
+    arma::colvec Xty = arma::trans(X) * y;
+    arma::colvec coef = arma::solve(XtX, Xty);
+    arma::colvec fit_val = X * coef;
+    arma::colvec resid = y - fit_val;
+    double s2 = arma::dot(resid, resid);
+    s2 = s2 / df;
+    
+    arma::mat U = arma::chol(XtX);
+    arma::mat XtX_inv = arma::inv(arma::trimatu(U)) * arma::trans(arma::inv(arma::trimatu(U)));
+    arma::colvec std_err = arma::sqrt(arma::diagvec(XtX_inv) * s2);
+    
+    return Rcpp::List::create(
+        Rcpp::Named("coefficients")  = coef,
+        Rcpp::Named("stderr")        = std_err,
+        Rcpp::Named("df.residual")   = df,
+        Rcpp::Named("fitted_values") = fit_val,
+        Rcpp::Named("residuals")     = resid
+    );
+}'
+)
+
+beta <- c(0.5, 1.0, -2.0, 10, 5)
+X <- cbind(1, matrix(rnorm(3 * 10^6), ncol = 4))
+y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
+
+timings <- bench::mark(
+  r = lm(X, y),
+  quickr = qlm(X, y),
+  RcppArmadillo = RcppLm(X, y),
+  check = FALSE, # stderr is a vector in R and matrix in RcppArmadillo
+  min_iterations = 30
+)
+timings
+
+```
+
 ## Installation
 
 You can install quickr from CRAN with:
