@@ -141,24 +141,24 @@ test_that("1x1 matrix preserves matrix result with length-1 vector", {
 })
 
 test_that("1x1 matrix with length-n vector yields a vector", {
-    fn <- function(vec, mat_1_1) {
-      declare(
-        type(vec = double(n)),
-        type(mat_1_1 = double(1, 1))
-      )
-      a <- vec + mat_1_1
-      b <- mat_1_1 + vec
-      out <- list(a = a, b = b)
-      out
-    }
-  
-  ## Note: base R emits a warning: 
+  fn <- function(vec, mat_1_1) {
+    declare(
+      type(vec = double(n)),
+      type(mat_1_1 = double(1, 1))
+    )
+    a <- vec + mat_1_1
+    b <- mat_1_1 + vec
+    out <- list(a = a, b = b)
+    out
+  }
+
+  ## Note: base R emits a warning:
   ## Recycling array of length 1 in vector-array arithmetic is deprecated
-  ## suppressWarnings is used to pass test as this path may arrise in code 
+  ## suppressWarnings is used to pass test as this path may arrise in code
   ## e.g crossprod(1:4) or other matrix operation that gives 1 by 1 matrix
   suppressWarnings(expect_quick_identical(
     fn,
-    list(c(1,2,3), matrix(1, nrow = 1L, ncol = 1L))
+    list(c(1, 2, 3), matrix(1, nrow = 1L, ncol = 1L))
   ))
 })
 
