@@ -117,3 +117,95 @@ test_that("loop variables in local closures shadow host variables", {
   x <- runif(10)
   expect_quick_identical(fn, list(x1), list(x2), list(x))
 })
+
+test_that("inline function calls are lowered correctly", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    y <- (function(a) a + 1)(x)
+    y
+  }
+
+  expect_identical(fn(1), 2)
+  expect_quick_identical(fn, list(1), list(5))
+})
+
+test_that("parenthesized closure calls work", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a) a * 2
+    y <- ((f))(x)
+    y
+  }
+
+  expect_identical(fn(3), 6)
+  expect_quick_identical(fn, list(3), list(7))
+})
+
+test_that("closure returning logical assigned to return variable", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    check <- function(i) x[i] > 0.5
+    out <- sapply(seq_along(x), check)
+    out
+  }
+
+  x <- c(0.1, 0.6, 0.3, 0.9)
+  expect_identical(fn(x), c(FALSE, TRUE, FALSE, TRUE))
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("sapply over scalar iterable works", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    out <- sapply(x, function(v) v * 2)
+    out
+  }
+
+  expect_identical(fn(3), 6)
+  expect_quick_identical(fn, list(3), list(5))
+})
+
+test_that("closure captures and shadows host variable on subscript assign", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    modify <- function(i) {
+      x[i] <- x[i] + 1
+      x[i]
+    }
+    out <- sapply(seq_along(x), modify)
+    out
+  }
+
+  x <- c(1, 2, 3)
+  expect_identical(fn(x), c(2, 3, 4))
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("superassignment to non-existent variable errors", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      modify <- function(i) {
+        nonexistent[i] <<- 1
+      }
+      modify(1L)
+      x
+    }),
+    "must resolve to an existing variable"
+  )
+})
+
+test_that("closure with scalar indexing on scalar value via superassign", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    modify <- function() {
+      x[1] <<- x[1] + 1
+      NULL
+    }
+    modify()
+    x
+  }
+
+  expect_identical(fn(5), 6)
+  expect_quick_identical(fn, list(5), list(10))
+})

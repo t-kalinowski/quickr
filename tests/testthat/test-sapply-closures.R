@@ -405,3 +405,38 @@ test_that("sapply errors when FUN has wrong number of arguments", {
     "sapply\\(\\) FUN must have exactly one named argument"
   )
 })
+
+test_that("sapply errors when output is scalar", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      out <- 0
+      out <- sapply(seq_along(x), function(i) x[i])
+      out
+    }),
+    "sapply\\(\\) output must be an array"
+  )
+})
+
+test_that("sapply errors for rank>2 output without simplify='array'", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(a, b, c)))
+      out <- array(0, dim = c(dim(x), 2L))
+      out <- sapply(1:2, function(t) x)
+      out
+    }),
+    'sapply\\(\\) that returns arrays requires.*simplify = "array"'
+  )
+})
+
+test_that("sapply errors when named FUN is not a local closure", {
+  expect_error(
+    quick(function(x) {
+      declare(type(x = double(NA)))
+      out <- sapply(seq_along(x), sum)
+      out
+    }),
+    "unsupported FUN in sapply\\(\\)"
+  )
+})
