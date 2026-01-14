@@ -185,3 +185,90 @@ test_that("cbind/rbind handle mixed rank-2, rank-1, and rank-0 inputs", {
     list(A2, w1, t1, B2, t2, w2, C2, w3, t3)
   )
 })
+
+test_that("cbind/rbind coerce logical inputs when mixed with integer", {
+  cbind_int_lgl <- function(i, l) {
+    declare(type(i = integer(n)), type(l = logical(n)))
+    cbind(i, l)
+  }
+
+  rbind_int_lgl <- function(i, l) {
+    declare(type(i = integer(n)), type(l = logical(n)))
+    rbind(i, l)
+  }
+
+  i <- 1:4
+  l <- c(TRUE, FALSE, TRUE, FALSE)
+
+  expect_bind_equal(cbind_int_lgl, list(i, l))
+  expect_bind_equal(rbind_int_lgl, list(i, l))
+})
+
+test_that("cbind/rbind coerce integers to double when mixed", {
+  cbind_dbl_int <- function(d, i) {
+    declare(type(d = double(n)), type(i = integer(n)))
+    cbind(d, i)
+  }
+
+  rbind_dbl_int <- function(d, i) {
+    declare(type(d = double(n)), type(i = integer(n)))
+    rbind(d, i)
+  }
+
+  d <- c(1.25, -0.5, 3.0)
+  i <- c(1L, 2L, 3L)
+
+  expect_bind_equal(cbind_dbl_int, list(d, i))
+  expect_bind_equal(rbind_dbl_int, list(d, i))
+})
+
+test_that("cbind supports complex inputs", {
+  cbind_complex <- function(z1, z2) {
+    declare(type(z1 = complex(n)), type(z2 = complex(n)))
+    cbind(z1, z2)
+  }
+
+  set.seed(10)
+  x <- runif(4)
+  y <- runif(4)
+  z1 <- complex(real = x, imaginary = y)
+  z2 <- complex(real = y, imaginary = x)
+
+  expect_bind_equal(cbind_complex, list(z1, z2))
+})
+
+test_that("cbind rejects mixing complex with non-complex", {
+  bad <- function(z, x) {
+    declare(type(z = complex(n)), type(x = double(n)))
+    cbind(z, x)
+  }
+
+  expect_error(quick(bad), "mixing complex", fixed = TRUE)
+})
+
+test_that("cbind warns when conformability cannot be verified", {
+  fn <- function(x, y, n, m) {
+    declare(
+      type(n = integer(1)),
+      type(m = integer(1)),
+      type(x = double(n)),
+      type(y = double(m))
+    )
+    cbind(x, y)
+  }
+
+  qfn <- NULL
+  expect_warning(
+    qfn <- quick(fn),
+    "cannot verify conformability in cbind()",
+    fixed = TRUE
+  )
+
+  x <- c(1.0, 2.0, 3.0)
+  y <- c(-1.0, 0.0, 1.0)
+  qres <- qfn(x, y, 3L, 3L)
+  rres <- fn(x, y, 3L, 3L)
+  expect_identical(dim(qres), dim(rres))
+  expect_identical(typeof(qres), typeof(rres))
+  expect_equal(unname(qres), unname(rres))
+})

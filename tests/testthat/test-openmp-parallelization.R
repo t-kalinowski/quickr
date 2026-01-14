@@ -37,6 +37,8 @@ timed_run <- function(fn, ..., reps = 1L) {
   )
 }
 
+in_covr <- identical(Sys.getenv("R_COVR"), "true")
+
 check_thread_scaling_subprocess <- function(label, n, iters) {
   pkg_path <- normalizePath(
     testthat::test_path("..", ".."),
@@ -119,14 +121,45 @@ check_thread_scaling_subprocess <- function(label, n, iters) {
   for (attempt in seq_len(5L)) {
     two_threads <- run_one(2, scale_iters)
     four_threads <- run_one(4, scale_iters)
-    eight_threads <- run_one(8, scale_iters)
-    min_elapsed <- min(
-      c(two_threads$elapsed, four_threads$elapsed, eight_threads$elapsed)
-    )
+    if (!isTRUE(in_covr)) {
+      eight_threads <- run_one(8, scale_iters)
+      min_elapsed <- min(
+        c(two_threads$elapsed, four_threads$elapsed, eight_threads$elapsed)
+      )
+    } else {
+      eight_threads <- NULL
+      min_elapsed <- min(c(two_threads$elapsed, four_threads$elapsed))
+    }
     if (min_elapsed >= 0.1) {
       break
     }
     scale_iters <- as.integer(scale_iters * 4L)
+  }
+
+  if (isTRUE(in_covr)) {
+    thread_info <- paste0(
+      label,
+      " (iters=",
+      scale_iters,
+      ")",
+      ": threads=2 elapsed=",
+      signif(two_threads$elapsed, 3),
+      " cpu=",
+      signif(two_threads$cpu, 3),
+      "; threads=4 elapsed=",
+      signif(four_threads$elapsed, 3),
+      " cpu=",
+      signif(four_threads$cpu, 3)
+    )
+
+    # Under coverage instrumentation we mainly want to ensure the test is fast
+    # and stable; a strong scaling assertion becomes noisy and very slow.
+    expect_lt(
+      four_threads$elapsed,
+      two_threads$elapsed * 10,
+      label = thread_info
+    )
+    return(invisible(TRUE))
   }
 
   thread_info <- paste0(
@@ -205,15 +238,17 @@ test_that("parallel loops show parallelism without large slowdowns", {
     out
   }
 
-  n <- 500000L
+  n <- if (isTRUE(in_covr)) 50000L else 500000L
   set.seed(1)
   x <- runif(n)
   serial_q <- quick(serial)
   parallel_q <- quick(parallel)
 
-  iters <- 12L
+  iters <- if (isTRUE(in_covr)) 4L else 12L
   serial_q(x, n, iters)
   gc()
+
+  expect_equal(parallel_q(x, n, iters), serial_q(x, n, iters))
 
   reps <- 1L
   for (attempt in seq_len(5L)) {
@@ -262,6 +297,12 @@ test_that("parallel loops show parallelism without large slowdowns", {
     1.5
   }
 
+  if (isTRUE(in_covr)) {
+    # Keep this test fast and stable under coverage instrumentation.
+    expect_lt(parallel_time$elapsed, serial_time$elapsed * 10, label = info)
+    return(invisible(TRUE))
+  }
+
   if (!anyNA(c(parallel_time$cpu, serial_time$cpu))) {
     cpu_increase <- parallel_time$cpu > serial_time$cpu * 1.1
     elapsed_improve <- parallel_time$elapsed < serial_time$elapsed * 0.95
@@ -285,7 +326,7 @@ test_that("openmp responds to OMP_NUM_THREADS across sessions", {
 
   check_thread_scaling_subprocess(
     label = "iter-map",
-    n = 400000L,
-    iters = 80L
+    n = if (isTRUE(in_covr)) 50000L else 400000L,
+    iters = if (isTRUE(in_covr)) 20L else 80L
   )
 })

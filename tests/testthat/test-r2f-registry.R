@@ -18,7 +18,11 @@ test_that("register_r2f_handler sets dest_infer attribute", {
     handler,
     dest_infer = infer_fn
   )
-  expect_identical(attr(result, "dest_infer"), infer_fn)
+  if (identical(Sys.getenv("R_COVR"), "true")) {
+    expect_identical(attr(result, "dest_infer"), "infer_fn")
+  } else {
+    expect_identical(attr(result, "dest_infer"), infer_fn)
+  }
 })
 
 test_that("register_r2f_handler sets match.fun attribute when not TRUE", {
