@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             1.21s    1.21s     0.825     857KB    0.825
-#> 2 quickr       1.95ms   2.26ms   446.        782KB    7.51 
-#> 3 c            4.21ms   4.52ms   223.        782KB    3.62
+#> 1 r             1.22s    1.22s     0.819     782KB    0.819
+#> 2 quickr       1.89ms   2.22ms   467.        782KB   10.2  
+#> 3 c            4.21ms   4.49ms   227.        782KB    5.22
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -292,8 +292,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi  194.62µs  205.5µs     4700.     178KB     10.8
-#> 2 quick_viterbi   2.35µs    2.5µs   368999.        0B     36.9
+#> 1 slow_viterbi  202.52µs 213.73µs     4231.    1.59KB     12.6
+#> 2 quick_viterbi   2.26µs   2.39µs   405918.        0B      0
 plot(timings)
 ```
 
@@ -377,8 +377,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        220.   216.        1       515.      Inf
-#> 2 quick_diffuse_heat    1      1       214.        1       NaN
+#> 1 diffuse_heat        224.   219.        1       514.      Inf
+#> 2 quick_diffuse_heat    1      1       220.        1       NaN
 plot(timings)
 ```
 
@@ -424,9 +424,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r          176.23ms 180.72ms      5.27  124.31MB    19.3 
-#> 2 rcpp        26.12ms  26.75ms     37.3     4.44MB     0   
-#> 3 quickr       6.22ms   6.46ms    149.    781.35KB     3.97
+#> 1 r          160.42ms 173.12ms      5.54  124.24MB    14.8 
+#> 2 rcpp        25.56ms  25.89ms     38.8     4.46MB     0   
+#> 3 quickr       6.07ms   6.36ms    154.    781.35KB     3.99
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -536,7 +536,7 @@ lm <- function(X, y) {
   coef <- solve(XtX, Xty)
   fit_val <- X %*% coef
   resid <- y - fit_val
-  s2 <- crossprod(resid) 
+  s2 <- crossprod(resid)[1]
   s2 <- s2 / df
 
   U <- chol(XtX)
@@ -586,597 +586,24 @@ Rcpp::List RcppLm(const arma::mat& X, const arma::colvec& y) {
 }'
 )
 
-beta <- c(0.5, 1.0, -2.0, 10)
-X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 3))
+beta <- c(0.5, 1.0, -2.0, 10, 5)
+X <- cbind(1, matrix(rnorm(3 * 10^6), ncol = 4))
 y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
 
 timings <- bench::mark(
   r = lm(X, y),
   quickr = qlm(X, y),
   RcppArmadillo = RcppLm(X, y),
-  check = FALSE # stderr is a vector in R and matrix in RcppArmadillo
+  check = FALSE, # stderr is a vector in R and matrix in RcppArmadillo
+  min_iterations = 30
 )
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
-#> Warning in diag(XtX_inv) * s2: Recycling array of length 1 in vector-array arithmetic is deprecated.
-#>   Use c() or as.vector() instead.
 timings
 #> # A tibble: 3 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r               1.13ms   1.69ms      572.    1.66MB     0   
-#> 2 quickr          1.28ms   1.31ms      751.    1.53MB     3.06
-#> 3 RcppArmadillo 702.96µs 727.57µs     1159.    1.53MB     0
+#> 1 r               21.5ms     22ms      44.9    11.4MB     0   
+#> 2 quickr          14.4ms   14.6ms      67.3    11.4MB     2.04
+#> 3 RcppArmadillo   15.3ms     25ms      42.3    11.4MB     0
 ```
 
 ## Installation
