@@ -102,10 +102,11 @@ dump_collected <- function() {
   })) |>
     lapply(\(x) x |> unlist() |> interleave("\n"))
 
-  entries <- paste0(
+  entry_lines <- c(
     sprintf('  {"%1$s", (DL_FUNC) &%1$s, -1}', paste0(names(quick_funcs), "_")),
-    collapse = ",\n"
+    "  {NULL, NULL, 0}"
   )
+  entries <- paste(entry_lines, collapse = ",\n")
   entries <- sprintf(
     "static const R_ExternalMethodDef QuickrEntries[] = {\n%s\n};",
     entries
