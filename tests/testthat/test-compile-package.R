@@ -123,6 +123,7 @@ test_that("pkgload::load_all writes outputs and resolves anonymous quick() names
   skip_if_not_installed("pkgload")
 
   pkgpath <- create_test_package(named_quick = FALSE, use_dynlib = TRUE)
+  pkgpath <- normalizePath(pkgpath, winslash = "/", mustWork = TRUE)
   entrypoints <- file.path(pkgpath, "src", "quickr_entrypoints.c")
   fsubs <- file.path(pkgpath, "src", "quickr_sub_routines.f90")
 
@@ -147,6 +148,7 @@ test_that("pkgload::load_all messages when NAMESPACE lacks useDynLib", {
   skip_if_not_installed("pkgload")
 
   pkgpath <- create_test_package(named_quick = TRUE, use_dynlib = FALSE)
+  pkgpath <- normalizePath(pkgpath, winslash = "/", mustWork = TRUE)
   entrypoints <- file.path(pkgpath, "src", "quickr_entrypoints.c")
 
   code <- paste(
