@@ -18,11 +18,20 @@ test_that("register_r2f_handler sets dest_infer attribute", {
     handler,
     dest_infer = infer_fn
   )
-  if (identical(Sys.getenv("R_COVR"), "true")) {
-    expect_identical(attr(result, "dest_infer"), "infer_fn")
-  } else {
-    expect_identical(attr(result, "dest_infer"), infer_fn)
-  }
+  expect_identical(attr(result, "dest_infer"), infer_fn)
+  expect_identical(attr(result, "dest_infer_name"), "infer_fn")
+})
+
+test_that("register_r2f_handler keeps anonymous dest_infer without a name", {
+  handler <- function(e, scope, ...) NULL
+  infer_fn <- function(args, scope) NULL
+  result <- quickr:::register_r2f_handler(
+    "test_handler_infer_anon",
+    handler,
+    dest_infer = (function(args, scope) infer_fn(args, scope))
+  )
+  expect_true(is.function(attr(result, "dest_infer")))
+  expect_null(attr(result, "dest_infer_name"))
 })
 
 test_that("register_r2f_handler sets match.fun attribute when not TRUE", {

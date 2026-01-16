@@ -10,23 +10,18 @@ register_r2f_handler <- function(
   dest_infer = NULL,
   match_fun = TRUE
 ) {
-  in_covr <- identical(Sys.getenv("R_COVR"), "true")
   if (!is.null(dest_supported)) {
     attr(fun, "dest_supported") <- dest_supported
   }
   if (!is.null(dest_infer)) {
-    if (in_covr) {
-      # covr rewrites function bindings in the namespace; storing a function
-      # object here can bypass instrumentation. Under covr, store the name (when
-      # available) and resolve it at call time.
-      dest_infer_expr <- substitute(dest_infer)
-      if (is.symbol(dest_infer_expr)) {
-        attr(fun, "dest_infer") <- as.character(dest_infer_expr)
-      } else {
-        attr(fun, "dest_infer") <- dest_infer
-      }
-    } else {
-      attr(fun, "dest_infer") <- dest_infer
+    attr(fun, "dest_infer") <- dest_infer
+    # covr rewrites function bindings in the namespace; resolving by name at call
+    # time ensures instrumented/rebound functions are respected. We keep the
+    # function object for robustness (e.g., anonymous functions) and additionally
+    # store the name when `dest_infer` is passed as a symbol.
+    dest_infer_expr <- substitute(dest_infer)
+    if (is.symbol(dest_infer_expr)) {
+      attr(fun, "dest_infer_name") <- as.character(dest_infer_expr)
     }
   }
   if (!is.null(match_fun) && !isTRUE(match_fun)) {

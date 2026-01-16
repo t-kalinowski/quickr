@@ -118,6 +118,22 @@ test_that("compile_package runs pkgload::load_all and writes src outputs", {
   expect_true(any(grepl("add_ab_", readLines(entrypoints), fixed = TRUE)))
 })
 
+test_that("compile_package reports pkgload::load_all failures", {
+  skip_on_cran()
+  skip_if_not_installed("pkgload")
+
+  pkgpath <- create_test_package(named_quick = TRUE, use_dynlib = TRUE)
+  writeLines(
+    c("this is not valid R code", "1 +"),
+    file.path(pkgpath, "R", "broken.R")
+  )
+
+  expect_error(
+    quickr::compile_package(pkgpath),
+    "pkgload::load_all\\(\\) failed with status"
+  )
+})
+
 test_that("pkgload::load_all writes outputs and resolves anonymous quick() names", {
   skip_on_cran()
   skip_if_not_installed("pkgload")

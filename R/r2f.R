@@ -338,15 +338,21 @@ dest_infer_for_call <- function(call, scope) {
   }
   handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
   infer <- attr(handler, "dest_infer", exact = TRUE)
+  infer_name <- attr(handler, "dest_infer_name", exact = TRUE)
 
-  infer_fun <- if (is_string(infer)) {
+  infer_fun <- NULL
+  if (is_string(infer_name)) {
     # Resolve dynamically from the handler's environment (typically the package
     # namespace) so instrumented/rebound functions are respected.
-    get0(infer, envir = environment(handler), mode = "function")
-  } else {
-    infer
+    infer_fun <- get0(
+      infer_name,
+      envir = environment(handler),
+      mode = "function"
+    )
   }
-
+  if (!is.function(infer_fun)) {
+    infer_fun <- infer
+  }
   if (!is.function(infer_fun)) {
     return(NULL)
   }
