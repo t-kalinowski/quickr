@@ -185,3 +185,116 @@ test_that("cbind/rbind handle mixed rank-2, rank-1, and rank-0 inputs", {
     list(A2, w1, t1, B2, t2, w2, C2, w3, t3)
   )
 })
+
+test_that("cbind/rbind coerce logical inputs when mixed with integer", {
+  cbind_int_lgl <- function(i, l) {
+    declare(type(i = integer(n)), type(l = logical(n)))
+    cbind(i, l)
+  }
+
+  rbind_int_lgl <- function(i, l) {
+    declare(type(i = integer(n)), type(l = logical(n)))
+    rbind(i, l)
+  }
+
+  i <- 1:4
+  l <- c(TRUE, FALSE, TRUE, FALSE)
+
+  expect_bind_equal(cbind_int_lgl, list(i, l))
+  expect_bind_equal(rbind_int_lgl, list(i, l))
+})
+
+test_that("cbind/rbind coerce integers to double when mixed", {
+  cbind_dbl_int <- function(d, i) {
+    declare(type(d = double(n)), type(i = integer(n)))
+    cbind(d, i)
+  }
+
+  rbind_dbl_int <- function(d, i) {
+    declare(type(d = double(n)), type(i = integer(n)))
+    rbind(d, i)
+  }
+
+  d <- c(1.25, -0.5, 3.0)
+  i <- c(1L, 2L, 3L)
+
+  expect_bind_equal(cbind_dbl_int, list(d, i))
+  expect_bind_equal(rbind_dbl_int, list(d, i))
+})
+
+test_that("cbind supports complex inputs", {
+  cbind_complex <- function(z1, z2) {
+    declare(type(z1 = complex(n)), type(z2 = complex(n)))
+    cbind(z1, z2)
+  }
+
+  set.seed(10)
+  x <- runif(4)
+  y <- runif(4)
+  z1 <- complex(real = x, imaginary = y)
+  z2 <- complex(real = y, imaginary = x)
+
+  expect_bind_equal(cbind_complex, list(z1, z2))
+})
+
+test_that("cbind rejects mixing complex with non-complex", {
+  bad <- function(z, x) {
+    declare(type(z = complex(n)), type(x = double(n)))
+    cbind(z, x)
+  }
+
+  expect_error(quick(bad), "mixing complex", fixed = TRUE)
+})
+
+test_that("cbind requires dimensions to be equal at compile time", {
+  fn <- function(x, y, n, m) {
+    declare(
+      type(n = integer(1)),
+      type(m = integer(1)),
+      type(x = double(n)),
+      type(y = double(m))
+    )
+    cbind(x, y)
+  }
+
+  expect_error(
+    quick(fn),
+    "common row count",
+    fixed = TRUE
+  )
+})
+
+test_that("cbind supports symbolic dimension expressions in output shape", {
+  fn <- function(x, A, n, m) {
+    declare(
+      type(n = integer(1)),
+      type(m = integer(1)),
+      type(x = double(n)),
+      type(A = double(n, m))
+    )
+    cbind(x, A)
+  }
+
+  set.seed(99)
+  n <- 3L
+  m <- 2L
+  x <- runif(n)
+  A <- matrix(runif(n * m), nrow = n)
+  expect_bind_equal(fn, list(x, A, n, m))
+})
+
+test_that("cbind requires inferred dimensions to match", {
+  unknown_rows <- function(A, B) {
+    declare(type(A = double(NA, 2)), type(B = double(NA, 1)))
+    cbind(A, B)
+  }
+
+  q_unknown_rows <- NULL
+  expect_error(
+    q_unknown_rows <- quick(unknown_rows),
+    "common row count",
+    fixed = TRUE
+  )
+
+  expect_null(q_unknown_rows)
+})

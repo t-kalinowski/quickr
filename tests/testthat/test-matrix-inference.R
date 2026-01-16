@@ -135,6 +135,26 @@ test_that("matrix ops infer destination sizes for assignments", {
   expect_quick_equal(chol2inv_infer, list(A = A_pd))
 })
 
+test_that("crossprod requires conformability at compile time", {
+  fn <- function(x, y, n, p, m, k) {
+    declare(
+      type(n = integer(1)),
+      type(p = integer(1)),
+      type(m = integer(1)),
+      type(k = integer(1)),
+      type(x = double(n, m)),
+      type(y = double(p, k))
+    )
+    crossprod(x, y)
+  }
+
+  expect_error(
+    quick(fn),
+    "cannot verify conformability in crossprod",
+    fixed = TRUE
+  )
+})
+
 test_that("matrix helpers report unsupported inputs", {
   matmul_bad_rank <- function(a, b) {
     declare(type(a = double(2, 2, 2)), type(b = double(2, 2)))

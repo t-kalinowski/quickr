@@ -76,6 +76,15 @@ test_that("seq rejects length.out and along.with", {
   )
 })
 
+test_that("seq() requires explicit from/to (no 1-arg seq semantics)", {
+  expect_error(
+    quick(function() {
+      seq(5L)
+    }),
+    regexp = "seq\\(\\) requires both `from` and `to`"
+  )
+})
+
 test_that("seq-like iterables work in subset indexing", {
   seq_index <- function(x, start, end) {
     declare(

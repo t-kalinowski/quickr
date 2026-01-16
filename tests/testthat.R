@@ -6,7 +6,19 @@
 # * https://r-pkgs.org/testing-design.html#sec-tests-files-overview
 # * https://testthat.r-lib.org/articles/special-files.html
 
+# covr doesn't merge coverage across testthat worker processes, so parallel test
+# execution can undercount coverage substantially.
+if (identical(Sys.getenv("R_COVR"), "true")) {
+  Sys.setenv(TESTTHAT_PARALLEL = "false")
+}
+
 library(testthat)
-library(quickr)
+if (identical(Sys.getenv("R_COVR"), "true")) {
+  # covr can emit harmless warnings while instrumenting quickr's namespace; keep
+  # coverage runs clean.
+  suppressWarnings(library(quickr))
+} else {
+  library(quickr)
+}
 
 test_check("quickr")

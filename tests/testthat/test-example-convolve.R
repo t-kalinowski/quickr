@@ -15,7 +15,7 @@ test_that("convolve", {
     ab
   }
 
-  (fsub <- new_fortran_subroutine("slow_convolve", slow_convolve))
+  fsub <- new_fortran_subroutine("slow_convolve", slow_convolve)
   cwrapper <- make_c_bridge(fsub)
 
   expect_snapshot(

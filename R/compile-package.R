@@ -28,10 +28,22 @@ compile_package <- function(path = ".") {
   # TODO: need to unset various R_* env vars, or just
   # take a dep on callr
   # TODO: prompt to install pkgload if not available?
-  system2(
+  out <- suppressWarnings(system2(
     file.path(R.home("bin"), "R"),
-    c("-q", "-e", shQuote("pkgload::load_all()"))
-  )
+    c("-q", "-e", shQuote("pkgload::load_all(quiet = TRUE)")),
+    stdout = TRUE,
+    stderr = TRUE
+  ))
+  if (!is.null(status <- attr(out, "status"))) {
+    stop(
+      "pkgload::load_all() failed with status ",
+      status,
+      ":\n",
+      paste(out, collapse = "\n"),
+      call. = FALSE
+    )
+  }
+  invisible(out)
 }
 
 
@@ -90,10 +102,11 @@ dump_collected <- function() {
   })) |>
     lapply(\(x) x |> unlist() |> interleave("\n"))
 
-  entries <- paste0(
+  entry_lines <- c(
     sprintf('  {"%1$s", (DL_FUNC) &%1$s, -1}', paste0(names(quick_funcs), "_")),
-    collapse = ",\n"
+    "  {NULL, NULL, 0}"
   )
+  entries <- paste(entry_lines, collapse = ",\n")
   entries <- sprintf(
     "static const R_ExternalMethodDef QuickrEntries[] = {\n%s\n};",
     entries

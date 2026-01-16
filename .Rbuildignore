@@ -11,5 +11,6 @@
 ^\.github$
 ^scripts$
 ^AGENTS.md$
+^\.claude$
 ^CRAN-SUBMISSION$
 ^doc$

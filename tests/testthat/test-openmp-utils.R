@@ -61,3 +61,91 @@ test_that("openmp_config_value caches toolchain lookups", {
   expect_equal(quickr:::openmp_config_value("QUICKR_TEST_CACHE"), "value")
   expect_equal(calls, 1)
 })
+
+test_that("get_pending_parallel returns NULL for NULL or non-scope", {
+  expect_null(quickr:::get_pending_parallel(NULL))
+  expect_null(quickr:::get_pending_parallel(list()))
+})
+
+test_that("take_pending_parallel returns NULL for NULL or non-scope", {
+  expect_null(quickr:::take_pending_parallel(NULL))
+  expect_null(quickr:::take_pending_parallel(list()))
+})
+
+test_that("parse_parallel_decl errors when arguments provided", {
+  e <- quote(parallel(foo))
+  expect_error(
+    quickr:::parse_parallel_decl(e),
+    "does not accept arguments"
+  )
+})
+
+test_that("is_parallel_target_stmt handles edge cases", {
+  # non-call
+
+  expect_false(quickr:::is_parallel_target_stmt(1L))
+
+  # assignment with less than 3 elements
+  bad_assign <- quote(`<-`(x))
+  expect_false(quickr:::is_parallel_target_stmt(bad_assign))
+
+  # other call types
+  expect_false(quickr:::is_parallel_target_stmt(quote(foo(x))))
+})
+
+test_that("openmp_directives errors for unsupported backend", {
+  parallel <- list(backend = "cuda")
+  expect_error(
+    quickr:::openmp_directives(parallel),
+    "unsupported parallel backend"
+  )
+})
+
+test_that("openmp_fflags uses env variable first", {
+  withr::local_envvar(QUICKR_OPENMP_FFLAGS = "-custom-flags")
+  result <- quickr:::openmp_fflags()
+  expect_equal(result, "-custom-flags")
+})
+
+test_that("openmp_link_flags uses env variable first", {
+  withr::local_envvar(QUICKR_OPENMP_LIBS = "-lcustom")
+  result <- quickr:::openmp_link_flags()
+  expect_equal(result, "-lcustom")
+})
+
+test_that("openmp_fflags returns empty when no config found", {
+  local_mocked_bindings(
+    openmp_config_value = function(...) "",
+    .package = "quickr"
+  )
+  withr::local_envvar(QUICKR_OPENMP_FFLAGS = "")
+
+  result <- quickr:::openmp_fflags()
+  expect_equal(result, "")
+})
+
+test_that("openmp_link_flags returns fflags for non-clang CC", {
+  local_mocked_bindings(
+    openmp_config_value = function(name, ...) {
+      switch(name, SHLIB_OPENMP_CFLAGS = "", CC = "gcc", "")
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(QUICKR_OPENMP_LIBS = "")
+
+  result <- quickr:::openmp_link_flags(fflags = "-fopenmp")
+  expect_equal(result, "-fopenmp")
+})
+
+test_that("openmp_link_flags returns empty for clang CC", {
+  local_mocked_bindings(
+    openmp_config_value = function(name, ...) {
+      switch(name, SHLIB_OPENMP_CFLAGS = "", CC = "clang", FC = "flang", "")
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(QUICKR_OPENMP_LIBS = "")
+
+  result <- quickr:::openmp_link_flags(fflags = "-fopenmp")
+  expect_equal(result, "")
+})
