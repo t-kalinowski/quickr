@@ -180,21 +180,22 @@ infer_dest_solve <- function(args, scope) {
     return(NULL)
   }
   a_dims <- matrix_dims_var(A)
-  n <- a_dims$rows
+  n_rows <- a_dims$rows
+  n_cols <- a_dims$cols
 
   b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
   if (is.null(b_arg)) {
-    return(Variable("double", list(n, n)))
+    return(Variable("double", list(n_rows, n_cols)))
   }
   B <- infer_symbol_var(b_arg, scope)
   if (is.null(B)) {
     return(NULL)
   }
   if (B@rank == 1L) {
-    return(Variable("double", list(n)))
+    return(Variable("double", list(n_cols)))
   }
   if (B@rank == 2L) {
-    return(Variable("double", list(n, B@dims[[2L]])))
+    return(Variable("double", list(n_cols, B@dims[[2L]])))
   }
   NULL
 }

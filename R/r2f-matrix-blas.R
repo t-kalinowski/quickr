@@ -649,8 +649,8 @@ lapack_solve <- function(
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
-  n <- a_dims$rows
+  m <- a_dims$rows
+  n <- a_dims$cols
 
   b_rank <- B@value@rank
   assert_rhs_rank(
@@ -667,7 +667,7 @@ lapack_solve <- function(
   if (b_rank == 1L) {
     b_len <- dim_or_one(B, 1L)
     assert_conformable_dims(
-      n,
+      m,
       b_len,
       context = context,
       err_msg = paste0("non-conformable arguments in ", context)
@@ -675,7 +675,7 @@ lapack_solve <- function(
   } else {
     b_rows <- dim_or_one(B, 1L)
     assert_conformable_dims(
-      n,
+      m,
       b_rows,
       context = context,
       err_msg = paste0("non-conformable arguments in ", context)
@@ -685,15 +685,89 @@ lapack_solve <- function(
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- ensure_blas_operand_name(B, hoist)
 
-  A_work <- hoist$declare_tmp(mode = "double", dims = list(n, n))
+  nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
+
+  square <- check_conformable(m, n)
+  if (square$ok && !square$unknown) {
+    A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
+    hoist$emit(glue("{A_work@name} = {A_name}"))
+
+    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
+    writes_to_dest <- FALSE
+    if (
+      can_use_output(
+        dest,
+        input_names = c(A_name, B_input_name),
+        expected_dims = expected_dims,
+        context = context,
+        allow_alias = B_input_name
+      )
+    ) {
+      out_var <- dest
+      out_name <- dest@name
+      writes_to_dest <- TRUE
+    } else {
+      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
+      out_name <- out_var@name
+    }
+    hoist$emit(glue("{out_name} = {B_input_name}"))
+
+    ipiv <- hoist$declare_tmp(mode = "integer", dims = list(m))
+    info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+    hoist$emit(glue(
+      "call dgesv({blas_int(m)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {ipiv@name}, {out_name}, {blas_int(m)}, {info@name})"
+    ))
+
+    out <- Fortran(out_name, out_var)
+    if (writes_to_dest) {
+      attr(out, "writes_to_dest") <- TRUE
+    }
+    return(out)
+  }
+
+  A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{A_work@name} = {A_name}"))
 
+  max_mn <- call("max", m, n)
+
+  B_work <- hoist$declare_tmp(mode = "double", dims = list(max_mn, nrhs))
+  m_f <- dims2f(list(m), scope)
+  if (!nzchar(m_f)) {
+    m_f <- "1"
+  }
+  n_f <- dims2f(list(n), scope)
+  if (!nzchar(n_f)) {
+    n_f <- "1"
+  }
+  nrhs_f <- dims2f(list(nrhs), scope)
+  if (!nzchar(nrhs_f)) {
+    nrhs_f <- "1"
+  }
+  hoist$emit(glue("{B_work@name} = 0.0_c_double"))
+  if (b_rank == 1L) {
+    hoist$emit(glue("{B_work@name}(1:{m_f}, 1) = {B_input_name}"))
+  } else {
+    hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
+  }
+
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+  mn <- call("min", m, n)
+  lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
+  work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
+
+  hoist$emit(glue(
+    "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
+  ))
+
+  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
   writes_to_dest <- FALSE
   if (
     can_use_output(
       dest,
       input_names = c(A_name, B_input_name),
-      expected_dims = B@value@dims,
+      expected_dims = expected_dims,
       context = context,
       allow_alias = B_input_name
     )
@@ -702,18 +776,19 @@ lapack_solve <- function(
     out_name <- dest@name
     writes_to_dest <- TRUE
   } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = B@value@dims)
+    out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
     out_name <- out_var@name
   }
-  hoist$emit(glue("{out_name} = {B_input_name}"))
 
-  ipiv <- hoist$declare_tmp(mode = "integer", dims = list(n))
-  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
-  nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
-
-  hoist$emit(glue(
-    "call dgesv({blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(n)}, {ipiv@name}, {out_name}, {blas_int(n)}, {info@name})"
-  ))
+  if (b_rank == 1L) {
+    if (passes_as_scalar(out_var)) {
+      hoist$emit(glue("{out_name} = {B_work@name}(1, 1)"))
+    } else {
+      hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1)"))
+    }
+  } else {
+    hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1:{nrhs_f})"))
+  }
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {

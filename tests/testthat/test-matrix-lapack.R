@@ -60,6 +60,106 @@ test_that("solve handles column RHS matrices and 1x1 systems", {
   expect_quick_equal(solve_scalar, list(A = matrix(2.5, 1L, 1L), b = 1.25))
 })
 
+test_that("solve supports least-squares for rectangular systems", {
+  solve_ls_vec <- function(X, y) {
+    declare(
+      type(X = double(n, k)),
+      type(y = double(n))
+    )
+    solve(X, y)
+  }
+
+  solve_ls_mat <- function(X, Y) {
+    declare(
+      type(X = double(n, k)),
+      type(Y = double(n, p))
+    )
+    solve(X, Y)
+  }
+
+  set.seed(123)
+  n <- 20
+  k <- 5
+  p <- 3
+  X <- matrix(rnorm(n * k), n, k)
+  y <- rnorm(n)
+  Y <- matrix(rnorm(n * p), n, p)
+
+  q_solve_ls_vec <- expect_warning(quick(solve_ls_vec), NA)
+  q_solve_ls_mat <- expect_warning(quick(solve_ls_mat), NA)
+
+  expect_equal(q_solve_ls_vec(X, y), qr.solve(X, y))
+  expect_equal(q_solve_ls_mat(X, Y), qr.solve(X, Y))
+})
+
+test_that("solve uses dgesv for known square and dgels for rectangular systems", {
+  solve_square <- function(A, b) {
+    declare(
+      type(A = double(n, n)),
+      type(b = double(n))
+    )
+    solve(A, b)
+  }
+
+  solve_square_fixed <- function(A, b) {
+    declare(
+      type(A = double(3, 3)),
+      type(b = double(3))
+    )
+    solve(A, b)
+  }
+
+  solve_rect <- function(A, b) {
+    declare(type(A = double(3, 2)), type(b = double(3)))
+    solve(A, b)
+  }
+
+  solve_rect_named <- function(A, b) {
+    declare(
+      type(A = double(n, k)),
+      type(b = double(n))
+    )
+    solve(A, b)
+  }
+
+  square_named_fortran <- paste(
+    capture.output(cat(r2f(solve_square))),
+    collapse = "\n"
+  )
+  square_fixed_fortran <- paste(
+    capture.output(cat(r2f(solve_square_fixed))),
+    collapse = "\n"
+  )
+  rect_fixed_fortran <- paste(
+    capture.output(cat(r2f(solve_rect))),
+    collapse = "\n"
+  )
+  rect_named_fortran <- paste(
+    capture.output(cat(r2f(solve_rect_named))),
+    collapse = "\n"
+  )
+
+  expect_match(square_named_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+  expect_no_match(
+    square_named_fortran,
+    "\\bcall\\s+dgels\\b",
+    ignore.case = TRUE
+  )
+
+  expect_match(square_fixed_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+  expect_no_match(
+    square_fixed_fortran,
+    "\\bcall\\s+dgels\\b",
+    ignore.case = TRUE
+  )
+
+  expect_match(rect_fixed_fortran, "\\bcall\\s+dgels\\b", ignore.case = TRUE)
+  expect_no_match(rect_fixed_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+
+  expect_match(rect_named_fortran, "\\bcall\\s+dgels\\b", ignore.case = TRUE)
+  expect_no_match(rect_named_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+})
+
 test_that("chol and chol2inv match R", {
   chol_fn <- function(A) {
     declare(type(A = double(n, n)))
@@ -214,7 +314,7 @@ test_that("Test bad path in lapack functions", {
   }
 
   expect_error(quick(solve_bad_rank), "expects a matrix")
-  expect_error(quick(solve_non_square), "requires a square matrix")
+  expect_warning(quick(solve_non_square), NA)
   expect_error(quick(solve_bad_rhs), "only supports vector or matrix")
   expect_error(quick(chol_bad_rank), "expects a matrix")
   expect_error(quick(chol_pivot), "pivot = TRUE")
@@ -245,7 +345,7 @@ test_that("lapack functions test non-square matrix errors", {
     chol2inv(R)
   }
 
-  expect_error(quick(solve_rect), "requires a square matrix")
+  expect_warning(quick(solve_rect), NA)
   expect_error(quick(chol_rect), "requires a square matrix")
   expect_error(quick(chol2inv_rect), "requires a square matrix")
 })
