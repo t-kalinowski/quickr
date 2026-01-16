@@ -181,13 +181,6 @@ bind_output_mode <- function(values, context) {
     return("logical")
   }
   if ("raw" %in% modes) {
-    if (length(modes) > 1L) {
-      stop(
-        context,
-        " does not support mixing raw with other types",
-        call. = FALSE
-      )
-    }
     return("raw")
   }
   stop(context, " does not support input mode(s): ", str_flatten_commas(modes))
@@ -263,7 +256,13 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
         )
       }
       if (conform$unknown) {
-        warn_conformability_unknown(target, dim_list[[idx]], context)
+        stop(
+          context,
+          " requires inputs with a common ",
+          label,
+          " count",
+          call. = FALSE
+        )
       }
     }
   }
@@ -866,7 +865,12 @@ crossprod_like <- function(
     stop("non-conformable arguments in ", context, call. = FALSE)
   }
   if (conform$unknown) {
-    warn_conformability_unknown(x_eff$cols, y_eff$rows, context)
+    stop(
+      "cannot verify conformability in ",
+      context,
+      " at compile time",
+      call. = FALSE
+    )
   }
 
   m <- x_eff$rows

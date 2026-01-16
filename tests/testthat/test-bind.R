@@ -246,7 +246,7 @@ test_that("cbind rejects mixing complex with non-complex", {
   expect_error(quick(bad), "mixing complex", fixed = TRUE)
 })
 
-test_that("cbind warns when conformability cannot be verified", {
+test_that("cbind requires dimensions to be equal at compile time", {
   fn <- function(x, y, n, m) {
     declare(
       type(n = integer(1)),
@@ -257,18 +257,44 @@ test_that("cbind warns when conformability cannot be verified", {
     cbind(x, y)
   }
 
-  qfn <- NULL
-  expect_warning(
-    qfn <- quick(fn),
-    "cannot verify conformability in cbind()",
+  expect_error(
+    quick(fn),
+    "common row count",
+    fixed = TRUE
+  )
+})
+
+test_that("cbind supports symbolic dimension expressions in output shape", {
+  fn <- function(x, A, n, m) {
+    declare(
+      type(n = integer(1)),
+      type(m = integer(1)),
+      type(x = double(n)),
+      type(A = double(n, m))
+    )
+    cbind(x, A)
+  }
+
+  set.seed(99)
+  n <- 3L
+  m <- 2L
+  x <- runif(n)
+  A <- matrix(runif(n * m), nrow = n)
+  expect_bind_equal(fn, list(x, A, n, m))
+})
+
+test_that("cbind requires inferred dimensions to match", {
+  unknown_rows <- function(A, B) {
+    declare(type(A = double(NA, 2)), type(B = double(NA, 1)))
+    cbind(A, B)
+  }
+
+  q_unknown_rows <- NULL
+  expect_error(
+    q_unknown_rows <- quick(unknown_rows),
+    "common row count",
     fixed = TRUE
   )
 
-  x <- c(1.0, 2.0, 3.0)
-  y <- c(-1.0, 0.0, 1.0)
-  qres <- qfn(x, y, 3L, 3L)
-  rres <- fn(x, y, 3L, 3L)
-  expect_identical(dim(qres), dim(rres))
-  expect_identical(typeof(qres), typeof(rres))
-  expect_equal(unname(qres), unname(rres))
+  expect_null(q_unknown_rows)
 })
