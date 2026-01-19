@@ -572,6 +572,37 @@ register_r2f_handler(
 )
 
 register_r2f_handler(
+  "qr.solve",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    a_arg <- args$a %||% args[[1L]]
+    if (is.null(a_arg) || is_missing(a_arg)) {
+      stop("qr.solve() expects `a`", call. = FALSE)
+    }
+    if (!is.null(args$tol) && !is_missing(args$tol)) {
+      stop("qr.solve() does not support tol yet", call. = FALSE)
+    }
+
+    b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
+    if (is.null(b_arg) || is_missing(b_arg)) {
+      stop("qr.solve() expects `b`", call. = FALSE)
+    }
+
+    A <- r2f(a_arg, scope, ..., hoist = hoist)
+    B <- r2f(b_arg, scope, ..., hoist = hoist)
+    lapack_solve(
+      A = A,
+      B = B,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "qr.solve"
+    )
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_solve
+)
+
+register_r2f_handler(
   "chol",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     x_arg <- args$x %||% args[[1L]]

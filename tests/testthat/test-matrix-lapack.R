@@ -92,6 +92,52 @@ test_that("solve supports least-squares for rectangular systems", {
   expect_equal(q_solve_ls_mat(X, Y), qr.solve(X, Y))
 })
 
+test_that("qr.solve matches R for vectors and matrices", {
+  qr_solve_ls_vec <- function(X, y) {
+    declare(
+      type(X = double(n, k)),
+      type(y = double(n))
+    )
+    qr.solve(X, y)
+  }
+
+  qr_solve_ls_mat <- function(X, Y) {
+    declare(
+      type(X = double(n, k)),
+      type(Y = double(n, p))
+    )
+    qr.solve(X, Y)
+  }
+
+  qr_solve_square <- function(A, B) {
+    declare(
+      type(A = double(n, n)),
+      type(B = double(n, k))
+    )
+    qr.solve(A, B)
+  }
+
+  set.seed(124)
+  n <- 20
+  k <- 5
+  p <- 3
+  X <- matrix(rnorm(n * k), n, k)
+  y <- rnorm(n)
+  Y <- matrix(rnorm(n * p), n, p)
+
+  base <- matrix(rnorm(n * n), n, n)
+  A <- crossprod(base) + diag(n)
+  B <- matrix(rnorm(n * k), n, k)
+
+  q_qr_solve_ls_vec <- expect_warning(quick(qr_solve_ls_vec), NA)
+  q_qr_solve_ls_mat <- expect_warning(quick(qr_solve_ls_mat), NA)
+  q_qr_solve_square <- expect_warning(quick(qr_solve_square), NA)
+
+  expect_equal(q_qr_solve_ls_vec(X, y), qr.solve(X, y))
+  expect_equal(q_qr_solve_ls_mat(X, Y), qr.solve(X, Y))
+  expect_equal(q_qr_solve_square(A, B), qr.solve(A, B))
+})
+
 test_that("solve uses dgesv for known square and dgels for rectangular systems", {
   solve_square <- function(A, b) {
     declare(
