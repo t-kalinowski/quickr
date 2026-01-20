@@ -578,9 +578,6 @@ register_r2f_handler(
     if (is.null(a_arg) || is_missing(a_arg)) {
       stop("qr.solve() expects `a`", call. = FALSE)
     }
-    if (!is.null(args$tol) && !is_missing(args$tol)) {
-      stop("qr.solve() does not support tol yet", call. = FALSE)
-    }
 
     b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
     if (is.null(b_arg) || is_missing(b_arg)) {
@@ -589,13 +586,25 @@ register_r2f_handler(
 
     A <- r2f(a_arg, scope, ..., hoist = hoist)
     B <- r2f(b_arg, scope, ..., hoist = hoist)
+
+    tol_arg <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
+    tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
+      r2f(1e-7, scope, ..., hoist = hoist)
+    } else {
+      tol <- maybe_cast_double(r2f(tol_arg, scope, ..., hoist = hoist))
+      if (tol@value@rank != 0L) {
+        stop("qr.solve() expects a scalar `tol`", call. = FALSE)
+      }
+      tol
+    }
     lapack_solve(
       A = A,
       B = B,
       scope = scope,
       hoist = hoist,
       dest = dest,
-      context = "qr.solve"
+      context = "qr.solve",
+      tol = tol
     )
   },
   dest_supported = TRUE,

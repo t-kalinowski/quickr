@@ -639,7 +639,8 @@ lapack_solve <- function(
   scope,
   hoist,
   dest = NULL,
-  context = "solve"
+  context = "solve",
+  tol = NULL
 ) {
   assert_hoist_env(hoist)
 
@@ -688,7 +689,7 @@ lapack_solve <- function(
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
   square <- check_conformable(m, n)
-  if (square$ok && !square$unknown) {
+  if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
@@ -754,12 +755,33 @@ lapack_solve <- function(
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
 
   mn <- call("min", m, n)
-  lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
-  work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
+  if (identical(context, "qr.solve")) {
+    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
+    hoist$emit(glue("{jpvt@name} = 0_c_int"))
 
-  hoist$emit(glue(
-    "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
-  ))
+    rcond <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
+    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+    lwork <- call(
+      "max",
+      1L,
+      call("+", mn, call("max", mn, nrhs)),
+      call("+", call("*", 2L, mn), call("*", 64L, call("+", n, 1L))),
+      call("+", mn, call("*", 2L, n))
+    )
+    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
+
+    hoist$emit(glue(
+      "call dgelsy({blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {jpvt@name}, {rcond}, {rank@name}, {work@name}, {blas_int(lwork)}, {info@name})"
+    ))
+  } else {
+    lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
+    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
+
+    hoist$emit(glue(
+      "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
+    ))
+  }
 
   expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
   writes_to_dest <- FALSE

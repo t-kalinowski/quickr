@@ -22,4 +22,16 @@ test_that("quick() errors early for invalid compiled names", {
     "Invalid `quick\\(\\)` name",
     fixed = FALSE
   )
+
+  expect_error(
+    quick(
+      name = "1foo",
+      function(x) {
+        declare(type(x = double(n)))
+        x
+      }
+    ),
+    "Suggested name: 'quick_1foo'",
+    fixed = TRUE
+  )
 })

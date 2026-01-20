@@ -92,6 +92,36 @@ test_that("solve supports least-squares for rectangular systems", {
   expect_equal(q_solve_ls_mat(X, Y), qr.solve(X, Y))
 })
 
+test_that("solve supports least-squares for single-column systems", {
+  solve_ls_col <- function(X, y) {
+    declare(
+      type(X = double(n, 1L)),
+      type(y = double(n))
+    )
+    solve(X, y)
+  }
+
+  set.seed(125)
+  n <- 20
+  X <- matrix(rnorm(n), n, 1L)
+  y <- rnorm(n)
+
+  q_solve_ls_col <- expect_warning(quick(solve_ls_col), NA)
+  expect_equal(q_solve_ls_col(X, y), qr.solve(X, y))
+})
+
+test_that("solve compiles 1-row least-squares systems", {
+  solve_one_row <- function(X, y) {
+    declare(
+      type(X = double(1L, 2L)),
+      type(y = double(1L))
+    )
+    solve(X, y)
+  }
+
+  expect_no_error(r2f(solve_one_row))
+})
+
 test_that("qr.solve matches R for vectors and matrices", {
   qr_solve_ls_vec <- function(X, y) {
     declare(
@@ -136,6 +166,29 @@ test_that("qr.solve matches R for vectors and matrices", {
   expect_equal(q_qr_solve_ls_vec(X, y), qr.solve(X, y))
   expect_equal(q_qr_solve_ls_mat(X, Y), qr.solve(X, Y))
   expect_equal(q_qr_solve_square(A, B), qr.solve(A, B))
+})
+
+test_that("qr.solve uses dgelsy for known square systems", {
+  qr_solve_square <- function(A, b) {
+    declare(
+      type(A = double(n, n)),
+      type(b = double(n))
+    )
+    qr.solve(A, b)
+  }
+
+  square_fortran <- paste(
+    capture.output(cat(r2f(qr_solve_square))),
+    collapse = "\n"
+  )
+  has_call <- function(code, routine) {
+    any(grepl(paste0("call ", routine, "("), tolower(code), fixed = TRUE))
+  }
+
+  # Search emitted Fortran to ensure qr.solve uses QR w/ pivoting (dgelsy), not LU
+  # (dgesv), so rank-deficient square systems can be handled consistently.
+  expect_true(has_call(square_fortran, "dgelsy"))
+  expect_false(has_call(square_fortran, "dgesv"))
 })
 
 test_that("solve uses dgesv for known square and dgels for rectangular systems", {
@@ -185,25 +238,23 @@ test_that("solve uses dgesv for known square and dgels for rectangular systems",
     collapse = "\n"
   )
 
-  expect_match(square_named_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
-  expect_no_match(
-    square_named_fortran,
-    "\\bcall\\s+dgels\\b",
-    ignore.case = TRUE
-  )
+  has_call <- function(code, routine) {
+    any(grepl(paste0("call ", routine, "("), tolower(code), fixed = TRUE))
+  }
 
-  expect_match(square_fixed_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
-  expect_no_match(
-    square_fixed_fortran,
-    "\\bcall\\s+dgels\\b",
-    ignore.case = TRUE
-  )
+  # Search emitted Fortran to ensure solve() chooses LU (dgesv) for proven-square
+  # systems and least-squares (dgels) for rectangular systems.
+  expect_true(has_call(square_named_fortran, "dgesv"))
+  expect_false(has_call(square_named_fortran, "dgels"))
 
-  expect_match(rect_fixed_fortran, "\\bcall\\s+dgels\\b", ignore.case = TRUE)
-  expect_no_match(rect_fixed_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+  expect_true(has_call(square_fixed_fortran, "dgesv"))
+  expect_false(has_call(square_fixed_fortran, "dgels"))
 
-  expect_match(rect_named_fortran, "\\bcall\\s+dgels\\b", ignore.case = TRUE)
-  expect_no_match(rect_named_fortran, "\\bcall\\s+dgesv\\b", ignore.case = TRUE)
+  expect_true(has_call(rect_fixed_fortran, "dgels"))
+  expect_false(has_call(rect_fixed_fortran, "dgesv"))
+
+  expect_true(has_call(rect_named_fortran, "dgels"))
+  expect_false(has_call(rect_named_fortran, "dgesv"))
 })
 
 test_that("chol and chol2inv match R", {
