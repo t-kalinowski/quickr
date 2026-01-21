@@ -572,6 +572,46 @@ register_r2f_handler(
 )
 
 register_r2f_handler(
+  "qr.solve",
+  function(args, scope, ..., hoist = NULL, dest = NULL) {
+    a_arg <- args$a %||% args[[1L]]
+    if (is.null(a_arg) || is_missing(a_arg)) {
+      stop("qr.solve() expects `a`", call. = FALSE)
+    }
+
+    b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
+    if (is.null(b_arg) || is_missing(b_arg)) {
+      stop("qr.solve() expects `b`", call. = FALSE)
+    }
+
+    A <- r2f(a_arg, scope, ..., hoist = hoist)
+    B <- r2f(b_arg, scope, ..., hoist = hoist)
+
+    tol_arg <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
+    tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
+      r2f(1e-7, scope, ..., hoist = hoist)
+    } else {
+      tol <- maybe_cast_double(r2f(tol_arg, scope, ..., hoist = hoist))
+      if (tol@value@rank != 0L) {
+        stop("qr.solve() expects a scalar `tol`", call. = FALSE)
+      }
+      tol
+    }
+    lapack_solve(
+      A = A,
+      B = B,
+      scope = scope,
+      hoist = hoist,
+      dest = dest,
+      context = "qr.solve",
+      tol = tol
+    )
+  },
+  dest_supported = TRUE,
+  dest_infer = infer_dest_solve
+)
+
+register_r2f_handler(
   "chol",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     x_arg <- args$x %||% args[[1L]]

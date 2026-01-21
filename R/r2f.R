@@ -752,10 +752,12 @@ r2f_handlers[["["]] <- function(
   # during symbol lowering as `(x/=0)`. When indexing, we must subscript the
   # underlying storage first, then convert the indexed value/section to logical.
   if (var@value@mode == "logical" && logical_as_int(var@value)) {
-    designator <- glue("{var@value@name}({str_flatten_commas(idxs)})")
+    base_name <- var@value@name %||% stop("missing array name for subscripting")
+    designator <- glue("{base_name}({str_flatten_commas(idxs)})")
     Fortran(glue("({designator} /= 0)"), outval)
   } else {
-    Fortran(glue("{var}({str_flatten_commas(idxs)})"), outval)
+    base_name <- var@value@name %||% stop("missing array name for subscripting")
+    Fortran(glue("{base_name}({str_flatten_commas(idxs)})"), outval)
   }
 }
 

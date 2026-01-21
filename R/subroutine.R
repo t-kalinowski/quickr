@@ -3,6 +3,7 @@ new_fortran_subroutine <- function(
   closure,
   parent = environment(closure)
 ) {
+  check_fortran_subroutine_name_valid(name)
   check_all_var_names_valid(closure)
 
   # translate body, and populate scope with variables
@@ -102,7 +103,7 @@ new_fortran_subroutine <- function(
   }
   subroutine <- glue(
     "
-subroutine {name}({str_flatten_commas(fsub_arg_names)}) bind(c)
+subroutine {name}({str_flatten_commas(fsub_arg_names)}) {fortran_bind_clause(name)}
   use iso_c_binding, only: {str_flatten_commas(used_iso_bindings)}
   implicit none
 
@@ -123,6 +124,43 @@ end subroutine
     scope = scope,
     closure = closure
   )
+}
+
+check_fortran_subroutine_name_valid <- function(name) {
+  if (!is_string(name) || !nzchar(name)) {
+    stop("`name` must be a non-empty string.", call. = FALSE)
+  }
+  # Must be valid in:
+  # - Fortran: used as the procedure name.
+  # - C: used as the binding label and referenced from the C bridge.
+  if (!grepl("^[A-Za-z][A-Za-z0-9_]*$", name)) {
+    suggestion <- gsub("[^A-Za-z0-9_]", "_", name)
+    if (!grepl("^[A-Za-z]", suggestion)) {
+      suggestion <- paste0("quick_", suggestion)
+    }
+    stop(
+      "Invalid `quick()` name: '",
+      name,
+      "'. The name must match the pattern '^[A-Za-z][A-Za-z0-9_]*$' ",
+      "(letters, digits, underscore; starting with a letter). ",
+      "Suggested name: '",
+      suggestion,
+      "'.",
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+fortran_bind_clause <- function(name) {
+  # Fortran is case-insensitive, but C symbol names are case-sensitive.
+  # When `bind(c)` is used without an explicit `name=`, some toolchains
+  # canonicalize the external symbol name (e.g., lowercase), which can cause
+  # the C bridge to look up the wrong symbol for mixed-case procedure names.
+  if (identical(name, tolower(name))) {
+    return("bind(c)")
+  }
+  glue('bind(c, name = "{name}")')
 }
 
 insert_fortran_line_continuations <- function(

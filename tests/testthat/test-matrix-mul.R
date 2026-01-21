@@ -567,6 +567,21 @@ test_that("blas operations support preallocated outputs", {
   expect_quick_equal(outer_out, list(x = x, y = y))
 })
 
+test_that("matrix multiplication temporaries can be indexed directly", {
+  fn <- function(A, x) {
+    declare(
+      type(A = double(n, k)),
+      type(x = double(k))
+    )
+    (A %*% x)[, 1]
+  }
+
+  set.seed(42)
+  A <- matrix(rnorm(12), nrow = 3)
+  x <- rnorm(ncol(A))
+  expect_quick_equal(fn, list(A = A, x = x))
+})
+
 test_that("outer errors on unsupported FUN", {
   outer_add <- function(x, y) {
     declare(

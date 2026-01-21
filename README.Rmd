@@ -3,7 +3,7 @@ output: github_document
 editor_options:
   chunk_output_type: console
   markdown:
-    wrap: sentence
+    wrap: 72
     canonical: true
 ---
 
@@ -25,7 +25,9 @@ knitr::opts_chunk$set(
 
 <!-- badges: start -->
 
-[![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml) [![Codecov test coverage](https://codecov.io/gh/t-kalinowski/quickr/graph/badge.svg)](https://app.codecov.io/gh/t-kalinowski/quickr)
+[![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml)
+[![Codecov test
+coverage](https://codecov.io/gh/t-kalinowski/quickr/graph/badge.svg)](https://app.codecov.io/gh/t-kalinowski/quickr)
 
 <!-- badges: end -->
 
@@ -33,8 +35,10 @@ The goal of quickr is to make your R code run quicker.
 
 ## Overview
 
-R is an extremely flexible and dynamic language, but that flexibility and dynamicism can come at the expense of speed.
-This package lets you trade back some of that flexibility for some speed, for the context of a single function.
+R is an extremely flexible and dynamic language, but that flexibility
+and dynamicism can come at the expense of speed. This package lets you
+trade back some of that flexibility for some speed, for the context of a
+single function.
 
 <!-- Programming language design requires some hard decisions and trade-ofs. -->
 
@@ -82,7 +86,7 @@ This package lets you trade back some of that flexibility for some speed, for th
 
 <!--     The barrier to entry and thorny questions, that, for example, using Rust in CRAN might raise, is non-existent for Fortran. -->
 
-The main exported function is `quick()`, here is how you use it.
+The main exported function is `quick()`. Here is how you use it:
 
 ```{r, eval = FALSE}
 library(quickr)
@@ -100,10 +104,10 @@ convolve <- quick(function(a, b) {
 })
 ```
 
-`quick()` returns a quicker R function.
-How much quicker?
-Let's benchmark it!
-For reference, we'll also compare it to a [pure-C](https://cran.r-project.org/doc/FAQ/R-exts.html#Calling-_002eCall-1) implementation.
+`quick()` returns a quicker R function. How much quicker? Let's
+benchmark it! For reference, we'll also compare it to a
+[pure-C](https://cran.r-project.org/doc/FAQ/R-exts.html#Calling-_002eCall-1)
+implementation.
 
 ```{r, message = FALSE, fig.width=10}
 slow_convolve <- function(a, b) {
@@ -142,7 +146,7 @@ convolve_c <- inline::cfunction(
 
 
 
-a <- runif (100000); b <- runif (100)
+a <- runif(100000); b <- runif(100)
 
 timings <- bench::mark(
   r = slow_convolve(a, b),
@@ -154,14 +158,18 @@ timings
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
-In the case of `convolve()`, `quick()` returns a function approximately *200* times quicker, giving similar performance to the C function.
+In the case of `convolve()`, `quick()` returns a function approximately
+*200* times quicker, with performance similar to the C function.
 
 `quick()` can accelerate any R function, with some restrictions:
 
--   Function arguments must have their types and shapes declared using `declare()`.
--   Only atomic vectors, matrices, and array are currently supported: `integer`, `double`, `logical`, and `complex`.
+-   Function arguments must have their types and shapes declared using
+    `declare()`.
+-   Only atomic vectors, matrices, and array are currently supported:
+    `integer`, `double`, `logical`, and `complex`.
 -   The return value must be an atomic array (e.g., not a list)
--   Named variables must have consistent shapes throughout their lifetimes.
+-   Named variables must have consistent shapes throughout their
+    lifetimes.
 -   `NA` values are not supported.
 -   Only a subset of R's vocabulary is currently supported.
 
@@ -171,16 +179,19 @@ quickr:::r2f_handlers |> names() |>
   noquote()
 ```
 
-Many of these restrictions are expected to be relaxed as the project matures.
-However, quickr is intended primarily for high-performance numerical computing, so features like polymorphic dispatch or support for complex or dynamic types are out of scope.
+Many of these restrictions are expected to be relaxed as the project
+matures. However, quickr is intended primarily for high-performance
+numerical computing, so features like polymorphic dispatch or support
+for complex or dynamic types are out of scope.
 
 ## `declare(type())` syntax:
 
-The shape and mode of all function arguments must be declared.
-Local and return variables may optionally also be declared.
+The shape and mode of all function arguments must be declared. Local and
+return variables may optionally also be declared.
 
-`declare(type())` also has support for declaring size constraints, or size relationships between variables.
-Here are some examples of declare calls:
+`declare(type())` also has support for declaring size constraints, or
+size relationships between variables. Here are some examples of declare
+calls:
 
 ```{r}
 declare(type(x = double(NA))) # x is a 1-d double vector of any length
@@ -208,12 +219,22 @@ declare(type(x = double(n)),
         type(y = double(n+2)))
 ```
 
+Tip: declare shapes as specifically as you can. quickr uses these size
+constraints both for compile-time checking and for choosing more
+efficient implementations. For example, if you know a matrix is square,
+declare it as `type(A = double(n, n))` (not `double(n, k)`). That can
+allow quickr to use a faster code path for operations like
+`solve(A, b)`. If the compiler can't prove a matrix is square, it may
+need to fall back to a more general rectangular solver.
+
 ## More examples:
 
 ### `viterbi`
 
-The Viterbi algorithm is an example of a dynamic programming algorithm within the family of Hidden Markov Models (<https://en.wikipedia.org/wiki/Viterbi_algorithm>).
-Here, `quick()` makes the `viterbi()` approximately 50 times faster.
+The Viterbi algorithm is an example of a dynamic programming algorithm
+within the family of Hidden Markov Models
+(<https://en.wikipedia.org/wiki/Viterbi_algorithm>). Here, `quick()`
+makes `viterbi()` approximately 50 times faster.
 
 ```{r}
 slow_viterbi <- function(observations, states, initial_probs, transition_probs, emission_probs) {
@@ -275,9 +296,18 @@ plot(timings)
 
 ### Diffusion simulation
 
-Simulate how heat spreads over time across a 2D grid, using the [finite difference method](https://en.wikipedia.org/wiki/Finite_difference) applied to the [Heat Equation](https://en.wikipedia.org/wiki/Heat_equation).
+Simulate how heat spreads over time across a 2D grid, using the [finite
+difference method](https://en.wikipedia.org/wiki/Finite_difference)
+applied to the [Heat
+Equation](https://en.wikipedia.org/wiki/Heat_equation).
 
-Here, `quick()` returns a function over 100 times faster.
+Note the use of local closures within the quick function. Here,
+`quick()` returns a function approximately 20 times faster. The speedup
+is relatively modest because the core operation of computing the
+laplacian is already expressed as a vectorized operation. If we were
+instead comparing against `for` loops that operate on individual array
+elements, the speedup would be much more substantial. In general,
+idiomatic vectorized R code is quite fast already!
 
 ```{r}
 diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
@@ -291,39 +321,40 @@ diffuse_heat <- function(nx, ny, dx, dy, dt, k, steps) {
     type(steps = integer(1))
   )
 
-  # Initialize temperature grid
   temp <- matrix(0, nx, ny)
-  temp[nx / 2, ny / 2] <- 100  # Initial heat source in the center
+  temp[nx %/% 2L, ny %/% 2L] <- 100
 
-  # Local helper that updates `temp` in-place.
-  apply_boundary_conditions <- function() {
-    temp[1, ] <<- 0
-    temp[nx, ] <<- 0
-    temp[, 1] <<- 0
-    temp[, ny] <<- 0
-    NULL
+  apply_boundary_conditions <- function(temp) {
+    temp[1, ] <- 0
+    temp[nx, ] <- 0
+    temp[, 1] <- 0
+    temp[, ny] <- 0
+    temp
   }
 
-  update_temperature <- function(temp, k, dx, dy, dt) {
+  update_temperature <- function(temp) {
     temp_new <- temp
-    for (i in 2:(nx - 1)) {
-      for (j in 2:(ny - 1)) {
-        temp_new[i, j] <- temp[i, j] + k * dt *
-          ((temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) / dx ^ 2 +
-             (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2)
-      }
-    }
+
+    i <- 2:(nx - 1)
+    j <- 2:(ny - 1)
+
+    laplacian <-
+      (temp[i + 1, j] - 2 * temp[i, j] + temp[i - 1, j]) / dx ^ 2 +
+      (temp[i, j + 1] - 2 * temp[i, j] + temp[i, j - 1]) / dy ^ 2
+
+    temp_new[i, j] <- temp[i, j] + k * dt * laplacian
     temp_new
   }
 
-  # Time stepping
   for (step in seq_len(steps)) {
-    apply_boundary_conditions()
-    temp <- update_temperature(temp, k, dx, dy, dt)
+    temp <- temp |>
+      apply_boundary_conditions() |>
+      update_temperature()
   }
 
   temp
 }
+
 
 quick_diffuse_heat <- quick(diffuse_heat)
 
@@ -346,8 +377,9 @@ plot(timings)
 
 ### Rolling Mean
 
-Here is quickr used to calculate a rolling mean.
-Note that the CRAN package RcppRoll already provides a highly optimized rolling mean, which we include in the benchmarks for comparison.
+Here is *quickr* used to calculate a rolling mean. The CRAN package
+*RcppRoll* already provides a highly optimized rolling mean, which we
+include in the benchmarks for comparison.
 
 ```{r}
 slow_roll_mean <- function(x, weights, normalize = TRUE) {
@@ -383,16 +415,103 @@ timings$expression <- factor(names(timings$expression), rev(names(timings$expres
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
+## Linear regression benchmark (`fastLm`)
+
+quickr supports a variety of matrix operations from base R, including
+most of the common linear algebra functions like `%*%`, `crossprod()`,
+`tcrossprod()`, `solve()`, and `chol()`. Performance is generally
+similar to running the same code in R itself, but as you start to chain
+multiple operations in a function, you may see speed-ups due to reduced
+interpreter overhead. Actual performance depends on the BLAS/LAPACK
+libraries linked to your R build (e.g. OpenBLAS, MKL, Accelerate).
+
+To illustrate, here is a benchmark showing a `fastLm`-style
+implementation comparing base R, quickr, and (for reference) a compiled
+RcppArmadillo implementation. The `fastLm` function is adapted from the
+README of the RcppArmadillo project.
+
+```{r}
+fast_lm <- function(X, y) {
+  declare(
+    type(X = double(n, k)),
+    type(y = double(n))
+  )
+
+  n <- nrow(X)
+  k <- ncol(X)
+  df_residual <- n - k
+
+  coef <- qr.solve(X, y)     # fit model y ~ X
+  res <- y - X %*% coef      # residuals
+  s2 <- sum(res * res) / df_residual
+
+  XtX <- crossprod(X)
+  XtX_inv <- qr.solve(XtX, diag(k))
+  std_err <- sqrt(s2 * diag(XtX_inv))
+
+  list(
+    coefficients = coef,
+    stderr       = std_err,
+    df.residual  = df_residual
+  )
+}
+
+quick_fast_lm <- quick(fast_lm)
+
+Rcpp::sourceCpp(
+code = '
+#include <RcppArmadillo/Lighter>
+// [[Rcpp::depends(RcppArmadillo)]]
+
+// [[Rcpp::export]]
+Rcpp::List rcpp_armadillo_fast_lm(const arma::mat& X, const arma::colvec& y) {
+    int n = X.n_rows, k = X.n_cols;
+
+    arma::colvec coef = arma::solve(X, y);     // fit model y ~ X
+    arma::colvec res  = y - X*coef;            // residuals
+    double s2 = arma::dot(res, res) / (n - k); // std.errors of coefficients
+    arma::colvec std_err = arma::sqrt(s2 * arma::diagvec(arma::pinv(arma::trans(X)*X)));
+
+    return Rcpp::List::create(Rcpp::Named("coefficients") = coef,
+                              Rcpp::Named("stderr")       = std_err,
+                              Rcpp::Named("df.residual")  = n - k);
+}')
+```
+
+### Benchmark
+
+```{r}
+set.seed(1)
+
+beta <- c(0.5, 1.0, -2.0, 10, 5)
+X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 4))
+y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
+
+timings <- bench::mark(
+  R = fast_lm(X, y),
+  quickr = quick_fast_lm(X, y),
+  RcppArmadillo = rcpp_armadillo_fast_lm(X, y)
+)
+
+timings
+plot(timings)
+```
+
+------------------------------------------------------------------------
+
 ## Parallelize loops with OpenMP
 
-Use `declare(parallel())` to annotate the next `for` loop or `sapply()` call for OpenMP parallelization.
-Parallel loops must be order-independent: avoid shared-state updates or inter-iteration dependencies.
-OpenMP adds overhead, so it can be slower for small workloads, but substantially faster for larger ones.
+Use `declare(parallel())` to annotate the next `for` loop or `sapply()`
+call for OpenMP parallelization. Parallel loops must be
+order-independent: avoid shared-state updates or inter-iteration
+dependencies. OpenMP adds overhead, so it can be slower for small
+workloads, but substantially faster for larger ones.
 
-Here is a concrete example using `colSums()`.
-At smaller sizes, the quickr serial version is fastest (even faster than base `colSums()`).
-As sizes grow, the two serial versions converge, and the parallel version pulls ahead.
-However, the speedup is not linear with core count (e.g., with 12 cores, the speedup is closer to \~6x).
+Here is a concrete example using `colSums()`. At smaller sizes, the
+quickr serial version is fastest (even faster than base `colSums()`). As
+sizes grow, the two serial versions converge, and the parallel version
+pulls ahead. However, the speedup is not linear with core count (e.g.,
+with 12 cores, the speedup is closer to \~6x).
 
 ```{r}
 colSums_quick_parallel <- quick(function(x) {
@@ -433,102 +552,21 @@ r |>
 
 quickr does not set OpenMP thread counts. To control threads, set
 `OMP_NUM_THREADS` (and optionally `OMP_THREAD_LIMIT` or `OMP_DYNAMIC`)
-before calling a compiled function, e.g. `Sys.setenv(OMP_NUM_THREADS = "4")`.
+before calling a compiled function, e.g.
+`Sys.setenv(OMP_NUM_THREADS = "4")`.
 
 ## Using `quickr` in an R package
 
-When called in a package, `quick()` will pre-compile the quick functions and place them in the `./src` directory.
-Run `devtools::load_all()` or `quickr::compile_package()` to ensure that the generated files in `./src` and `./R` are in sync with each other.
+When called in a package, `quick()` will pre-compile the quick functions
+and place them in the `./src` directory. Run `devtools::load_all()` or
+`quickr::compile_package()` to ensure that the generated files in
+`./src` and `./R` are in sync with each other.
 
-In a package, you must provide a function name to `quick()`.
-For example:
+In a package, you must provide a function name to `quick()`. For
+example:
 
 ``` r
 my_fun <- quick(name = "my_fun", function(x) ....)
-```
-
-## Basic support for matrix operations
-We have implemented a subset of matrix operations from base R. When you do a matrix multiplication like `A %*% B`, R calls BLAS/LAPACK functions linked to your R build. `quickr` is linked to the same BLAS/LAPACK implementation, so you can expect the same results and slightly faster computation due to lower overhead. There are multiple BLAS/LAPACK implementations, and performance therefore depends on what you have installed. 
-
-To illustrate the performance of matrix operations, we do a linear regression using the normal equation, which is fast but not the most numerically stable method. We compare with `RcppArmadillo`, which is a popular library for matrix operations. The `RcppArmadillo` implementation aims to match our R implementation. 
-
-```{r}
-lm <- function(X, y) {
-  declare(
-    type(X = double(n, k)), 
-    type(y = double(n))
-  )
-
-  df <- nrow(X) - ncol(X)
-
-  XtX <- crossprod(X)
-  Xty <- crossprod(X, y)
-  coef <- solve(XtX, Xty)
-  fit_val <- X %*% coef
-  resid <- y - fit_val
-  s2 <- crossprod(resid)[1]
-  s2 <- s2 / df
-
-  U <- chol(XtX)
-  XtX_inv <- chol2inv(U)
-  std_err <- sqrt(diag(XtX_inv) * s2)
-
-  list(
-    coefficients  = coef,
-    stderr        = std_err,
-    df.residual   = df,
-    fitted_values = fit_val,
-    residuals     = resid
-  )
-}
-
-qlm <- quick(lm)
-
-Rcpp::sourceCpp(
-  code = '#include <RcppArmadillo.h>
-// [[Rcpp::depends(RcppArmadillo)]]
-
-// [[Rcpp::export]]
-Rcpp::List RcppLm(const arma::mat& X, const arma::colvec& y) {
-    int n = X.n_rows;
-    int k = X.n_cols;
-    int df = n - k;
-    
-    arma::mat XtX = arma::trans(X) * X;
-    arma::colvec Xty = arma::trans(X) * y;
-    arma::colvec coef = arma::solve(XtX, Xty);
-    arma::colvec fit_val = X * coef;
-    arma::colvec resid = y - fit_val;
-    double s2 = arma::dot(resid, resid);
-    s2 = s2 / df;
-    
-    arma::mat U = arma::chol(XtX);
-    arma::mat XtX_inv = arma::inv(arma::trimatu(U)) * arma::trans(arma::inv(arma::trimatu(U)));
-    arma::colvec std_err = arma::sqrt(arma::diagvec(XtX_inv) * s2);
-    
-    return Rcpp::List::create(
-        Rcpp::Named("coefficients")  = coef,
-        Rcpp::Named("stderr")        = std_err,
-        Rcpp::Named("df.residual")   = df,
-        Rcpp::Named("fitted_values") = fit_val,
-        Rcpp::Named("residuals")     = resid
-    );
-}'
-)
-
-beta <- c(0.5, 1.0, -2.0, 10, 5)
-X <- cbind(1, matrix(rnorm(3 * 10^6), ncol = 4))
-y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
-
-timings <- bench::mark(
-  r = lm(X, y),
-  quickr = qlm(X, y),
-  RcppArmadillo = RcppLm(X, y),
-  check = FALSE, # stderr is a vector in R and matrix in RcppArmadillo
-  min_iterations = 30
-)
-timings
-
 ```
 
 ## Installation
@@ -539,28 +577,32 @@ You can install quickr from CRAN with:
 install.packages("quickr")
 ```
 
-You can install the development version of quickr from [GitHub](https://github.com/) with:
+You can install the development version of quickr from
+[GitHub](https://github.com/) with:
 
 ``` r
 # install.packages("pak")
 pak::pak("t-kalinowski/quickr")
 ```
 
-You will also need a C and Fortran compiler, preferably the same ones used to build R itself.
+You will also need a C and Fortran compiler, preferably the same ones
+used to build R itself.
 
 On macOS:
 
--   Make sure xcode tools and gfortran are installed, as described in <https://mac.r-project.org/tools/>.
-    In Terminal, run:
+-   Make sure xcode tools and gfortran are installed, as described in
+    <https://mac.r-project.org/tools/>. In Terminal, run:
 
     ``` zsh
     sudo xcode-select --install
     # curl -LO https://mac.r-project.org/tools/gfortran-12.2-universal.pkg # R 4.4
+    # sudo installer -pkg gfortran-12.2-universal.pkg -target /
     curl -LO https://mac.r-project.org/tools/gfortran-14.2-universal.pkg   # R 4.5
-    sudo installer -pkg gfortran-12.2-universal.pkg -target /
+    sudo installer -pkg gfortran-14.2-universal.pkg -target /
     ```
 
--   Optional: install `flang-new` via Homebrew (used by quickr on macOS when available):
+-   Optional: install `flang-new` via Homebrew (used by quickr on macOS
+    when available):
 
     ``` zsh
     brew install flang
@@ -568,8 +610,13 @@ On macOS:
 
 On Windows:
 
--   Install the latest version of [Rtools](https://cran.r-project.org/bin/windows/Rtools/)
+-   Install the latest version of
+    [Rtools](https://cran.r-project.org/bin/windows/Rtools/)
 
 On Linux:
 
--   The "Install Required Dependencies" section [here](https://docs.posit.co/resources/install-r-source.html#install-required-dependencies) provides detailed instructions for installing R build tools on various Linux flavors.
+-   The "Install Required Dependencies" section
+    [here](https://docs.posit.co/resources/install-r-source.html#install-required-dependencies)
+    provides detailed instructions for installing R build tools on
+    various Linux flavors.
+
