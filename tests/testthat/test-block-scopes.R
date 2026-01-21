@@ -26,3 +26,34 @@ test_that("block-scoped temps work for rank-3 array expression subscripting", {
   x <- array(runif(24) - 0.5, dim = c(2, 3, 4))
   expect_quick_identical(fn, list(x))
 })
+
+test_that("block-scoped temps allocate on the heap for runtime shapes", {
+  fn <- function(x) {
+    declare(type(x = double(n, m)))
+    out <- ifelse((x > 0.0)[1, 1], 1.0, 0.0)
+    out
+  }
+
+  expect_translation_snapshots(
+    fn,
+    note = paste(
+      "Block temps with runtime sizes are allocatable so flang doesn't",
+      "stack-allocate large work arrays."
+    )
+  )
+
+  set.seed(1)
+  x <- matrix(runif(64) - 0.5, 8, 8)
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("block-scoped temps work for deferred-shape intermediates", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    out <- (x[x > 0.0])[1]
+    out
+  }
+
+  x <- c(-1.0, 2.0, -3.0)
+  expect_quick_identical(fn, list(x))
+})

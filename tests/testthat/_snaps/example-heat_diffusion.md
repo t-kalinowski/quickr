@@ -83,14 +83,16 @@
       
         do step = 1, steps
           block
-            real(c_double) :: btmp1_(nx, ny)
+            real(c_double), allocatable :: btmp1_(:, :)
       
+            allocate(btmp1_(nx, ny))
             call apply_boundary_conditions(temp, btmp1_)
             temp = btmp1_
           end block
           block
-            real(c_double) :: btmp1_(nx, ny)
+            real(c_double), allocatable :: btmp1_(:, :)
       
+            allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
             temp = btmp1_
           end block
@@ -345,8 +347,9 @@
         do step = 1, steps
           call apply_boundary_conditions()
           block
-            real(c_double) :: btmp1_(nx, ny)
+            real(c_double), allocatable :: btmp1_(:, :)
       
+            allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
             temp = btmp1_
           end block

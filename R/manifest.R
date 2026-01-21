@@ -39,6 +39,63 @@ logical_as_int <- function(var) {
   identical(var@mode, "logical") && isTRUE(var@logical_as_int)
 }
 
+block_tmp_allocatable_threshold <- 16L
+
+block_tmp_element_count <- function(var) {
+  stopifnot(inherits(var, Variable))
+  dims <- var@dims
+  stopifnot(is.list(dims), length(dims) > 0L)
+  sizes <- vapply(
+    dims,
+    function(axis) {
+      if (is.integer(axis) && length(axis) == 1L && !is.na(axis)) {
+        axis
+      } else {
+        NA_integer_
+      }
+    },
+    integer(1)
+  )
+  if (anyNA(sizes)) {
+    return(NA_integer_)
+  }
+  prod(as.numeric(sizes))
+}
+
+block_tmp_allocatable <- function(
+  var,
+  scope,
+  max_stack_elements = block_tmp_allocatable_threshold
+) {
+  stopifnot(inherits(var, Variable))
+  if (!inherits(scope, "quickr_scope") || !identical(scope@kind, "block")) {
+    return(FALSE)
+  }
+  if (passes_as_scalar(var) || is.null(var@dims)) {
+    return(FALSE)
+  }
+
+  dims <- dims2f(var@dims, scope)
+  if (!nzchar(dims) || grepl(":", dims, fixed = TRUE)) {
+    return(FALSE)
+  }
+
+  n_elements <- block_tmp_element_count(var)
+  is.na(n_elements) || n_elements > max_stack_elements
+}
+
+block_tmp_allocation_lines <- function(vars, scope) {
+  stopifnot(is.list(vars))
+  allocs <- lapply(vars, function(var) {
+    if (!block_tmp_allocatable(var, scope)) {
+      return(NULL)
+    }
+    dims <- dims2f(var@dims, scope)
+    glue("allocate({var@name}({dims}))")
+  })
+  unlist(allocs, use.names = FALSE)
+}
+
 scope_vars <- function(scope) {
   vars <- as.list(scope)
   keep(vars, inherits, what = Variable)
@@ -123,15 +180,28 @@ emit_decl_line <- function(
     stop("unrecognized kind: ", format(var))
   )
 
+  # Block-scoped temporaries are explicitly marked allocatable so we can
+  # allocate them on the heap rather than relying on compiler defaults.
+  # GFortran already heap-allocates large/unknown-size locals implicitly,
+  # but flang lowers block locals to `alloca` and will stack-allocate even
+  # large runtime shapes, which can segfault under typical stack limits.
+  # We keep small, fixed-size temps (<= 16 elements) as automatic arrays
+  # to avoid allocation overhead and leave those to the compiler.
+  block_allocatable <- allow_allocatable && block_tmp_allocatable(var, scope)
+
   dims <- if (passes_as_scalar(var)) {
     NULL
+  } else if (block_allocatable) {
+    sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
   } else if (assumed_shape) {
     sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
   } else {
     dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
   }
 
-  allocatable <- if (
+  allocatable <- if (block_allocatable) {
+    "allocatable"
+  } else if (
     allow_allocatable &&
       !assumed_shape &&
       !is.null(dims) &&

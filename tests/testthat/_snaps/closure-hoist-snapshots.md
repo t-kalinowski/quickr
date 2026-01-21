@@ -49,8 +49,9 @@
       
       
             block
-              real(c_double) :: btmp1_(x__len_)
+              real(c_double), allocatable :: btmp1_(:)
       
+              allocate(btmp1_(x__len_))
               btmp1_ = ((x + 1.0_c_double))
               res = btmp1_(i)
             end block
@@ -139,14 +140,16 @@
       
       
             block
-              real(c_double) :: btmp1_(nx, ny)
+              real(c_double), allocatable :: btmp1_(:, :)
       
+              allocate(btmp1_(nx, ny))
               btmp1_ = ((temp + 1.0_c_double))
               temp(1_c_int, 1_c_int) = btmp1_(1_c_int, 1_c_int)
             end block
             block
-              real(c_double) :: btmp1_(nx, ny)
+              real(c_double), allocatable :: btmp1_(:, :)
       
+              allocate(btmp1_(nx, ny))
               btmp1_ = ((temp + 2.0_c_double))
               temp(nx, ny) = btmp1_(nx, ny)
             end block

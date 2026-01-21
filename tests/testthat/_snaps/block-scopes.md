@@ -77,3 +77,89 @@
         return out;
       }
 
+# block-scoped temps allocate on the heap for runtime shapes
+
+    Code
+      cat("# Snapshot note: ", note, "\n", sep = "")
+    Output
+      # Snapshot note: Block temps with runtime sizes are allocatable so flang doesn't stack-allocate large work arrays.
+    Code
+      fn
+    Output
+      function(x) {
+          declare(type(x = double(n, m)))
+          out <- ifelse((x > 0.0)[1, 1], 1.0, 0.0)
+          out
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, out, x__dim_1_, x__dim_2_) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! sizes
+        integer(c_int), intent(in), value :: x__dim_1_
+        integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! args
+        real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
+        real(c_double), intent(out) :: out
+        ! manifest end
+      
+      
+        block
+          logical, allocatable :: btmp1_(:, :) ! logical
+      
+          allocate(btmp1_(x__dim_1_, x__dim_2_))
+          btmp1_ = ((x > 0.0_c_double))
+          out = merge(1.0_c_double, 0.0_c_double, btmp1_(1_c_int, 1_c_int))
+        end block
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const double* const x__, 
+        double* const out__, 
+        const R_len_t x__dim_1_, 
+        const R_len_t x__dim_2_);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != REALSXP) {
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const double* const x__ = REAL(x);
+        const int* const x__dim_ = ({
+        SEXP dim_ = Rf_getAttrib(x, R_DimSymbol);
+        if (Rf_length(dim_) != 2) Rf_error(
+          "x must be a 2D-array, but length(dim(x)) is %i",
+          (int) Rf_length(dim_));
+        INTEGER(dim_);});
+        const int x__dim_1_ = x__dim_[0];
+        const int x__dim_2_ = x__dim_[1];
+        
+        const R_xlen_t out__len_ = (1);
+        SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
+        double* out__ = REAL(out);
+        
+        fn(
+          x__,
+          out__,
+          x__dim_1_,
+          x__dim_2_);
+        
+        UNPROTECT(1);
+        return out;
+      }
+
