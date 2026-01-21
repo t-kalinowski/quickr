@@ -93,9 +93,6 @@ block_tmp_allocation_lines <- function(vars, scope) {
       return(NULL)
     }
     dims <- dims2f(var@dims, scope)
-    if (!nzchar(dims) || grepl(":", dims, fixed = TRUE)) {
-      return(NULL)
-    }
     glue("allocate({var@name}({dims}))")
   })
   unlist(allocs, use.names = FALSE)
