@@ -43,7 +43,12 @@ new_hoist <- function(scope) {
     stmts <- str_split_lines(hoisted, code)
 
     if (has_block()) {
-      decls <- emit_decls(scope_vars(block_scope), block_scope)
+      block_vars <- scope_vars(block_scope)
+      decls <- emit_decls(block_vars, block_scope)
+      allocs <- block_tmp_allocation_lines(block_vars, block_scope)
+      if (length(allocs)) {
+        stmts <- c(allocs, stmts)
+      }
       return(str_flatten_lines(emit_block(decls, stmts)))
     }
 

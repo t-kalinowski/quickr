@@ -1132,8 +1132,9 @@
         out = 0.0_c_double
         out = x
         block
-          real(c_double) :: btmp1_(x__dim_1_, x__dim_2_)
+          real(c_double), allocatable :: btmp1_(:, :)
       
+          allocate(btmp1_(x__dim_1_, x__dim_2_))
           do tmp1_ = 1_c_int, x__dim_2_
             call closure1_(tmp1_, btmp1_(:, tmp1_))
           end do
