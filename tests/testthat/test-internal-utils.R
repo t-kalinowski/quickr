@@ -123,7 +123,7 @@ test_that("block temp allocation helpers handle degenerate dims", {
   expect_identical(quickr:::block_tmp_element_count(var_scalar), NA_integer_)
 
   scope <- quickr:::new_scope(NULL)
-  var_one <- quickr:::Variable("double", list(quote(1L)))
+  var_one <- quickr:::Variable("double", list(quote((1L))))
   expect_false(quickr:::block_tmp_allocatable(var_one, scope))
 })
 
