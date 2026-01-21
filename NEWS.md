@@ -2,7 +2,8 @@
 
 - Added initial matrix/linear algebra handler support from base R, using the
   same BLAS/LAPACK as R: `%*%`, `t()`, `crossprod()`, `tcrossprod()`,
-  `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, `backsolve()`, `diag()`, `t()`, `chol()`, `chol2inv()` and `solve()` 
+  `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, `backsolve()`, `diag()`,
+  `t()`, `chol()`, `chol2inv()`, `solve()`, and `qr.solve()`.
 
   The plan is to add more functions in the future (#77, #79 @mns-nordicals)
 
