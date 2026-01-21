@@ -46,3 +46,14 @@ test_that("block-scoped temps allocate on the heap for runtime shapes", {
   x <- matrix(runif(64) - 0.5, 8, 8)
   expect_quick_identical(fn, list(x))
 })
+
+test_that("block-scoped temps work for deferred-shape intermediates", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    out <- (x[x > 0.0])[1]
+    out
+  }
+
+  x <- c(-1.0, 2.0, -3.0)
+  expect_quick_identical(fn, list(x))
+})

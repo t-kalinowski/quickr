@@ -44,9 +44,7 @@ block_tmp_allocatable_threshold <- 16L
 block_tmp_element_count <- function(var) {
   stopifnot(inherits(var, Variable))
   dims <- var@dims
-  if (is.null(dims) || !length(dims)) {
-    return(NA_integer_)
-  }
+  stopifnot(is.list(dims), length(dims) > 0L)
   sizes <- vapply(
     dims,
     function(axis) {

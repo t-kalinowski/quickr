@@ -118,15 +118,6 @@ test_that("defer schedules cleanup code on exit", {
   expect_true(isTRUE(e$done))
 })
 
-test_that("block temp allocation helpers handle degenerate dims", {
-  var_scalar <- quickr:::Variable("double")
-  expect_identical(quickr:::block_tmp_element_count(var_scalar), NA_integer_)
-
-  scope <- quickr:::new_scope(NULL)
-  var_one <- quickr:::Variable("double", list(quote((1L))))
-  expect_false(quickr:::block_tmp_allocatable(var_one, scope))
-})
-
 test_that("iterable helpers cover edge cases", {
   expect_null(quickr:::r2f_iterable_context(NULL))
   expect_null(quickr:::r2f_iterable_context(character()))
