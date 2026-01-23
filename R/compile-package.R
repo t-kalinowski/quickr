@@ -28,9 +28,26 @@ compile_package <- function(path = ".") {
   # TODO: need to unset various R_* env vars, or just
   # take a dep on callr
   # TODO: prompt to install pkgload if not available?
+  quickr_dev_path <- if (
+    requireNamespace("pkgload", quietly = TRUE) &&
+      pkgload::is_dev_package("quickr")
+  ) {
+    getNamespaceInfo(asNamespace("quickr"), "path")
+  }
+  load_quickr <- if (
+    is_string(quickr_dev_path) &&
+      nzchar(quickr_dev_path) &&
+      file.exists(file.path(quickr_dev_path, "DESCRIPTION"))
+  ) {
+    sprintf("pkgload::load_all(%s, quiet = TRUE)", shQuote(quickr_dev_path))
+  }
+  r_code <- paste(
+    c(load_quickr, "pkgload::load_all(quiet = TRUE)"),
+    collapse = "; "
+  )
   out <- suppressWarnings(system2(
     file.path(R.home("bin"), "R"),
-    c("-q", "-e", shQuote("pkgload::load_all(quiet = TRUE)")),
+    c("-q", "-e", shQuote(r_code)),
     stdout = TRUE,
     stderr = TRUE
   ))

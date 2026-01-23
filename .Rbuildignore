@@ -14,3 +14,4 @@
 ^\.claude$
 ^CRAN-SUBMISSION$
 ^doc$
+^\.ai$

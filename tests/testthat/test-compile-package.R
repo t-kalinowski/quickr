@@ -78,6 +78,8 @@ run_r <- function(code) {
   out
 }
 
+quickr_dev_path <- getNamespaceInfo(asNamespace("quickr"), "path")
+
 test_that("compile_package errors when path is not an R package", {
   temp <- withr::local_tempdir()
   expect_error(
@@ -149,6 +151,7 @@ test_that("pkgload::load_all writes outputs and resolves anonymous quick() names
   code <- paste(
     sprintf("setwd(%s)", shQuote(pkgpath)),
     "suppressPackageStartupMessages(library(pkgload))",
+    sprintf("pkgload::load_all(%s, quiet = TRUE)", shQuote(quickr_dev_path)),
     "pkgload::load_all('.', quiet = TRUE)",
     sep = "; "
   )
@@ -170,6 +173,7 @@ test_that("pkgload::load_all messages when NAMESPACE lacks useDynLib", {
   code <- paste(
     sprintf("setwd(%s)", shQuote(pkgpath)),
     "suppressPackageStartupMessages(library(pkgload))",
+    sprintf("pkgload::load_all(%s, quiet = TRUE)", shQuote(quickr_dev_path)),
     "pkgload::load_all('.', quiet = TRUE)",
     sep = "; "
   )
