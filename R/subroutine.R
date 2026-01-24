@@ -58,14 +58,19 @@ new_fortran_subroutine <- function(
     }
   }
 
-  manifest <- r2f.scope(scope)
+  uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
+  uses_openmp <- isTRUE(attr(scope, "uses_openmp", TRUE))
+  manifest <- r2f.scope(scope, include_errors = uses_errors)
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
   internal_procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
-  contains_block <- if (length(internal_procs)) {
-    procs_code <- lapply(internal_procs, `[[`, "code") |>
-      unlist(use.names = FALSE) |>
-      str_flatten_lines()
+  contains_entries <- c(
+    lapply(internal_procs, `[[`, "code") |>
+      unlist(use.names = FALSE),
+    if (uses_errors) quickr_error_helper_fortran(openmp = uses_openmp)
+  )
+  contains_block <- if (length(contains_entries)) {
+    procs_code <- str_flatten_lines(contains_entries)
     str_flatten_lines("contains", indent(procs_code))
   } else {
     NULL
@@ -85,7 +90,8 @@ new_fortran_subroutine <- function(
     vars = scope_vars(scope),
     body_code = body,
     logical_is_c_int = function(var) var@name %in% fsub_arg_names,
-    uses_rng = uses_rng
+    uses_rng = uses_rng,
+    include_errors = uses_errors
   )
   if (uses_rng) {
     rng_interface <- glue::trim(
@@ -174,6 +180,26 @@ insert_fortran_line_continuations <- function(
   lines <- trimws(lines, "right")
 
   if (any(too_long <- nchar(lines) > 132)) {
+    split_long_fortran_line <- function(line, max_len = 132L) {
+      if (nchar(line) <= max_len) {
+        return(line)
+      }
+      too_long <- paste(
+        "Too long line encountered.",
+        "Please split long expressions into a sequence of smaller expressions."
+      )
+      wrapped <- strwrap(
+        line,
+        width = max_len - 1L,
+        prefix = "& ",
+        initial = ""
+      )
+      if (length(wrapped) > 256L || any(nchar(wrapped) > max_len - 1L)) {
+        stop(too_long)
+      }
+      paste0(wrapped, c(rep("&", length(wrapped) - 1L), ""))
+    }
+
     # remove leading indentation
     lines[too_long] <- trimws(lines[too_long], "left")
 
@@ -181,19 +207,7 @@ insert_fortran_line_continuations <- function(
     lines[too_long] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[too_long])
     lines <- str_split_lines(lines)
 
-    # maximum 255 continuations are allowed
-    for (i in 1:256) {
-      if (!any(too_long <- nchar(lines) > 132)) {
-        break
-      }
-      lines[too_long] <- sub("^(.{1,130})\\s", "\\1 &\n", lines[too_long])
-      lines <- str_split_lines(lines)
-    }
-    if (i > 255L) {
-      stop(
-        "Too long line encountered. Please split long expressions into a sequence of smaller expressions."
-      )
-    }
+    lines <- unlist(lapply(lines, split_long_fortran_line), use.names = FALSE)
   }
 
   code <- str_flatten_lines(lines)

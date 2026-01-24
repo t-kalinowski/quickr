@@ -158,8 +158,8 @@
       
       
       
-      out = [ max(1_c_int, findloc(lgl1, 0_c_int, 1, kind=c_int)), minloc(int1, 1), minloc(dbl1, 1), max(1_c_int, findloc(lgl1, 1_c_int, &
-      1, kind=c_int)), maxloc(int1, 1), maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
+      out = [ max(1_c_int, findloc(lgl1, 0_c_int, 1, kind=c_int)), minloc(int1, 1), minloc(dbl1, 1), max(1_c_int, findloc(lgl1, 1_c_int,&
+      & 1, kind=c_int)), maxloc(int1, 1), maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
       end subroutine
     Code
       cat(cwrapper)

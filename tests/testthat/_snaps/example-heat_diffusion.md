@@ -77,8 +77,8 @@
       
       
         temp = 0.0_c_double
-      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int, &
-      kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
+      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
+      & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
         do step = 1, steps
@@ -87,6 +87,7 @@
       
             allocate(btmp1_(nx, ny))
             call apply_boundary_conditions(temp, btmp1_)
+      
             temp = btmp1_
           end block
           block
@@ -94,6 +95,7 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
+      
             temp = btmp1_
           end block
         end do
@@ -131,9 +133,9 @@
             temp_new = temp
             do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
               do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
-      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j))) &
-          / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy ** &
-          2.0_c_double))))))
+      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
+          & / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy **&
+          & 2.0_c_double))))))
               end do
             end do
             res = temp_new
@@ -340,8 +342,8 @@
       
       
         temp = 0.0_c_double
-      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int, &
-      kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
+      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
+      & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
         do step = 1, steps
@@ -351,6 +353,7 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
+      
             temp = btmp1_
           end block
         end do
@@ -384,9 +387,9 @@
             temp_new = temp
             do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
               do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
-      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j))) &
-          / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy ** &
-          2.0_c_double))))))
+      temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
+          & / (dx ** 2.0_c_double)) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / (dy **&
+          & 2.0_c_double))))))
               end do
             end do
             res = temp_new

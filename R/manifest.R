@@ -105,7 +105,8 @@ iso_c_binding_symbols <- function(
   vars,
   body_code = "",
   logical_is_c_int = logical_as_int,
-  uses_rng = FALSE
+  uses_rng = FALSE,
+  include_errors = FALSE
 ) {
   stopifnot(is.list(vars), is_string(body_code), is.function(logical_is_c_int))
 
@@ -150,6 +151,13 @@ iso_c_binding_symbols <- function(
 
   if (isTRUE(uses_rng)) {
     used_iso_bindings <- union(used_iso_bindings, "c_double")
+  }
+
+  if (isTRUE(include_errors)) {
+    used_iso_bindings <- union(
+      used_iso_bindings,
+      c("c_char", "c_null_char")
+    )
   }
 
   used_iso_bindings |>
@@ -256,7 +264,7 @@ emit_block <- function(decls, stmts) {
   ))
 }
 
-r2f.scope <- function(scope) {
+r2f.scope <- function(scope, include_errors = FALSE) {
   vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
     intent_in <- var@name %in% names(formals(scope@closure))
@@ -331,6 +339,7 @@ r2f.scope <- function(scope) {
 
   manifest <- compact(list(
     sizes = sizes,
+    error = if (isTRUE(include_errors)) quickr_error_manifest_lines(),
     args = vars[non_local_var_names],
     locals = vars[setdiff(names(vars), non_local_var_names)]
   ))
@@ -346,7 +355,8 @@ r2f.scope <- function(scope) {
   # # method="radix" for locale-independent stable order.
   signature <- unique(c(
     non_local_var_names,
-    sort(size_names, method = "radix")
+    sort(size_names, method = "radix"),
+    if (isTRUE(include_errors)) quickr_error_arg_names()
   ))
   attr(manifest, "signature") <- signature
 
