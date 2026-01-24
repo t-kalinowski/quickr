@@ -174,3 +174,44 @@ test_that("parallel loop uses multiple threads", {
   slowdown_factor <- if (identical(Sys.info()[["sysname"]], "Darwin")) 3 else 2
   expect_lt(parallel_median, serial_median * slowdown_factor, label = info)
 })
+
+test_that("stop inside parallel loop propagates errors", {
+  skip_if_no_openmp()
+
+  stop_in_parallel <- function(x) {
+    declare(type(x = double(1)))
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      if (x < 0) {
+        stop("x must be nonnegative")
+      }
+    }
+    x + 1
+  }
+
+  q_stop <- quick(stop_in_parallel)
+  expect_error(q_stop(-1), "x must be nonnegative", fixed = TRUE)
+  expect_equal(q_stop(1), 2)
+})
+
+test_that("stop inside nested parallel loop propagates errors", {
+  skip_if_no_openmp()
+
+  stop_in_nested_parallel <- function(x) {
+    declare(type(x = double(1)))
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      declare(parallel())
+      for (j in seq_len(1L)) {
+        if (x < 0) {
+          stop("x must be nonnegative")
+        }
+      }
+    }
+    x + 1
+  }
+
+  q_stop <- quick(stop_in_nested_parallel)
+  expect_error(q_stop(-1), "x must be nonnegative", fixed = TRUE)
+  expect_equal(q_stop(1), 2)
+})

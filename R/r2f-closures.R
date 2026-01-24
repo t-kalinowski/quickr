@@ -885,7 +885,10 @@ compile_sapply_assignment <- function(
     ""
   }
   error_check_after <- if (!is.null(parallel)) {
-    quickr_error_return_if_set(scope)
+    quickr_error_return_if_set(
+      scope,
+      openmp_depth = scope_openmp_depth(scope) - 1L
+    )
   } else {
     ""
   }

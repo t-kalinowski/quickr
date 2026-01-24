@@ -59,7 +59,7 @@ r2f_handlers[["stop"]] <- function(args, scope = NULL, ...) {
   }
 
   mark_scope_uses_errors(scope)
-  Fortran(str_flatten_lines(quickr_error_fortran_lines(msg)))
+  Fortran(str_flatten_lines(quickr_error_fortran_lines(msg, scope = scope)))
 }
 
 r2f_handlers[["("]] <- function(args, scope, ...) {

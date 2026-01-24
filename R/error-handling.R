@@ -78,7 +78,6 @@ quickr_error_helper_fortran <- function(openmp = FALSE) {
 
   glue::trim(str_flatten_lines(
     glue("subroutine {setter}(msg)"),
-    if (isTRUE(openmp)) "  use omp_lib, only: omp_in_parallel",
     "  character(len=*), intent(in) :: msg",
     "  integer :: i",
     "  integer :: n",
@@ -89,14 +88,11 @@ quickr_error_helper_fortran <- function(openmp = FALSE) {
     glue("    {msg_name}(n + 1) = c_null_char"),
     "  end if",
     if (isTRUE(openmp)) "  !$omp end critical (quickr_error)",
-    if (isTRUE(openmp)) "  if (omp_in_parallel()) then",
-    if (isTRUE(openmp)) "    !$omp cancel parallel",
-    if (isTRUE(openmp)) "  end if",
     glue("end subroutine {setter}")
   ))
 }
 
-quickr_error_fortran_lines <- function(message = NULL) {
+quickr_error_fortran_lines <- function(message = NULL, scope = NULL) {
   msg <- message %||% "quickr error"
   stopifnot(is_string(msg))
   if (!nzchar(msg)) {
@@ -104,13 +100,32 @@ quickr_error_fortran_lines <- function(message = NULL) {
   }
   check_quickr_error_message_continuable(msg)
   msg_literal <- fortran_string_literal(msg)
-  c(glue("call {quickr_error_setter_name()}({msg_literal})"), "return")
+  lines <- glue("call {quickr_error_setter_name()}({msg_literal})")
+  if (isTRUE(scope_in_openmp(scope))) {
+    lines <- c(lines, "!$omp cancel do")
+  } else {
+    lines <- c(lines, "return")
+  }
+  lines
 }
 
-quickr_error_return_if_set <- function(scope) {
-  if (isTRUE(scope_uses_errors(scope))) {
-    glue("if ({quickr_error_msg_name()}(1) /= c_null_char) return")
-  } else {
-    ""
+quickr_error_return_if_set <- function(
+  scope,
+  openmp_depth = scope_openmp_depth(scope)
+) {
+  if (!isTRUE(scope_uses_errors(scope))) {
+    return("")
   }
+  if (is.null(openmp_depth)) {
+    openmp_depth <- 0L
+  }
+  openmp_depth <- max(as.integer(openmp_depth), 0L)
+  if (openmp_depth > 0L) {
+    return(str_flatten_lines(
+      glue("if ({quickr_error_msg_name()}(1) /= c_null_char) then"),
+      "  !$omp cancel do",
+      "end if"
+    ))
+  }
+  glue("if ({quickr_error_msg_name()}(1) /= c_null_char) return")
 }

@@ -168,6 +168,10 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       }
     }
 
+    if (!is.null(parallel)) {
+      previous_openmp <- enter_openmp_scope(scope)
+      on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+    }
     body <- r2f(body, scope, ...)
     check_pending_parallel_consumed(scope)
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
@@ -182,13 +186,21 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     if (!is.null(parallel)) {
       mark_openmp_used(scope)
     }
+    error_check_after <- if (!is.null(parallel)) {
+      quickr_error_return_if_set(
+        scope,
+        openmp_depth = scope_openmp_depth(scope) - 1L
+      )
+    } else {
+      ""
+    }
     return(Fortran(glue(
       "
       {iterable_tmp_assign}
       {str_flatten_lines(directives$prefix, loop_header)}
       {indent(loop_stmts)}
       end do
-      {str_flatten_lines(directives$suffix)}
+      {str_flatten_lines(directives$suffix, error_check_after)}
       "
     )))
   }
@@ -201,6 +213,10 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   scope[[var]] <- loop_var
 
   iterable <- r2f_for_iterable(iterable, scope, ...)
+  if (!is.null(parallel)) {
+    previous_openmp <- enter_openmp_scope(scope)
+    on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+  }
   body <- r2f(body, scope, ...)
   check_pending_parallel_consumed(scope)
 
@@ -208,12 +224,20 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }
+  error_check_after <- if (!is.null(parallel)) {
+    quickr_error_return_if_set(
+      scope,
+      openmp_depth = scope_openmp_depth(scope) - 1L
+    )
+  } else {
+    ""
+  }
   loop_header <- glue("do {var_name} = {iterable}")
   Fortran(glue(
     "{str_flatten_lines(directives$prefix, loop_header)}
     {indent(body)}
     end do
-    {str_flatten_lines(directives$suffix)}
+    {str_flatten_lines(directives$suffix, error_check_after)}
     "
   ))
 }

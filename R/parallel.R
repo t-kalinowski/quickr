@@ -31,6 +31,44 @@ mark_openmp_used <- function(scope) {
   invisible(root)
 }
 
+scope_openmp_depth <- function(scope) {
+  if (!inherits(scope, "quickr_scope")) {
+    return(0L)
+  }
+  depth <- attr(scope, "openmp_depth", exact = TRUE)
+  if (is.null(depth)) {
+    0L
+  } else {
+    as.integer(depth)
+  }
+}
+
+scope_in_openmp <- function(scope) {
+  scope_openmp_depth(scope) > 0L
+}
+
+enter_openmp_scope <- function(scope) {
+  if (!inherits(scope, "quickr_scope")) {
+    return(NULL)
+  }
+  previous_depth <- attr(scope, "openmp_depth", exact = TRUE)
+  depth <- scope_openmp_depth(scope)
+  attr(scope, "openmp_depth") <- depth + 1L
+  previous_depth
+}
+
+exit_openmp_scope <- function(scope, previous_depth) {
+  if (!inherits(scope, "quickr_scope")) {
+    return(invisible(NULL))
+  }
+  if (is.null(previous_depth)) {
+    attr(scope, "openmp_depth") <- NULL
+  } else {
+    attr(scope, "openmp_depth") <- as.integer(previous_depth)
+  }
+  invisible(TRUE)
+}
+
 openmp_abort <- function(message, class = "quickr_openmp_error") {
   stop(
     structure(
