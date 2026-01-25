@@ -93,14 +93,16 @@
         if (ny__len_ != 1)
           Rf_error("length(ny) must be 1, not %0.f",
                     (double)ny__len_);
-        const R_xlen_t temp__len_ = (Rf_asInteger(nx)) * (Rf_asInteger(ny));
+        const int _quickr_as_int_nx = Rf_asInteger(nx);
+        const int _quickr_as_int_ny = Rf_asInteger(ny);
+        const R_xlen_t temp__len_ = (_quickr_as_int_nx) * (_quickr_as_int_ny);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
           const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
           int* const _dim = INTEGER(_dim_sexp);
-          _dim[0] = Rf_asInteger(nx);
-          _dim[1] = Rf_asInteger(ny);
+          _dim[0] = _quickr_as_int_nx;
+          _dim[1] = _quickr_as_int_ny;
           Rf_dimgets(temp, _dim_sexp);
         }
         
@@ -317,15 +319,18 @@
         if (nz__len_ != 1)
           Rf_error("length(nz) must be 1, not %0.f",
                     (double)nz__len_);
-        const R_xlen_t a__len_ = (Rf_asInteger(nx)) * (Rf_asInteger(ny)) * (Rf_asInteger(nz));
+        const int _quickr_as_int_nx = Rf_asInteger(nx);
+        const int _quickr_as_int_ny = Rf_asInteger(ny);
+        const int _quickr_as_int_nz = Rf_asInteger(nz);
+        const R_xlen_t a__len_ = (_quickr_as_int_nx) * (_quickr_as_int_ny) * (_quickr_as_int_nz);
         SEXP a = PROTECT(Rf_allocVector(REALSXP, a__len_));
         double* a__ = REAL(a);
         {
           const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 3));
           int* const _dim = INTEGER(_dim_sexp);
-          _dim[0] = Rf_asInteger(nx);
-          _dim[1] = Rf_asInteger(ny);
-          _dim[2] = Rf_asInteger(nz);
+          _dim[0] = _quickr_as_int_nx;
+          _dim[1] = _quickr_as_int_ny;
+          _dim[2] = _quickr_as_int_nz;
           Rf_dimgets(a, _dim_sexp);
         }
         

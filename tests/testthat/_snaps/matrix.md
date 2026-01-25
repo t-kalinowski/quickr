@@ -61,14 +61,16 @@
           if (b__len_ != 1)
             Rf_error("length(b) must be 1, not %0.f",
                       (double)b__len_);
-          const R_xlen_t out__len_ = (Rf_asInteger(a)) * (Rf_asInteger(b));
+          const int _as_int_a = Rf_asInteger(a);
+          const int _as_int_b = Rf_asInteger(b);
+          const R_xlen_t out__len_ = (_as_int_a) * (_as_int_b);
           SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
           double* out__ = REAL(out);
           {
             const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
             int* const _dim = INTEGER(_dim_sexp);
-            _dim[0] = Rf_asInteger(a);
-            _dim[1] = Rf_asInteger(b);
+            _dim[0] = _as_int_a;
+            _dim[1] = _as_int_b;
             Rf_dimgets(out, _dim_sexp);
           }
         
