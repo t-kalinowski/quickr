@@ -215,3 +215,23 @@ test_that("stop inside nested parallel loop propagates errors", {
   expect_error(q_stop(-1), "x must be nonnegative", fixed = TRUE)
   expect_equal(q_stop(1), 2)
 })
+
+test_that("stop inside parallel sapply propagates errors", {
+  skip_if_no_openmp()
+
+  stop_in_parallel_sapply <- function(x) {
+    declare(type(x = double(1)))
+    declare(parallel())
+    out <- sapply(seq_len(1L), function(i) {
+      if (x < 0) {
+        stop("x must be nonnegative")
+      }
+      x + 1.0
+    })
+    out
+  }
+
+  q_stop <- quick(stop_in_parallel_sapply)
+  expect_error(q_stop(-1), "x must be nonnegative", fixed = TRUE)
+  expect_equal(q_stop(1), 2)
+})
