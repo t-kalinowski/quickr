@@ -467,9 +467,16 @@ compile_closure_call <- function(
 
     call_args <- unname(args_f)
     if (length(call_args)) {
-      return(Fortran(glue("call {proc$name}({str_flatten_commas(call_args)})")))
+      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
+      return(Fortran(str_flatten_lines(
+        call_stmt,
+        quickr_error_return_if_set(scope)
+      )))
     }
-    return(Fortran(glue("call {proc$name}()")))
+    return(Fortran(str_flatten_lines(
+      glue("call {proc$name}()"),
+      quickr_error_return_if_set(scope)
+    )))
   }
 
   proc <- compile_local_closure_proc(
@@ -484,9 +491,16 @@ compile_closure_call <- function(
   if (!needs_value && is.null(proc$res)) {
     call_args <- unname(args_f)
     if (length(call_args)) {
-      return(Fortran(glue("call {proc$name}({str_flatten_commas(call_args)})")))
+      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
+      return(Fortran(str_flatten_lines(
+        call_stmt,
+        quickr_error_return_if_set(scope)
+      )))
     }
-    return(Fortran(glue("call {proc$name}()")))
+    return(Fortran(str_flatten_lines(
+      glue("call {proc$name}()"),
+      quickr_error_return_if_set(scope)
+    )))
   }
 
   res_var <- proc$res_var
@@ -497,6 +511,7 @@ compile_closure_call <- function(
   tmp <- hoist$declare_tmp(mode = res_var@mode, dims = res_var@dims)
   call_args <- c(unname(args_f), tmp@name)
   call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
+  call_stmt <- str_flatten_lines(call_stmt, quickr_error_return_if_set(scope))
 
   if (needs_value) {
     hoist$emit(call_stmt)
@@ -621,6 +636,7 @@ compile_closure_call_assignment <- function(
   Fortran(glue(
     "
     call {proc$name}({str_flatten_commas(call_args)})
+    {quickr_error_return_if_set(scope)}
     {str_flatten_lines(post)}
     "
   ))
@@ -863,6 +879,22 @@ compile_sapply_assignment <- function(
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }
+  error_check_inner <- if (is.null(parallel)) {
+    quickr_error_return_if_set(scope)
+  } else {
+    quickr_error_return_if_set(
+      scope,
+      openmp_depth = scope_openmp_depth(scope) + 1L
+    )
+  }
+  error_check_after <- if (!is.null(parallel)) {
+    quickr_error_return_if_set(
+      scope,
+      openmp_depth = scope_openmp_depth(scope)
+    )
+  } else {
+    ""
+  }
   loop_header <- glue("do {idx@name} = 1_c_int, {last_i}")
   prefix <- str_flatten_lines(
     if (!index_iterable) iterable_tmp_assign else NULL,
@@ -872,8 +904,10 @@ compile_sapply_assignment <- function(
     "
     {prefix}
       call {proc_name}({call_args})
+      {error_check_inner}
     end do
     {str_flatten_lines(directives$suffix)}
+    {error_check_after}
     {str_flatten_lines(post_stmts)}
     "
   ))

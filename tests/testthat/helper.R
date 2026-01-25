@@ -87,7 +87,9 @@ skip_if_no_openmp <- local({
           })
           TRUE
         },
-        quickr_openmp_unavailable = function(e) FALSE
+        quickr_openmp_unavailable = function(e) FALSE,
+        quickr_openmp_ignored = function(e) FALSE,
+        quickr_openmp_load_failed = function(e) FALSE
       )
     }
     if (!isTRUE(supported)) {

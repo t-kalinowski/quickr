@@ -4,6 +4,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   closure <- fsub@closure
   scope <- fsub@scope
   uses_rng <- isTRUE(attr(scope, "uses_rng", TRUE))
+  uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
 
   fsub_arg_names <- fsub@signature # arg names
   closure_arg_names <- names(formals(closure)) %||% character()
@@ -52,8 +53,22 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     }
   }
 
+  if (uses_errors) {
+    append(c_body) <- c(
+      "",
+      glue("char {quickr_error_msg_name()}[{quickr_error_msg_len()}];"),
+      glue("{quickr_error_msg_name()}[0] = '\\0';"),
+      ""
+    )
+  }
+
   fsub_call_args <- fsub_arg_names |>
-    lapply(\(nm) paste0(nm, if (!is_size_name(nm)) "__")) |>
+    lapply(\(nm) {
+      if (is_quickr_error_msg(nm)) {
+        return(nm)
+      }
+      paste0(nm, if (!is_size_name(nm)) "__")
+    }) |>
     unlist()
 
   if (length(fsub_call_args) > 3) {
@@ -65,6 +80,13 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     if (uses_rng) "GetRNGstate();",
     glue("{fsub@name}({str_flatten_commas(fsub_call_args)});"),
     if (uses_rng) "PutRNGstate();",
+    if (uses_errors) glue("if ({quickr_error_msg_name()}[0] != '\\0') {{"),
+    if (uses_errors) {
+      indent(glue(
+        "Rf_error(\"%s\", {quickr_error_msg_name()});"
+      ))
+    },
+    if (uses_errors) "}",
     ""
   )
   # Determine if the closure returns a list call or a single symbol
@@ -552,6 +574,9 @@ fsub_extern_decl <- function(fsub) {
   scope <- fsub@scope
 
   fsub_c_sig <- map_chr(fsub_arg_names, function(name) {
+    if (is_quickr_error_msg(name)) {
+      return(glue("char* {name}"))
+    }
     if (is_size_name(name)) {
       type <- if (name |> endsWith("__len_")) {
         "R_xlen_t"

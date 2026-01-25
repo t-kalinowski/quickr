@@ -447,7 +447,9 @@ check_all_var_names_valid <- function(fun) {
         "c_ptrdiff_t",
 
         # clashes with C bridge symbols
-        "int" #, "double",
+        "int", #, "double",
+        quickr_error_msg_name(),
+        quickr_error_setter_name()
 
         # ??? (clashes with R symbols?)
         # "double", "integer"

@@ -39,7 +39,9 @@
       
         do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
+      
         end do
+      
       
         contains
           subroutine f(i, res)
@@ -126,7 +128,9 @@
         out = .false.
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(i, res)
@@ -229,7 +233,9 @@
         out = 0
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(i, res)
@@ -316,7 +322,9 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(j, res)
@@ -423,7 +431,9 @@
         out = .false.
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(j, res)
@@ -544,7 +554,9 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(t, res)
@@ -674,7 +686,9 @@
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, x__dim_3_
             call closure1_(tmp1_, out(:, :, tmp1_))
+      
           end do
+      
         end block
       
         contains
@@ -795,7 +809,9 @@
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, x__dim_4_
             call closure1_(tmp1_, out(:, :, :, tmp1_))
+      
           end do
+      
         end block
       
         contains
@@ -912,7 +928,9 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, :, tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(t, res)
@@ -1033,7 +1051,9 @@
         out = 0
         do tmp1_ = 1_c_int, 12_c_int
           call closure1_(tmp1_, out(tmp1_))
+      
         end do
+      
       
         contains
           subroutine closure1_(i, res)
@@ -1044,8 +1064,8 @@
             real(c_double), intent(out) :: res
       
       
-      res = (x((mod((int(i, kind=c_int) - 1_c_int), size(x, 1)) + 1_c_int), (((int(i, kind=c_int) - 1_c_int) / size(x, 1)) + 1_c_int)) + &
-          1.0_c_double)
+      res = (x((mod((int(i, kind=c_int) - 1_c_int), size(x, 1)) + 1_c_int), (((int(i, kind=c_int) - 1_c_int) / size(x, 1)) + 1_c_int)) +&
+          & 1.0_c_double)
           end subroutine
       end subroutine
     Code
@@ -1137,7 +1157,9 @@
           allocate(btmp1_(x__dim_1_, x__dim_2_))
           do tmp1_ = 1_c_int, x__dim_2_
             call closure1_(tmp1_, btmp1_(:, tmp1_))
+      
           end do
+      
       
           out = btmp1_
         end block

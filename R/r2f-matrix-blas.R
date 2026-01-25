@@ -74,6 +74,29 @@ assert_conformable_dims <- function(left, right, context, err_msg) {
   invisible(TRUE)
 }
 
+emit_quickr_error_if <- function(
+  condition,
+  message,
+  hoist,
+  scope
+) {
+  stopifnot(
+    is_string(condition),
+    is_string(message),
+    inherits(hoist, "environment"),
+    inherits(scope, "quickr_scope")
+  )
+  mark_scope_uses_errors(scope)
+  err_lines <- quickr_error_fortran_lines(message, scope = scope)
+  hoist$emit(glue(
+    "
+    if ({condition}) then
+    {indent(str_flatten_lines(err_lines))}
+    end if
+    "
+  ))
+}
+
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -719,6 +742,18 @@ lapack_solve <- function(
     hoist$emit(glue(
       "call dgesv({blas_int(m)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {ipiv@name}, {out_name}, {blas_int(m)}, {info@name})"
     ))
+    emit_quickr_error_if(
+      condition = glue("{info@name} > 0_c_int"),
+      message = "Lapack routine dgesv: system is exactly singular",
+      hoist = hoist,
+      scope = scope
+    )
+    emit_quickr_error_if(
+      condition = glue("{info@name} < 0_c_int"),
+      message = "Lapack routine dgesv: illegal argument",
+      hoist = hoist,
+      scope = scope
+    )
 
     out <- Fortran(out_name, out_var)
     if (writes_to_dest) {
@@ -774,6 +809,24 @@ lapack_solve <- function(
     hoist$emit(glue(
       "call dgelsy({blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {jpvt@name}, {rcond}, {rank@name}, {work@name}, {blas_int(lwork)}, {info@name})"
     ))
+    emit_quickr_error_if(
+      condition = glue("{info@name} < 0_c_int"),
+      message = "Lapack routine dgelsy: illegal argument",
+      hoist = hoist,
+      scope = scope
+    )
+    emit_quickr_error_if(
+      condition = glue("{info@name} > 0_c_int"),
+      message = "Lapack routine dgelsy failed to converge",
+      hoist = hoist,
+      scope = scope
+    )
+    emit_quickr_error_if(
+      condition = glue("{rank@name} < {blas_int(n)}"),
+      message = "rank deficient matrix in qr.solve",
+      hoist = hoist,
+      scope = scope
+    )
   } else {
     lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
     work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
@@ -781,6 +834,12 @@ lapack_solve <- function(
     hoist$emit(glue(
       "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
     ))
+    emit_quickr_error_if(
+      condition = glue("{info@name} < 0_c_int"),
+      message = "Lapack routine dgels: illegal argument",
+      hoist = hoist,
+      scope = scope
+    )
   }
 
   expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
@@ -858,9 +917,33 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   hoist$emit(glue(
     "call dgetrf({blas_int(n)}, {blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {info@name})"
   ))
+  emit_quickr_error_if(
+    condition = glue("{info@name} > 0_c_int"),
+    message = "Lapack routine dgetrf: system is exactly singular",
+    hoist = hoist,
+    scope = scope
+  )
+  emit_quickr_error_if(
+    condition = glue("{info@name} < 0_c_int"),
+    message = "Lapack routine dgetrf: illegal argument",
+    hoist = hoist,
+    scope = scope
+  )
   hoist$emit(glue(
     "call dgetri({blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {work@name}, {blas_int(n)}, {info@name})"
   ))
+  emit_quickr_error_if(
+    condition = glue("{info@name} > 0_c_int"),
+    message = "Lapack routine dgetri: system is exactly singular",
+    hoist = hoist,
+    scope = scope
+  )
+  emit_quickr_error_if(
+    condition = glue("{info@name} < 0_c_int"),
+    message = "Lapack routine dgetri: illegal argument",
+    hoist = hoist,
+    scope = scope
+  )
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
@@ -905,6 +988,18 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   hoist$emit(glue(
     "call dpotrf('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
   ))
+  emit_quickr_error_if(
+    condition = glue("{info@name} > 0_c_int"),
+    message = "Lapack routine dpotrf: leading minor is not positive definite",
+    hoist = hoist,
+    scope = scope
+  )
+  emit_quickr_error_if(
+    condition = glue("{info@name} < 0_c_int"),
+    message = "Lapack routine dpotrf: illegal argument",
+    hoist = hoist,
+    scope = scope
+  )
   zero_lower_triangle(out_name, n, hoist = hoist)
 
   out <- Fortran(out_name, out_var)
@@ -956,6 +1051,18 @@ lapack_chol2inv <- function(
   hoist$emit(glue(
     "call dpotri('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
   ))
+  emit_quickr_error_if(
+    condition = glue("{info@name} > 0_c_int"),
+    message = "Lapack routine dpotri: matrix is not positive definite",
+    hoist = hoist,
+    scope = scope
+  )
+  emit_quickr_error_if(
+    condition = glue("{info@name} < 0_c_int"),
+    message = "Lapack routine dpotri: illegal argument",
+    hoist = hoist,
+    scope = scope
+  )
   symmetrize_upper_to_lower(out_name, n, hoist = hoist)
 
   out <- Fortran(out_name, out_var)

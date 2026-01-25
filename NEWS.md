@@ -17,6 +17,8 @@
 - Added OpenMP parallelization via `declare(parallel())`/`declare(omp())` for
   `for` loops and `sapply()` calls.
 
+- Added support for throwing errors with `stop()`. (#86)
+
 - Added support for `abs()` in size expressions used by `declare(type(...))`
   (e.g. `declare(type(x = integer(abs(end - start) + 1L)))`).
 

@@ -41,6 +41,27 @@ r2f_handlers[["Fortran"]] <- function(args, scope = NULL, ...) {
   #   Fortran("x = nearest(x, 1)")
 }
 
+r2f_handlers[["stop"]] <- function(args, scope = NULL, ...) {
+  if (!length(args)) {
+    msg <- "Execution halted"
+  } else {
+    if (
+      length(args) != 1L ||
+        !is.character(args[[1L]]) ||
+        length(args[[1L]]) != 1L
+    ) {
+      stop(
+        "stop() only supports a single string literal message",
+        call. = FALSE
+      )
+    }
+    msg <- args[[1L]]
+  }
+
+  mark_scope_uses_errors(scope)
+  Fortran(str_flatten_lines(quickr_error_fortran_lines(msg, scope = scope)))
+}
+
 r2f_handlers[["("]] <- function(args, scope, ...) {
   x <- r2f(args[[1L]], scope, ...)
   Fortran(glue("({x})"), x@value)

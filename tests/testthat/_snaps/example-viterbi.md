@@ -74,8 +74,8 @@
     Code
       cat(fsub)
     Output
-      subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_, &
-      observations__len_, states__len_) bind(c)
+      subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_,&
+      & observations__len_, states__len_) bind(c)
         use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
@@ -288,8 +288,8 @@
     Code
       cat(fsub <- r2f(viterbi))
     Output
-      subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_, &
-      observations__len_, states__len_) bind(c)
+      subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_,&
+      & observations__len_, states__len_) bind(c)
         use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
