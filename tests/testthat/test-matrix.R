@@ -71,11 +71,11 @@ test_that("reuse implicit size", {
   # bench::mark(fn(a1, a2), qfn(a1, a2)) |> print() |> plot()
 })
 
-test_that("elementwise vector and singleton matrix keep matrix shape", {
+test_that("vector-matrix ops only recycle along the first dimension", {
   fn <- function(vec, mat) {
     declare(
-      type(vec = double(n)),
-      type(mat = double(1L, n))
+      type(vec = double(3)),
+      type(mat = double(1L, 3))
     )
     left_side_vec <- vec + mat
     right_side_vec <- mat + vec
@@ -83,9 +83,10 @@ test_that("elementwise vector and singleton matrix keep matrix shape", {
     out
   }
 
-  expect_quick_identical(
-    fn,
-    list(runif(3), matrix(runif(3), nrow = 1L))
+  expect_error(
+    quick(fn),
+    "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
+    fixed = TRUE
   )
 })
 
@@ -107,11 +108,103 @@ test_that("elementwise vector and singleton column matrix keep matrix shape", {
   )
 })
 
+test_that("elementwise vector-matrix reuse works across columns", {
+  fn <- function(vec, mat) {
+    declare(
+      type(vec = double(3)),
+      type(mat = double(3, 2))
+    )
+    left <- vec * mat
+    right <- mat * vec
+    left + right
+  }
+
+  vec <- as.double(1:3)
+  mat <- matrix(as.double(1:6), nrow = 3)
+
+  expect_quick_identical(fn, list(vec, mat))
+})
+
+test_that("elementwise vector-matrix ops allow scalar vectors", {
+  fn <- function(vec, mat) {
+    declare(
+      type(vec = double(1)),
+      type(mat = double(3, 2))
+    )
+    vec + mat
+  }
+
+  vec <- 2.5
+  mat <- matrix(as.double(1:6), nrow = 3)
+
+  expect_quick_identical(fn, list(vec, mat))
+})
+
+test_that("elementwise vector-matrix ops reject longer vectors", {
+  fn <- function(vec, mat) {
+    declare(
+      type(vec = double(2)),
+      type(mat = double(3, 2))
+    )
+    vec + mat
+  }
+
+  expect_error(
+    quick(fn),
+    "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
+    fixed = TRUE
+  )
+})
+
+test_that("elementwise matrix operations require matching dimensions", {
+  fn <- function(a, b) {
+    declare(
+      type(a = double(2, 3)),
+      type(b = double(2, 2))
+    )
+    a + b
+  }
+
+  expect_error(
+    quick(fn),
+    "elementwise matrix operations require matching dimensions",
+    fixed = TRUE
+  )
+})
+
+test_that("elementwise vector operations require matching lengths", {
+  fn <- function(a, b) {
+    declare(
+      type(a = double(2)),
+      type(b = double(3))
+    )
+    a + b
+  }
+
+  expect_error(
+    quick(fn),
+    "elementwise vector operations require lengths that recycle cleanly unless one operand is scalar",
+    fixed = TRUE
+  )
+})
+
+test_that("elementwise vector ops allow scalar vectors", {
+  fn <- function(a, b) {
+    declare(
+      type(a = double(1)),
+      type(b = double(3))
+    )
+    a + b
+  }
+
+  expect_quick_identical(fn, list(2.5, as.double(1:3)))
+})
+
 test_that("elementwise ops reshape vectors for singleton matrices", {
   fn <- function(vec, mat) {
     declare(
       type(vec = double(n)),
-      type(mat = double(1L, n))
+      type(mat = double(n, 1L))
     )
     a <- vec - mat
     b <- mat * vec
@@ -121,7 +214,7 @@ test_that("elementwise ops reshape vectors for singleton matrices", {
 
   expect_quick_identical(
     fn,
-    list(runif(3) + 1, matrix(runif(3) + 1, nrow = 1L))
+    list(runif(3) + 1, matrix(runif(3) + 1, ncol = 1L))
   )
 })
 
@@ -140,10 +233,10 @@ test_that("1x1 matrix preserves matrix result with length-1 vector", {
   )
 })
 
-test_that("1x1 matrix with length-n vector yields a vector", {
+test_that("1x1 matrix with length-3 vector yields a vector", {
   fn <- function(vec, mat_1_1) {
     declare(
-      type(vec = double(n)),
+      type(vec = double(3)),
       type(mat_1_1 = double(1, 1))
     )
     a <- vec + mat_1_1
@@ -152,10 +245,6 @@ test_that("1x1 matrix with length-n vector yields a vector", {
     out
   }
 
-  ## Note: base R emits a warning:
-  ## Recycling array of length 1 in vector-array arithmetic is deprecated
-  ## suppressWarnings is used to pass test as this path may arrise in code
-  ## e.g crossprod(1:4) or other matrix operation that gives 1 by 1 matrix
   suppressWarnings(expect_quick_identical(
     fn,
     list(c(1, 2, 3), matrix(1, nrow = 1L, ncol = 1L))

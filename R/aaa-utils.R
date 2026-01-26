@@ -6,6 +6,42 @@ NULL
 
 `%||%` <- function(x, y) if (is.null(x)) y else x
 
+fortranize_name <- function(name, prefix = "v_") {
+  stopifnot(is_string(name), is_string(prefix), nzchar(prefix))
+  out <- gsub("[^A-Za-z0-9_]", "_", name)
+  if (!nzchar(out) || !grepl("^[A-Za-z]", out)) {
+    out <- paste0(prefix, out)
+  }
+  out
+}
+
+fortranize_expr_symbols <- function(expr) {
+  if (!is.symbol(expr) && !is.call(expr)) {
+    return(expr)
+  }
+  syms <- all.vars(expr)
+  if (!length(syms)) {
+    return(expr)
+  }
+  replacements <- setNames(
+    lapply(syms, \(sym) as.symbol(fortranize_name(sym))),
+    syms
+  )
+  substitute_(expr, list2env(replacements, parent = emptyenv()))
+}
+
+scope_fortran_symbol <- function(sym, scope) {
+  stopifnot(is.symbol(sym))
+  if (is.null(scope)) {
+    return(sym)
+  }
+  var <- get0(as.character(sym), scope)
+  if (inherits(var, Variable) && !is.null(var@name)) {
+    return(as.symbol(var@name))
+  }
+  sym
+}
+
 quickr_r_cmd <- function(
   os_type = .Platform$OS.type,
   r_home = R.home,
