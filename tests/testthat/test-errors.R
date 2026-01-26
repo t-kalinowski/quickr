@@ -1,11 +1,12 @@
 test_that("case-sensitive variable name clashes", {
-  expect_error(regexp = "case-insensitive.+`j`.+`J`", {
+  expect_snapshot(
     quick(function(j) {
       declare(type(j = integer(1)))
       J <- double(length = j)
       J
-    })
-  })
+    }),
+    error = TRUE
+  )
 })
 
 test_that("non-final expressions must be assigned", {
@@ -69,33 +70,34 @@ test_that("value-returning local closures can be called as statements", {
 })
 
 test_that("reserved or underscored names are rejected", {
-  expect_error(
+  expect_snapshot(
     quick(function(x) {
-      declare(type(x = integer(1)))
       `_bad` <- x + 1L
       `_bad`
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
   )
 
-  expect_error(
+  expect_snapshot(
     quick(function(x) {
-      declare(type(x = integer(1)))
       `bad_` <- x + 1L
       `bad_`
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
   )
 
-  expect_error(
+  expect_snapshot(
     quick(function(int) {
-      declare(type(int = integer(1)))
       int
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
+  )
+
+  expect_snapshot(
+    quick(function(`foo.bar`, foo_bar) {
+      1
+    }),
+    error = TRUE
   )
 })
 

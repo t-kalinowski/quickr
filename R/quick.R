@@ -437,35 +437,51 @@ create_quick_closure <- function(
 
 check_all_var_names_valid <- function(fun) {
   nms <- unique(c(names(formals(fun)), all.vars(body(fun), functions = FALSE)))
-  invalid <- endsWith(nms, "_") |
-    startsWith(nms, "_") |
-    nms %in%
-      c(
-        # clashes with Fortran subroutine symbols
-        "c_int",
-        "c_double",
-        "c_ptrdiff_t",
-
-        # clashes with C bridge symbols
-        "int", #, "double",
-        quickr_error_msg_name(),
-        quickr_error_setter_name()
-
-        # ??? (clashes with R symbols?)
-        # "double", "integer"
-      )
+  invalid <- endsWith(nms, "_") | startsWith(nms, "_")
   if (any(invalid)) {
     stop(
       "symbols cannot start or end with '_', but found: ",
-      glue_collapse(invalid, ", ", last = ", and ")
+      glue_collapse(nms[invalid], ", ", last = ", and ")
     )
   }
 
-  case_clashes <- nms[is_duplicate(tolower(nms))]
-  if (length(case_clashes)) {
+  fortran_nms <- map_chr(nms, fortranize_name)
+  reserved <- fortran_nms %in%
+    c(
+      # clashes with Fortran subroutine symbols
+      "c_int",
+      "c_double",
+      "c_ptrdiff_t",
+
+      # clashes with C bridge symbols
+      "int",
+      quickr_error_msg_name(),
+      quickr_error_setter_name()
+
+      # ??? (clashes with R symbols?)
+      # "double", "integer"
+    )
+  if (any(reserved)) {
     stop(
-      "Fortran is case-insensitive; these names conflict when case is ignored: ",
-      glue_collapse(glue::backtick(case_clashes), ", ", last = " and ")
+      "symbols map to reserved Fortran names: ",
+      glue_collapse(
+        paste0(nms[reserved], " -> ", fortran_nms[reserved]),
+        ", ",
+        last = ", and "
+      )
+    )
+  }
+
+  case_clashes <- nms[is_duplicate(tolower(fortran_nms))]
+  if (length(case_clashes)) {
+    clash_map <- paste0(
+      case_clashes,
+      " -> ",
+      fortran_nms[match(case_clashes, nms)]
+    )
+    stop(
+      "Fortran is case-insensitive; these names conflict when mapped: ",
+      glue_collapse(glue::backtick(clash_map), ", ", last = " and ")
     )
   }
 }
