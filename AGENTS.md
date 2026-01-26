@@ -6,7 +6,7 @@ This project is an R package that transpiles R functions to Fortran.
 R -q -e 'devtools::test()'
 ```
 
-- To run the full `R CMD check` locally:
+- To run the full `R CMD check` locally (this takes a long time):
 ```sh
 R -q -e 'rcmdcheck::rcmdcheck(error_on = "warning")'
 ```
@@ -15,6 +15,12 @@ R -q -e 'rcmdcheck::rcmdcheck(error_on = "warning")'
 ```sh
 R -q -e 'devtools::test_active_file("tests/testthat/test-dims2f.R")'
 ```
+
+- To run a subset of test files:
+```sh
+R -q -e 'devtools::test(filter = "regex")'
+```
+filter arg behavior: If not `NULL`, only tests with file names matching this regular expression will be executed. Matching is performed on the file name after it's stripped of "test-" and ".R".
 
 - To see the generated C and Fortran code for an R function, use `r2f()`:
 ```sh
@@ -33,10 +39,13 @@ EOF
 
 - Never disable or skip tests.
 
-- When adding tests, prefer user-facing API tests (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings.
+- When adding tests, strongly prefer tests that only excercise the public API (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings unless explicitly asked. Avoid testing internal functions unless explicitly.
 
-- While troubleshooting and iterating towards a solution, you can run targeted single-file tests; before committing/pushing, always run the full test suite and `rcmdcheck`.
-- Before finishing a task, always run the full test suite and `rcmdcheck`.
+- When writing tests, make sure that we test both C/Fortran code generation (typically reported accuratly by covr), as well as calling the generated function (not covered by covr). Our tests must excercise the actual generated function.
+
+- While troubleshooting and iterating towards a solution, you can run targeted single-file tests; After large refactors, always run the full test suite.
+
+- Before opening a PR, always run `rcmdcheck`.
 
 - Prefer extending S7 classes with explicit properties over attaching arbitrary unchecked attributes.
 
