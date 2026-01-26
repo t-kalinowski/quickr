@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             486ms 488.58ms      2.05     782KB     3.07
-#> 2 quickr        914µs   1.08ms    927.       782KB    17.6 
-#> 3 c             939µs   1.08ms    924.       782KB    16.9
+#> 1 r          502.38ms 502.38ms      1.99     847KB     5.97
+#> 2 quickr       1.01ms   1.09ms    918.       782KB    15.3 
+#> 3 c            1.02ms    1.1ms    908.       782KB    15.8
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -301,8 +301,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   62.52µs  76.38µs    12597.    1.59KB     27.4
-#> 2 quick_viterbi   1.68µs   1.93µs   485963.        0B     48.6
+#> 1 slow_viterbi   67.49µs  73.31µs    13362.     178KB     34.9
+#> 2 quick_viterbi   1.97µs   2.09µs   459831.        0B      0
 plot(timings)
 ```
 
@@ -393,8 +393,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        6.56   8.90      1        4893.      Inf
-#> 2 quick_diffuse_heat  1      1         7.31        1       NaN
+#> 1 diffuse_heat        4.80   2.55      1        4893.      Inf
+#> 2 quick_diffuse_heat  1      1         2.57        1       NaN
 plot(timings)
 ```
 
@@ -440,9 +440,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           67.78ms  69.31ms      9.88  124.24MB    15.8 
-#> 2 rcpp         5.87ms   6.22ms    158.      4.46MB     2.00
-#> 3 quickr       2.15ms   2.28ms    434.    781.35KB     3.96
+#> 1 r           68.99ms  85.28ms      9.23  124.31MB    14.8 
+#> 2 rcpp         6.12ms   6.45ms    151.      4.46MB     1.99
+#> 3 quickr       2.41ms   2.54ms    390.    781.35KB     4.00
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -556,10 +556,10 @@ timings
 #> # A tibble: 4 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 reference      11.03ms  11.96ms      83.5    29.6MB     78.3
-#> 2 RcppArmadillo   1.64ms   1.92ms     497.         0B      0  
-#> 3 plain R         1.31ms   1.79ms     550.     13.2MB    119. 
-#> 4 quickr        934.96µs   1.02ms     933.         0B      0
+#> 1 reference      11.71ms  12.54ms      79.0    29.6MB   136.  
+#> 2 RcppArmadillo   1.87ms   2.08ms     471.         0B     0   
+#> 3 plain R          1.6ms   1.85ms     536.     13.3MB   184.  
+#> 4 quickr          1.01ms   1.09ms     882.         0B     2.01
 plot(timings) + ggplot2::scale_y_discrete(limits = rev(c( 
   "reference", "RcppArmadillo", "plain R", "quickr"
 )))
