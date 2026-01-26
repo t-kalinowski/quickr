@@ -431,6 +431,20 @@ RcppArmadillo implementation. The `fastLm` function is adapted from the
 README of the RcppArmadillo project.
 
 ```{r}
+
+# reference implementation
+fast_lm_ref <- function(X, y) {
+  fit <- lm(y ~ X - 1)
+  s <- summary(fit)
+
+  list(
+    coefficients = unname(coef(fit)),
+    stderr = unname(s$coefficients[, "Std. Error"]),
+    df.residual = fit$df.residual
+  )
+}
+
+# fast-path R implementation
 fast_lm <- function(X, y) {
   declare(
     type(X = double(n, k)),
@@ -456,8 +470,10 @@ fast_lm <- function(X, y) {
   )
 }
 
+# quickr func
 quick_fast_lm <- quick(fast_lm)
 
+# RcppArmadillo implementation
 Rcpp::sourceCpp(
 code = '
 #include <RcppArmadillo/Lighter>
@@ -487,8 +503,16 @@ beta <- c(0.5, 1.0, -2.0, 10, 5)
 X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 4))
 y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
 
+f <- lm.fit(X, y)
+ff <- lm(y ~ X - 1)
+all.equal(f$coefficients, lm(y ~ X)$coefficients)
+all.equal(unname(f$coefficients), unname(coef(lm(y ~ X - 1))))
+
+
+
 timings <- bench::mark(
-  R = fast_lm(X, y),
+  `R: lm()` = fast_lm_ref(X, y),
+  `R: lm.fit()` = fast_lm(X, y),
   quickr = quick_fast_lm(X, y),
   RcppArmadillo = rcpp_armadillo_fast_lm(X, y)
 )
@@ -619,4 +643,3 @@ On Linux:
     [here](https://docs.posit.co/resources/install-r-source.html#install-required-dependencies)
     provides detailed instructions for installing R build tools on
     various Linux flavors.
-
