@@ -431,7 +431,6 @@ RcppArmadillo implementation. The `fastLm` function is adapted from the
 README of the RcppArmadillo project.
 
 ```{r}
-
 # reference implementation
 fast_lm_ref <- function(X, y) {
   fit <- lm(y ~ X - 1)
@@ -502,13 +501,6 @@ set.seed(1)
 beta <- c(0.5, 1.0, -2.0, 10, 5)
 X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 4))
 y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
-
-f <- lm.fit(X, y)
-ff <- lm(y ~ X - 1)
-all.equal(f$coefficients, lm(y ~ X)$coefficients)
-all.equal(unname(f$coefficients), unname(coef(lm(y ~ X - 1))))
-
-
 
 timings <- bench::mark(
   `R: lm()` = fast_lm_ref(X, y),
