@@ -762,6 +762,121 @@ lapack_solve <- function(
     return(out)
   }
 
+  if (identical(context, "qr.solve")) {
+    A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
+    hoist$emit(glue("{A_work@name} = {A_name}"))
+
+    B_work <- hoist$declare_tmp(mode = "double", dims = list(m, nrhs))
+    m_f <- dims2f(list(m), scope)
+    if (!nzchar(m_f)) {
+      m_f <- "1"
+    }
+    nrhs_f <- dims2f(list(nrhs), scope)
+    if (!nzchar(nrhs_f)) {
+      nrhs_f <- "1"
+    }
+    hoist$emit(glue("{B_work@name} = 0.0_c_double"))
+    if (b_rank == 1L) {
+      hoist$emit(glue("{B_work@name}(1:{m_f}, 1) = {B_input_name}"))
+    } else {
+      hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
+    }
+
+    qraux <- hoist$declare_tmp(mode = "double", dims = list(n))
+    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
+    work <- hoist$declare_tmp(mode = "double", dims = list(n, 2L))
+    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
+    idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+    hoist$emit(glue(
+      "
+do {idx@name} = 1_c_int, {blas_int(n)}
+  {jpvt@name}({idx@name}) = {idx@name}
+end do"
+    ))
+
+    tol_value <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
+    mn <- call("min", m, n)
+    hoist$emit(glue(
+      "call dqrdc2({A_work@name}, {blas_int(m)}, {blas_int(m)}, {blas_int(n)}, {tol_value}, {rank@name}, {qraux@name}, {jpvt@name}, {work@name})"
+    ))
+
+    emit_quickr_error_if(
+      condition = glue("{rank@name} < {blas_int(mn)}"),
+      message = "rank deficient matrix in qr.solve",
+      hoist = hoist,
+      scope = scope
+    )
+
+    coef_work <- hoist$declare_tmp(
+      mode = "double",
+      dims = list(mn, nrhs)
+    )
+    hoist$emit(glue("{coef_work@name} = 0.0_c_double"))
+    info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+    hoist$emit(glue(
+      "call dqrcf({A_work@name}, {blas_int(m)}, {rank@name}, {qraux@name}, {B_work@name}, {blas_int(nrhs)}, {coef_work@name}, {info@name})"
+    ))
+    emit_quickr_error_if(
+      condition = glue("{info@name} /= 0_c_int"),
+      message = "exact singularity in 'qr.coef'",
+      hoist = hoist,
+      scope = scope
+    )
+
+    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
+    writes_to_dest <- FALSE
+    if (
+      can_use_output(
+        dest,
+        input_names = c(A_name, B_input_name),
+        expected_dims = expected_dims,
+        context = context,
+        allow_alias = B_input_name
+      )
+    ) {
+      out_var <- dest
+      out_name <- dest@name
+      writes_to_dest <- TRUE
+    } else {
+      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
+      out_name <- out_var@name
+    }
+
+    if (passes_as_scalar(out_var)) {
+      hoist$emit(glue("{out_name} = {coef_work@name}(1, 1)"))
+    } else {
+      hoist$emit(glue("{out_name} = 0.0_c_double"))
+      if (b_rank == 1L) {
+        idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
+        hoist$emit(glue(
+          "
+do {idx@name} = 1_c_int, {rank@name}
+  {out_name}({jpvt@name}({idx@name})) = {coef_work@name}({idx@name}, 1)
+end do"
+        ))
+      } else {
+        idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+        idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
+        hoist$emit(glue(
+          "
+do {idx_j@name} = 1_c_int, {blas_int(nrhs)}
+  do {idx_i@name} = 1_c_int, {rank@name}
+    {out_name}({jpvt@name}({idx_i@name}), {idx_j@name}) = {coef_work@name}({idx_i@name}, {idx_j@name})
+  end do
+end do"
+        ))
+      }
+    }
+
+    out <- Fortran(out_name, out_var)
+    if (writes_to_dest) {
+      attr(out, "writes_to_dest") <- TRUE
+    }
+    return(out)
+  }
+
   A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{A_work@name} = {A_name}"))
 

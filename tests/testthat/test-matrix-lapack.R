@@ -168,7 +168,7 @@ test_that("qr.solve matches R for vectors and matrices", {
   expect_equal(q_qr_solve_square(A, B), qr.solve(A, B))
 })
 
-test_that("qr.solve uses dgelsy for known square systems", {
+test_that("qr.solve uses QR with pivoting for known square systems", {
   qr_solve_square <- function(A, b) {
     declare(
       type(A = double(n, n)),
@@ -185,9 +185,11 @@ test_that("qr.solve uses dgelsy for known square systems", {
     any(grepl(paste0("call ", routine, "("), tolower(code), fixed = TRUE))
   }
 
-  # Search emitted Fortran to ensure qr.solve uses QR w/ pivoting (dgelsy), not LU
+  # Search emitted Fortran to ensure qr.solve uses QR w/ pivoting, not LU
   # (dgesv), so rank-deficient square systems can be handled consistently.
-  expect_true(has_call(square_fortran, "dgelsy"))
+  expect_true(
+    has_call(square_fortran, "dqrdc2") || has_call(square_fortran, "dgelsy")
+  )
   expect_false(has_call(square_fortran, "dgesv"))
 })
 
