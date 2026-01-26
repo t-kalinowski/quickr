@@ -417,6 +417,31 @@ dims2f_eval_base_env[["length"]] <- function(x) {
     glue("size({x})")
   }
 }
+dims2f_eval_base_env[["nrow"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, 1)")
+  } else {
+    glue("size({x}, 1)")
+  }
+}
+dims2f_eval_base_env[["ncol"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, 2)")
+  } else {
+    glue("size({x}, 2)")
+  }
+}
+dims2f_eval_base_env[["dim"]] <- function(x) x
+dims2f_eval_base_env[["["]] <- function(x, i) {
+  if (!is_wholenumber(i)) {
+    stop("dim(x)[axis] requires integer axis")
+  }
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, {as.integer(i)})")
+  } else {
+    glue("size({x}, {as.integer(i)})")
+  }
+}
 dims2f_eval_base_env[["min"]] <- function(...) {
   args <- list(...)
   glue("min({str_flatten_commas(args)})")
