@@ -68,6 +68,28 @@ r2f_handlers[["("]] <- function(args, scope, ...) {
   Fortran(glue("({x})"), x@value)
 }
 
+r2f_handlers[["$"]] <- function(args, scope, ...) {
+  stopifnot(length(args) == 2L)
+  base <- args[[1L]]
+  field <- args[[2L]]
+  field_name <- if (is.symbol(field)) {
+    as.character(field)
+  } else if (is_string(field)) {
+    field
+  } else {
+    stop("`$` expects a symbol or string field name", call. = FALSE)
+  }
+
+  if (is.symbol(base) && identical(as.character(base), ".Machine")) {
+    if (identical(field_name, "double.eps")) {
+      return(Fortran("epsilon(1.0_c_double)", Variable("double")))
+    }
+    stop("`.Machine$", field_name, "` is not supported", call. = FALSE)
+  }
+
+  stop("`$` only supports `.Machine$double.eps`", call. = FALSE)
+}
+
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {
   # every top level R-expr / fortran statement gets its own hoist target.
   x <- vector("list", length(args))
