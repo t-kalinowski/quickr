@@ -124,3 +124,12 @@ test_that("closure must return scalar for scalar outputs", {
     "closure must return a scalar"
   )
 })
+
+test_that("missing argument declarations get a clear error", {
+  expect_error(
+    quick(function(x) {
+      x + 1
+    }),
+    "arg not declared: x"
+  )
+})

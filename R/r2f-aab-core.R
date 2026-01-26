@@ -220,6 +220,20 @@ lang2fortran <- r2f <- function(
     symbol = {
       r_name <- as.character(e)
       val <- if (is.null(scope)) NULL else get0(r_name, scope)
+      if (is.null(val) && inherits(scope, "quickr_scope")) {
+        closure <- scope@closure
+        arg_names <- if (is.null(closure)) NULL else names(formals(closure))
+        if (!is.null(arg_names) && r_name %in% arg_names) {
+          stop(
+            "arg not declared: ",
+            r_name,
+            ". Add declare(type(",
+            r_name,
+            " = ...))",
+            call. = FALSE
+          )
+        }
+      }
       s <- if (inherits(val, Variable) && !is.null(val@name)) {
         val@name
       } else {
