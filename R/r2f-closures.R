@@ -101,7 +101,8 @@ compile_internal_subroutine <- function(
   formal_vars,
   res_var,
   allow_void_return = FALSE,
-  forbid_superassign = character()
+  forbid_superassign = character(),
+  optional_args = character()
 ) {
   stopifnot(is_string(proc_name), inherits(closure_obj, LocalClosure))
   fun <- closure_obj@fun
@@ -109,7 +110,9 @@ compile_internal_subroutine <- function(
   stopifnot(is.null(res_var) || inherits(res_var, Variable))
   stopifnot(is_bool(allow_void_return))
   stopifnot(is.character(forbid_superassign))
+  stopifnot(is.character(optional_args))
   forbid_superassign <- unique(forbid_superassign)
+  optional_args <- unique(optional_args)
   if (length(forbid_superassign) && any(!nzchar(forbid_superassign))) {
     stop("forbid_superassign must contain only non-empty names")
   }
@@ -134,16 +137,55 @@ compile_internal_subroutine <- function(
   attr(proc_scope, "forbid_superassign") <- forbid_superassign
 
   arg_names <- character()
+  optional_locals <- list()
+  optional_inits <- character()
+  if (length(optional_args)) {
+    unknown_optional <- setdiff(optional_args, formal_names)
+    if (length(unknown_optional)) {
+      stop(
+        "internal error: optional args not in closure formals: ",
+        str_flatten_commas(unknown_optional)
+      )
+    }
+  }
   for (nm in formal_names) {
     var <- formal_vars[[nm]]
     stopifnot(inherits(var, Variable))
+    fortran_name <- var@name %||% fortranize_name(nm)
 
-    arg_var <- Variable(mode = var@mode, dims = var@dims, name = nm)
+    arg_var <- Variable(
+      mode = var@mode,
+      dims = var@dims,
+      name = fortran_name,
+      r_name = nm
+    )
     if (logical_as_int(var)) {
       arg_var@logical_as_int <- TRUE
     }
     formal_scope[[nm]] <- arg_var
-    arg_names <- c(arg_names, nm)
+    arg_names <- c(arg_names, fortran_name)
+
+    if (nm %in% optional_args) {
+      local_name <- make_shadow_fortran_name(proc_scope, fortran_name)
+      local_var <- Variable(
+        mode = var@mode,
+        dims = var@dims,
+        name = local_name,
+        r_name = nm
+      )
+      if (logical_as_int(var)) {
+        local_var@logical_as_int <- TRUE
+      }
+      local_var@optional_dummy <- fortran_name
+      proc_scope[[nm]] <- local_var
+      optional_locals[[nm]] <- local_var
+      optional_inits <- c(
+        optional_inits,
+        glue(
+          "if (present({fortran_name})) then\n  {local_name} = {fortran_name}\nend if"
+        )
+      )
+    }
   }
 
   res_name <- NULL
@@ -251,6 +293,31 @@ compile_internal_subroutine <- function(
     }
   }
 
+  if (length(optional_locals)) {
+    for (nm in names(optional_locals)) {
+      dummy_var <- formal_scope[[nm]]
+      local_var <- proc_scope[[nm]]
+      if (is.null(local_var@mode) && !is.null(dummy_var@mode)) {
+        local_var@mode <- dummy_var@mode
+        local_var@dims <- dummy_var@dims
+      }
+      if (is.null(dummy_var@mode) && !is.null(local_var@mode)) {
+        dummy_var@mode <- local_var@mode
+        dummy_var@dims <- local_var@dims
+      }
+      if (is.null(dummy_var@mode) || is.null(local_var@mode)) {
+        stop(
+          "optional argument `",
+          nm,
+          "` type could not be inferred; provide a typed value or assign a typed default",
+          call. = FALSE
+        )
+      }
+      formal_scope[[nm]] <- dummy_var
+      proc_scope[[nm]] <- local_var
+    }
+  }
+
   vars_formals <- scope_vars(formal_scope)
   vars_locals <- scope_vars(proc_scope)
   locals <- vars_locals
@@ -275,11 +342,19 @@ compile_internal_subroutine <- function(
   }
   vars_declared <- c(vars_formals, out_arg, locals)
 
+  formals_intents <- rep(list("intent(in)"), length(vars_formals))
+  names(formals_intents) <- names(vars_formals)
+  if (length(optional_locals)) {
+    for (nm in names(optional_locals)) {
+      formals_intents[[nm]] <- "intent(in), optional"
+    }
+  }
+
   decls <- c(
     emit_decls(
       vars_formals,
       formal_scope,
-      intents = rep(list("intent(in)"), length(vars_formals)),
+      intents = formals_intents,
       assumed_shape = TRUE,
       allow_allocatable = FALSE
     ),
@@ -295,7 +370,7 @@ compile_internal_subroutine <- function(
     if (length(locals)) emit_decls(locals, proc_scope) else character()
   )
 
-  body_code <- str_flatten_lines(body_prefix, assign_code)
+  body_code <- str_flatten_lines(optional_inits, body_prefix, assign_code)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = vars_declared,
     body_code = body_code,
@@ -359,12 +434,34 @@ closure_formal_vars <- function(args_f, formal_names) {
   if (length(args_f) != length(formal_names)) {
     stop("internal error: argument values do not match closure formals")
   }
+  fortran_names <- map_chr(formal_names, fortranize_name)
+  dup <- duplicated(tolower(fortran_names)) |
+    duplicated(tolower(fortran_names), fromLast = TRUE)
+  if (any(dup)) {
+    dup_map <- paste0(formal_names[dup], " -> ", fortran_names[dup])
+    stop(
+      "local closure arguments map to the same Fortran name: ",
+      str_flatten_commas(dup_map),
+      call. = FALSE
+    )
+  }
+  fortran_by_r <- setNames(fortran_names, formal_names)
   names(args_f) <- formal_names
   formal_vars <- imap(args_f, function(f, nm) {
-    stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
-    v <- Variable(mode = f@value@mode, dims = f@value@dims, name = nm)
-    if (logical_as_int_symbol(f@value)) {
-      v@logical_as_int <- TRUE
+    fortran_name <- fortran_by_r[[nm]]
+    if (is.null(f)) {
+      v <- Variable(name = fortran_name, r_name = nm)
+    } else {
+      stopifnot(inherits(f, Fortran), inherits(f@value, Variable))
+      v <- Variable(
+        mode = f@value@mode,
+        dims = f@value@dims,
+        name = fortran_name,
+        r_name = nm
+      )
+      if (logical_as_int_symbol(f@value)) {
+        v@logical_as_int <- TRUE
+      }
     }
     v
   })
@@ -384,12 +481,99 @@ match_closure_call_args <- function(
   call_expr <- match.call(fun, call_expr)
   args_expr <- as.list(call_expr)[-1L]
 
-  formal_names <- names(formals(fun)) %||% character()
-  if (!identical((names(args_expr) %||% character()), formal_names)) {
-    stop("internal error: match.call did not align closure args")
+  formals_list <- as.list(formals(fun))
+  formal_names <- names(formals_list) %||% character()
+  closure_name <- closure_obj@name %||% "local closure"
+
+  arg_names <- names(args_expr) %||% rep("", length(args_expr))
+  if (any(!nzchar(arg_names))) {
+    stop("internal error: local closure call has unnamed arguments")
   }
 
-  args_f <- lapply(args_expr, r2f, scope, ..., hoist = hoist)
+  extra <- setdiff(arg_names, formal_names)
+  if (length(extra)) {
+    stop(
+      closure_name,
+      " call has unknown argument(s): ",
+      str_flatten_commas(extra),
+      call. = FALSE
+    )
+  }
+
+  args_aligned <- formals_list
+  if (length(args_expr)) {
+    args_aligned[names(args_expr)] <- args_expr
+  }
+
+  optional_args <- names(formals_list)[map_lgl(formals_list, function(x) {
+    is.null(x) || identical(x, quote(NULL))
+  })] %||%
+    character()
+
+  args_present <- setNames(rep(TRUE, length(formal_names)), formal_names)
+  missing_args <- character()
+  for (nm in formal_names) {
+    default_expr <- formals_list[[nm]]
+    arg_expr <- args_aligned[[nm]]
+    optional_here <- nm %in% optional_args
+
+    if (is_missing(arg_expr)) {
+      if (is_missing(default_expr)) {
+        missing_args <- c(missing_args, nm)
+      } else if (optional_here) {
+        args_present[[nm]] <- FALSE
+        args_aligned[[nm]] <- quote(expr = )
+      } else {
+        args_aligned[[nm]] <- default_expr
+      }
+      next
+    }
+
+    if (
+      optional_here && (is.null(arg_expr) || identical(arg_expr, quote(NULL)))
+    ) {
+      args_present[[nm]] <- FALSE
+      args_aligned[[nm]] <- quote(expr = )
+    }
+  }
+
+  if (length(missing_args)) {
+    stop(
+      closure_name,
+      " call is missing required argument(s): ",
+      str_flatten_commas(missing_args),
+      call. = FALSE
+    )
+  }
+
+  args_expr <- args_aligned
+
+  args_f <- lapply(formal_names, function(nm) {
+    if (!isTRUE(args_present[[nm]])) {
+      return(NULL)
+    }
+    r2f(args_expr[[nm]], scope, ..., hoist = hoist)
+  })
+  names(args_f) <- formal_names
+
+  arg_ok <- map_lgl(
+    args_f,
+    \(arg) {
+      is.null(arg) ||
+        (inherits(arg@value, Variable) && !is.null(arg@value@mode))
+    }
+  )
+  if (any(!arg_ok)) {
+    bad_args <- formal_names[!arg_ok]
+    stop(
+      closure_name,
+      " call has argument(s) without inferred types: ",
+      str_flatten_commas(bad_args),
+      ". Provide explicit typed values.",
+      call. = FALSE
+    )
+  }
+
   formal_vars <- closure_formal_vars(args_f, formal_names)
 
   list(
@@ -397,8 +581,32 @@ match_closure_call_args <- function(
     args_expr = args_expr,
     args_f = args_f,
     formal_names = formal_names,
-    formal_vars = formal_vars
+    formal_vars = formal_vars,
+    optional_args = optional_args,
+    args_present = args_present
   )
+}
+
+closure_call_inputs <- function(args_f, args_present, formal_vars) {
+  stopifnot(is.list(args_f), is.logical(args_present), is.list(formal_vars))
+  formal_names <- names(formal_vars) %||% character()
+  if (!length(formal_names)) {
+    return(list(args = character(), use_keywords = FALSE))
+  }
+  present_names <- formal_names[args_present[formal_names]]
+  use_keywords <- any(!args_present)
+  if (!length(present_names)) {
+    return(list(args = character(), use_keywords = use_keywords))
+  }
+  if (use_keywords) {
+    args <- map_chr(present_names, function(nm) {
+      dummy_name <- formal_vars[[nm]]@name %||% nm
+      glue("{dummy_name} = {args_f[[nm]]}")
+    })
+  } else {
+    args <- unname(args_f[present_names])
+  }
+  list(args = args, use_keywords = use_keywords)
 }
 
 compile_local_closure_proc <- function(
@@ -408,7 +616,8 @@ compile_local_closure_proc <- function(
   formal_vars,
   res_var,
   allow_void_return = FALSE,
-  forbid_superassign = character()
+  forbid_superassign = character(),
+  optional_args = character()
 ) {
   proc <- compile_internal_subroutine(
     proc_name,
@@ -417,7 +626,8 @@ compile_local_closure_proc <- function(
     formal_vars = formal_vars,
     res_var = res_var,
     allow_void_return = allow_void_return,
-    forbid_superassign = forbid_superassign
+    forbid_superassign = forbid_superassign,
+    optional_args = optional_args
   )
   scope_root(scope)@add_internal_proc(proc)
   proc
@@ -450,6 +660,8 @@ compile_closure_call <- function(
   )
   args_f <- call_info$args_f
   formal_vars <- call_info$formal_vars
+  optional_args <- call_info$optional_args
+  args_present <- call_info$args_present
 
   last_expr <- closure_last_expr(closure_obj@fun)
 
@@ -462,10 +674,12 @@ compile_closure_call <- function(
       closure_obj,
       scope,
       formal_vars = formal_vars,
-      res_var = NULL
+      res_var = NULL,
+      optional_args = optional_args
     )
 
-    call_args <- unname(args_f)
+    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+    call_args <- inputs$args
     if (length(call_args)) {
       call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
       return(Fortran(str_flatten_lines(
@@ -485,11 +699,13 @@ compile_closure_call <- function(
     scope,
     formal_vars = formal_vars,
     res_var = Variable(),
-    allow_void_return = !needs_value
+    allow_void_return = !needs_value,
+    optional_args = optional_args
   )
 
   if (!needs_value && is.null(proc$res)) {
-    call_args <- unname(args_f)
+    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+    call_args <- inputs$args
     if (length(call_args)) {
       call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
       return(Fortran(str_flatten_lines(
@@ -509,7 +725,14 @@ compile_closure_call <- function(
   }
 
   tmp <- hoist$declare_tmp(mode = res_var@mode, dims = res_var@dims)
-  call_args <- c(unname(args_f), tmp@name)
+  inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+  call_args <- inputs$args
+  res_arg <- if (inputs$use_keywords) {
+    glue("{proc$res} = {tmp@name}")
+  } else {
+    tmp@name
+  }
+  call_args <- c(call_args, res_arg)
   call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
   call_stmt <- str_flatten_lines(call_stmt, quickr_error_return_if_set(scope))
 
@@ -558,6 +781,8 @@ compile_closure_call_assignment <- function(
   args_expr <- call_info$args_expr
   args_f <- call_info$args_f
   formal_vars <- call_info$formal_vars
+  optional_args <- call_info$optional_args
+  args_present <- call_info$args_present
 
   return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
   res_var <- if (target_exists) {
@@ -580,7 +805,8 @@ compile_closure_call_assignment <- function(
     closure_obj,
     scope,
     formal_vars = formal_vars,
-    res_var = res_var
+    res_var = res_var,
+    optional_args = optional_args
   )
   if (!target_exists) {
     inferred_res_var <- proc$res_var
@@ -608,7 +834,8 @@ compile_closure_call_assignment <- function(
         closure_obj,
         scope,
         formal_vars = formal_vars,
-        res_var = res_var
+        res_var = res_var,
+        optional_args = optional_args
       )
     }
     scope[[target_name]] <- target_var
@@ -631,10 +858,13 @@ compile_closure_call_assignment <- function(
     post <- glue("{target_fortran_name} = {res_target}")
   }
 
-  call_args <- c(
-    unname(args_f),
+  inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+  res_arg <- if (inputs$use_keywords) {
+    glue("{proc$res} = {res_target}")
+  } else {
     res_target
-  )
+  }
+  call_args <- c(inputs$args, res_arg)
 
   if (target_exists) {
     target_var@modified <- TRUE

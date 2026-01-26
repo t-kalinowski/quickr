@@ -338,7 +338,11 @@ Variable := new_class(
 
     # TRUE when the variable is available via host association and should not
     # be redeclared in the local scope.
-    host_associated = prop_bool(default = FALSE)
+    host_associated = prop_bool(default = FALSE),
+
+    # When set, references to this variable should treat the named dummy
+    # argument as an optional input (e.g., is.null() -> .not. present()).
+    optional_dummy = prop_string(default = NULL, allow_null = TRUE)
   ),
 
   validator = function(self) {

@@ -58,6 +58,25 @@ r2f_handlers[["!"]] <- function(args, scope, ...) {
   Fortran(glue("(.not. {x})"), Variable("logical", x@value@dims))
 }
 
+register_r2f_handler(
+  "is.null",
+  function(args, scope, ...) {
+    stopifnot(length(args) == 1L)
+    arg <- args[[1L]]
+    if (!is.symbol(arg)) {
+      stop("is.null() is only supported on symbols", call. = FALSE)
+    }
+    var <- get0(as.character(arg), scope)
+    if (!inherits(var, Variable) || is.null(var@optional_dummy)) {
+      stop(
+        "is.null() is only supported for optional arguments with NULL defaults",
+        call. = FALSE
+      )
+    }
+    Fortran(glue("(.not. present({var@optional_dummy}))"), Variable("logical"))
+  }
+)
+
 
 # ---- binary logical operators ----
 

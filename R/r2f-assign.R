@@ -192,6 +192,17 @@ register_r2f_handler(
       scope[[name]] <- var
     } else {
       # The var already exists, this assignment is a modification / reassignment
+      if (is.null(var@r_name)) {
+        var@r_name <- name
+      }
+      if (
+        is.null(var@mode) &&
+          inherits(value@value, Variable) &&
+          !is.null(value@value@mode)
+      ) {
+        var@mode <- value@value@mode
+        var@dims <- value@value@dims
+      }
       check_assignment_compatible(var, value@value)
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track
