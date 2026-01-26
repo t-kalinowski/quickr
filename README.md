@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             483ms 485.62ms      2.06     782KB     3.09
-#> 2 quickr        943µs   1.07ms    938.       782KB    17.6 
-#> 3 c             936µs   1.07ms    932.       782KB    17.5
+#> 1 r             486ms 488.58ms      2.05     782KB     3.07
+#> 2 quickr        914µs   1.08ms    927.       782KB    17.6 
+#> 3 c             939µs   1.08ms    924.       782KB    16.9
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -301,8 +301,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi    61.3µs   74.7µs    12631.    1.59KB     27.4
-#> 2 quick_viterbi   1.68µs   1.89µs   511508.        0B     51.2
+#> 1 slow_viterbi   62.52µs  76.38µs    12597.    1.59KB     27.4
+#> 2 quick_viterbi   1.68µs   1.93µs   485963.        0B     48.6
 plot(timings)
 ```
 
@@ -393,8 +393,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        5.28   6.30      1        4893.      Inf
-#> 2 quick_diffuse_heat  1      1         5.31        1       NaN
+#> 1 diffuse_heat        6.56   8.90      1        4893.      Inf
+#> 2 quick_diffuse_heat  1      1         7.31        1       NaN
 plot(timings)
 ```
 
@@ -440,9 +440,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r            68.3ms  70.32ms      9.62  124.24MB    15.4 
-#> 2 rcpp         5.88ms   6.13ms    160.      4.46MB     1.98
-#> 3 quickr       2.15ms   2.27ms    434.    781.35KB     3.98
+#> 1 r           67.78ms  69.31ms      9.88  124.24MB    15.8 
+#> 2 rcpp         5.87ms   6.22ms    158.      4.46MB     2.00
+#> 3 quickr       2.15ms   2.28ms    434.    781.35KB     3.96
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -466,7 +466,6 @@ RcppArmadillo implementation. The `fastLm` function is adapted from the
 README of the RcppArmadillo project.
 
 ``` r
-
 # reference implementation
 fast_lm_ref <- function(X, y) {
   fit <- lm(y ~ X - 1)
@@ -479,35 +478,6 @@ fast_lm_ref <- function(X, y) {
   )
 }
 
-# fast-path R implementation
-fast_lm <- function(X, y) {
-  declare(
-    type(X = double(n, k)),
-    type(y = double(n))
-  )
-
-  n <- nrow(X)
-  k <- ncol(X)
-  df_residual <- n - k
-
-  coef <- qr.solve(X, y)     # fit model y ~ X
-  res <- y - X %*% coef      # residuals
-  s2 <- sum(res * res) / df_residual
-
-  XtX <- crossprod(X)
-  XtX_inv <- qr.solve(XtX, diag(k))
-  std_err <- sqrt(s2 * diag(XtX_inv))
-
-  list(
-    coefficients = coef,
-    stderr       = std_err,
-    df.residual  = df_residual
-  )
-}
-
-# quickr func
-quick_fast_lm <- quick(fast_lm)
-
 # RcppArmadillo implementation
 Rcpp::sourceCpp(
 code = '
@@ -515,7 +485,7 @@ code = '
 // [[Rcpp::depends(RcppArmadillo)]]
 
 // [[Rcpp::export]]
-Rcpp::List rcpp_armadillo_fast_lm(const arma::mat& X, const arma::colvec& y) {
+Rcpp::List fast_lm_rcpp_armadillo(const arma::mat& X, const arma::colvec& y) {
     int n = X.n_rows, k = X.n_cols;
 
     arma::colvec coef = arma::solve(X, y);     // fit model y ~ X
@@ -527,6 +497,43 @@ Rcpp::List rcpp_armadillo_fast_lm(const arma::mat& X, const arma::colvec& y) {
                               Rcpp::Named("stderr")       = std_err,
                               Rcpp::Named("df.residual")  = n - k);
 }')
+
+# Plain R fast-path
+fast_lm_r <- function(X, y) {
+  declare(
+    type(X = double(n, k)),
+    type(y = double(n))
+  )
+
+  # analogous to arma::pinv()
+  pinv_svd <- function(A, tol = NULL) {
+    s <- svd(A)
+    if (is.null(tol)) {
+      tol <- max(dim(A)) * max(s$d) * .Machine$double.eps
+    }
+    d_inv <- ifelse(s$d > tol, 1 / s$d, 0)
+    s$v %*% (d_inv * t(s$u))
+  }
+
+  df_residual <- nrow(X) - ncol(X)
+
+  coef <- qr.solve(X, y) # analogous to arma::solve(X, y)
+  res <- y - X %*% coef
+  s2 <- drop(crossprod(res)) / df_residual
+
+  XtX <- crossprod(X)
+  XtX_pinv <- pinv_svd(XtX) # analogous to arma::pinv()
+  std_err <- sqrt(s2 * diag(XtX_pinv))
+
+  list(
+    coefficients = coef, 
+    stderr = std_err,
+    df.residual = df_residual
+  )
+}
+
+# quickr func
+quick_fast_lm <- quick(fast_lm_r)
 ```
 
 ### Benchmark
@@ -538,31 +545,24 @@ beta <- c(0.5, 1.0, -2.0, 10, 5)
 X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 4))
 y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
 
-f <- lm.fit(X, y)
-ff <- lm(y ~ X - 1)
-all.equal(f$coefficients, lm(y ~ X)$coefficients)
-#> [1] "Names: 5 string mismatches"     "Numeric: lengths (5, 6) differ"
-all.equal(unname(f$coefficients), unname(coef(lm(y ~ X - 1))))
-#> [1] TRUE
-
-
-
 timings <- bench::mark(
-  `R: lm()` = fast_lm_ref(X, y),
-  `R: lm.fit()` = fast_lm(X, y),
-  quickr = quick_fast_lm(X, y),
-  RcppArmadillo = rcpp_armadillo_fast_lm(X, y)
+  `reference`     = fast_lm_ref(X, y),
+  `RcppArmadillo` = fast_lm_rcpp_armadillo(X, y),
+  `plain R`       = fast_lm_r(X, y),
+  `quickr`        = quick_fast_lm(X, y)
 )
 
 timings
 #> # A tibble: 4 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 R: lm()        11.53ms  11.79ms      83.7    29.2MB     116.
-#> 2 R: lm.fit()      1.4ms   1.75ms     568.     13.7MB     176.
-#> 3 quickr        934.43µs   1.09ms     916.         0B       0 
-#> 4 RcppArmadillo   1.71ms    1.9ms     512.         0B       0
-plot(timings)
+#> 1 reference      11.03ms  11.96ms      83.5    29.6MB     78.3
+#> 2 RcppArmadillo   1.64ms   1.92ms     497.         0B      0  
+#> 3 plain R         1.31ms   1.79ms     550.     13.2MB    119. 
+#> 4 quickr        934.96µs   1.02ms     933.         0B      0
+plot(timings) + ggplot2::scale_y_discrete(limits = rev(c( 
+  "reference", "RcppArmadillo", "plain R", "quickr"
+)))
 ```
 
 <img src="man/figures/README-unnamed-chunk-10-1.png" alt="" width="100%" />
