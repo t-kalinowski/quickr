@@ -191,6 +191,20 @@ test_that("optional NULL defaults require a presence guard", {
   )
 })
 
+test_that("optional NULL defaults allow unconditional assignment", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      a <- x + 1
+      a * 2
+    }
+    f()
+  }
+
+  expect_identical(fn(2), 6)
+  expect_quick_identical(fn, list(2), list(5))
+})
+
 test_that("closure returning logical assigned to return variable", {
   fn <- function(x) {
     declare(type(x = double(NA)))

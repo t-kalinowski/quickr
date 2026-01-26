@@ -208,7 +208,8 @@ compile_internal_subroutine <- function(
         next
       }
       missing_init <- any(map_lgl(stmts, optional_arg_missing_init, nm = nm))
-      if (!missing_init) {
+      assigned_before_use <- optional_arg_assigned_before_use(stmts, nm = nm)
+      if (!missing_init && !assigned_before_use) {
         unsafe <- c(unsafe, nm)
       }
     }
@@ -594,6 +595,51 @@ optional_arg_missing_init <- function(expr, nm) {
   }
 
   FALSE
+}
+
+optional_arg_assigned_before_use <- function(stmts, nm) {
+  stopifnot(is.list(stmts), is_string(nm))
+  assigned <- FALSE
+
+  scan_expr <- function(expr, assigned) {
+    if (is_call(expr, quote(`{`))) {
+      for (stmt in as.list(expr)[-1L]) {
+        res <- scan_expr(stmt, assigned)
+        if (res$used_before) {
+          return(res)
+        }
+        assigned <- res$assigned
+      }
+      return(list(assigned = assigned, used_before = FALSE))
+    }
+
+    if (
+      is_call(expr, quote(`<-`)) ||
+        is_call(expr, quote(`=`)) ||
+        is_call(expr, quote(`<<-`))
+    ) {
+      lhs <- expr[[2L]]
+      if (is.symbol(lhs) && identical(as.character(lhs), nm)) {
+        return(list(assigned = TRUE, used_before = FALSE))
+      }
+    }
+
+    if (optional_arg_used(expr, nm = nm)) {
+      return(list(assigned = assigned, used_before = !assigned))
+    }
+
+    list(assigned = assigned, used_before = FALSE)
+  }
+
+  for (stmt in stmts) {
+    res <- scan_expr(stmt, assigned)
+    if (res$used_before) {
+      return(FALSE)
+    }
+    assigned <- res$assigned
+  }
+
+  assigned
 }
 
 closure_formal_vars <- function(args_f, formal_names) {
