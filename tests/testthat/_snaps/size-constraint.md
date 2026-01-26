@@ -63,7 +63,6 @@
         const R_xlen_t b__len_ = Rf_xlength(b);
         
         {
-        
           const R_xlen_t expected = (a__len_ + 1);
           if (b__len_ != expected)
             Rf_error("length(b) must equal (length(a) + 1),"

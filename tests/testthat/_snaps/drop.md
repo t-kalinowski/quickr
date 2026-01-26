@@ -351,14 +351,14 @@
         if (A__dim_1_ != 1)
           Rf_error("dim(A)[1] must be 1, not %0.f",
                     (double)A__dim_1_);
-        if (Rf_asInteger(n) != A__dim_2_)
+        const int _as_int_n = Rf_asInteger(n);
+        if (_as_int_n != A__dim_2_)
           Rf_error("dim(A)[2] must equal n,"
                    " but are %0.f and %0.f",
-                    (double)A__dim_2_, (double)Rf_asInteger(n));
+                    (double)A__dim_2_, (double)_as_int_n);
         if (n__len_ != 1)
           Rf_error("length(n) must be 1, not %0.f",
                     (double)n__len_);
-        const int _as_int_n = Rf_asInteger(n);
         const R_xlen_t out___len_ = _as_int_n;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
@@ -437,17 +437,17 @@
         const int* const n__ = INTEGER(n);
         const R_xlen_t n__len_ = Rf_xlength(n);
         
-        if (Rf_asInteger(n) != A__dim_1_)
+        const int _as_int_n = Rf_asInteger(n);
+        if (_as_int_n != A__dim_1_)
           Rf_error("dim(A)[1] must equal n,"
                    " but are %0.f and %0.f",
-                    (double)A__dim_1_, (double)Rf_asInteger(n));
+                    (double)A__dim_1_, (double)_as_int_n);
         if (A__dim_2_ != 1)
           Rf_error("dim(A)[2] must be 1, not %0.f",
                     (double)A__dim_2_);
         if (n__len_ != 1)
           Rf_error("length(n) must be 1, not %0.f",
                     (double)n__len_);
-        const int _as_int_n = Rf_asInteger(n);
         const R_xlen_t out___len_ = _as_int_n;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);

@@ -23,7 +23,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   }
 
   # first unpack all the input vars into named C variables (including sizes and pointer)
-  append(c_body) <- lapply(
+  arg_defs <- lapply(
     closure_arg_vars,
     closure_arg_c_defs,
     strict = strict
@@ -33,23 +33,27 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   ## TODO, might still need to define a length size for vars where rank>1, if in checks.
 
   # now do all size checks.
-  append(c_body) <- lapply(
-    closure_arg_vars,
-    closure_arg_size_checks,
-    scope = scope,
-    c_hoist = c_hoist
+  size_checks <- unlist(
+    lapply(
+      closure_arg_vars,
+      closure_arg_size_checks,
+      scope = scope,
+      c_hoist = c_hoist
+    ),
+    use.names = FALSE
   )
 
   # maybe define and allocate the output var(s)
   n_protected <- 0L
   return_var_names <- closure_return_var_names(closure)
+  return_defs <- character()
   # Deduplicate by the underlying variable name to avoid duplicate C defs
   for (return_var in mget(unique(unname(return_var_names)), scope)) {
     return_var_r_name <- return_var@r_name %||% return_var@name
     if (!return_var_r_name %in% closure_arg_names) {
       return_var@modified <- TRUE
       assign(return_var_r_name, return_var, scope)
-      append(c_body) <- return_var_c_defs(
+      append(return_defs) <- return_var_c_defs(
         return_var,
         fsub@scope,
         c_hoist = c_hoist
@@ -60,6 +64,10 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
       }
     }
   }
+
+  c_body <- c(arg_defs)
+  append(c_body) <- size_checks
+  append(c_body) <- return_defs
 
   if (uses_errors) {
     append(c_body) <- c(
@@ -279,7 +287,7 @@ closure_arg_size_checks <- function(var, scope, c_hoist = NULL) {
       d_name <- as.character(d)
       d_var <- get0(d_name, scope)
       if (inherits(d_var, Variable)) {
-        d_expr <- glue("Rf_asInteger({d_var@name})")
+        d_expr <- as_c_name(d_var, c_hoist = c_hoist)
         d_label <- d_name
       } else if (is_size_name(d_name)) {
         d_expr <- d_name
@@ -289,32 +297,44 @@ closure_arg_size_checks <- function(var, scope, c_hoist = NULL) {
         d_label <- d_name
       }
 
-      return(glue(
-        '
-          if ({d_expr} != {size_name})
-            Rf_error("{as_friendly_size_name(size_name)} must equal {d_label},"
-                     " but are %0.f and %0.f",
-                      (double){size_name}, (double){d_expr});'
-      ))
+      decls <- if (!is.null(c_hoist)) {
+        c_bridge_hoist_take_pending(c_hoist)
+      } else {
+        character()
+      }
+      c_lines <- c(
+        decls,
+        glue(
+          '
+            if ({d_expr} != {size_name})
+              Rf_error("{as_friendly_size_name(size_name)} must equal {d_label},"
+                       " but are %0.f and %0.f",
+                        (double){size_name}, (double){d_expr});'
+        )
+      )
+      return(as_glue(str_flatten_lines(c_lines)))
     }
 
     if (is.call(d)) {
       size.c <- dims2c(list(d), scope, c_hoist = c_hoist)[[1L]]
-      local_decls <- if (is.null(c_hoist)) {
-        character()
+      decls <- if (!is.null(c_hoist)) {
+        c_bridge_hoist_take_pending(c_hoist)
       } else {
-        c_bridge_hoist_take_decls(c_hoist)
+        character()
       }
-      return(glue(
-        '{{
-          {str_flatten_lines(local_decls)}
-          const R_xlen_t expected = {size.c};
-          if ({size_name} != expected)
-            Rf_error("{as_friendly_size_name(size_name)} must equal {as_friendly_size_expression(d)},"
-                     " but are %0.f and %0.f",
-                      (double){size_name}, (double)expected);
-        }}'
-      ))
+      c_lines <- c(
+        decls,
+        glue(
+          '{{
+            const R_xlen_t expected = {size.c};
+            if ({size_name} != expected)
+              Rf_error("{as_friendly_size_name(size_name)} must equal {as_friendly_size_expression(d)},"
+                       " but are %0.f and %0.f",
+                        (double){size_name}, (double)expected);
+          }}'
+        )
+      )
+      return(as_glue(str_flatten_lines(c_lines)))
     }
 
     stop("bad dim")
@@ -327,16 +347,16 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
   name <- var@name
   len_name <- get_size_name(var)
   c_dims <- dims2c(var@dims, scope, c_hoist = c_hoist)
-  local_decls <- if (is.null(c_hoist)) {
-    character()
-  } else {
-    c_bridge_hoist_take_decls(c_hoist)
-  }
   names(c_dims) <- NULL
   c_len <- c_dims2c_len(c_dims)
+  decls <- if (!is.null(c_hoist)) {
+    c_bridge_hoist_take_pending(c_hoist)
+  } else {
+    character()
+  }
 
   c_code <- c(
-    local_decls,
+    decls,
     glue("const R_xlen_t {len_name} = {c_len};"),
     glue(switch(
       var@mode,
@@ -376,22 +396,28 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
 c_bridge_hoist <- function() {
   hoist <- new.env(parent = emptyenv())
   hoist$as_int <- new.env(parent = emptyenv())
+  hoist$as_int_tmp <- new.env(parent = emptyenv())
   hoist$used_tmp <- new.env(parent = emptyenv())
-  hoist$pending_decls <- character()
+  hoist$pending <- character()
   hoist
-}
-
-c_bridge_hoist_take_decls <- function(hoist) {
-  stopifnot(is.environment(hoist))
-  out <- hoist$pending_decls %||% character()
-  hoist$pending_decls <- character()
-  out
 }
 
 c_bridge_hoist_as_int <- function(hoist, sexp_name, expr) {
   stopifnot(is.environment(hoist), is_string(sexp_name), is_string(expr))
 
   existing <- get0(sexp_name, envir = hoist$as_int, inherits = FALSE)
+  if (is_string(existing)) {
+    return(existing)
+  }
+
+  tmp <- c_bridge_hoist_tmp_name(hoist, sexp_name)
+  assign(sexp_name, tmp, envir = hoist$as_int)
+  hoist$pending <- c(hoist$pending, glue("const int {tmp} = {expr};"))
+  tmp
+}
+
+c_bridge_hoist_tmp_name <- function(hoist, sexp_name) {
+  existing <- get0(sexp_name, envir = hoist$as_int_tmp, inherits = FALSE)
   if (is_string(existing)) {
     return(existing)
   }
@@ -409,14 +435,15 @@ c_bridge_hoist_as_int <- function(hoist, sexp_name, expr) {
     tmp <- paste0(tmp_base, "_", i)
   }
   assign(tmp, TRUE, envir = hoist$used_tmp)
-  assign(sexp_name, tmp, envir = hoist$as_int)
-
-  hoist$pending_decls <- c(
-    hoist$pending_decls,
-    glue("const int {tmp} = {expr};")
-  )
-
+  assign(sexp_name, tmp, envir = hoist$as_int_tmp)
   tmp
+}
+
+c_bridge_hoist_take_pending <- function(hoist) {
+  stopifnot(is.environment(hoist))
+  pending <- hoist$pending %||% character()
+  hoist$pending <- character()
+  pending
 }
 
 
