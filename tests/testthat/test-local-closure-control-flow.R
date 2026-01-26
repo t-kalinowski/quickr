@@ -172,6 +172,25 @@ test_that("local closures support NULL defaults via optional args", {
   expect_quick_identical(fn, list(2), list(5))
 })
 
+test_that("optional NULL defaults require a presence guard", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      if (!is.null(a)) {
+        a <- x
+      }
+      a + x
+    }
+    f()
+  }
+
+  expect_identical(fn(2), numeric())
+  expect_error(
+    quick(fn),
+    "optional argument\\(s\\) used without initializing when NULL: a"
+  )
+})
+
 test_that("closure returning logical assigned to return variable", {
   fn <- function(x) {
     declare(type(x = double(NA)))

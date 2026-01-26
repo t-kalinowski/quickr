@@ -200,6 +200,28 @@ compile_internal_subroutine <- function(
     stop("closure body must not be empty")
   }
 
+  if (length(optional_args)) {
+    unsafe <- character()
+    for (nm in optional_args) {
+      used <- any(map_lgl(stmts, optional_arg_used, nm = nm))
+      if (!used) {
+        next
+      }
+      missing_init <- any(map_lgl(stmts, optional_arg_missing_init, nm = nm))
+      if (!missing_init) {
+        unsafe <- c(unsafe, nm)
+      }
+    }
+    if (length(unsafe)) {
+      stop(
+        "optional argument(s) used without initializing when NULL: ",
+        str_flatten_commas(unsafe),
+        ". Add an is.null() branch that assigns a value before use.",
+        call. = FALSE
+      )
+    }
+  }
+
   body_prefix <- character()
   assign_code <- character()
   if (is.null(res_var)) {
@@ -424,6 +446,154 @@ closure_last_expr <- function(fun) {
   } else {
     body_expr
   }
+}
+
+optional_arg_used <- function(expr, nm) {
+  if (is.symbol(expr)) {
+    return(identical(as.character(expr), nm))
+  }
+
+  if (!is.call(expr)) {
+    return(FALSE)
+  }
+
+  if (
+    is_call(expr, quote(is.null)) &&
+      length(expr) == 2L &&
+      is.symbol(expr[[2L]]) &&
+      identical(as.character(expr[[2L]]), nm)
+  ) {
+    return(FALSE)
+  }
+
+  if (
+    is_call(expr, quote(`!`)) &&
+      length(expr) == 2L &&
+      is_call(expr[[2L]], quote(is.null)) &&
+      length(expr[[2L]]) == 2L &&
+      is.symbol(expr[[2L]][[2L]]) &&
+      identical(as.character(expr[[2L]][[2L]]), nm)
+  ) {
+    return(FALSE)
+  }
+
+  if (is_call(expr, quote(`{`))) {
+    return(any(map_lgl(as.list(expr)[-1L], optional_arg_used, nm = nm)))
+  }
+
+  if (is_call(expr, quote(`if`))) {
+    if (optional_arg_used(expr[[2L]], nm = nm)) {
+      return(TRUE)
+    }
+    if (optional_arg_used(expr[[3L]], nm = nm)) {
+      return(TRUE)
+    }
+    if (length(expr) == 4L && optional_arg_used(expr[[4L]], nm = nm)) {
+      return(TRUE)
+    }
+    return(FALSE)
+  }
+
+  if (
+    is_call(expr, quote(`<-`)) ||
+      is_call(expr, quote(`=`)) ||
+      is_call(expr, quote(`<<-`))
+  ) {
+    return(optional_arg_used(expr[[3L]], nm = nm))
+  }
+
+  any(map_lgl(as.list(expr)[-1L], optional_arg_used, nm = nm))
+}
+
+optional_arg_assigned <- function(expr, nm) {
+  if (!is.call(expr)) {
+    return(FALSE)
+  }
+
+  if (
+    is_call(expr, quote(`<-`)) ||
+      is_call(expr, quote(`=`)) ||
+      is_call(expr, quote(`<<-`))
+  ) {
+    lhs <- expr[[2L]]
+    if (is.symbol(lhs) && identical(as.character(lhs), nm)) {
+      return(TRUE)
+    }
+    return(optional_arg_assigned(expr[[3L]], nm = nm))
+  }
+
+  if (is_call(expr, quote(`{`))) {
+    return(any(map_lgl(as.list(expr)[-1L], optional_arg_assigned, nm = nm)))
+  }
+
+  if (is_call(expr, quote(`if`))) {
+    if (optional_arg_assigned(expr[[2L]], nm = nm)) {
+      return(TRUE)
+    }
+    if (optional_arg_assigned(expr[[3L]], nm = nm)) {
+      return(TRUE)
+    }
+    if (length(expr) == 4L && optional_arg_assigned(expr[[4L]], nm = nm)) {
+      return(TRUE)
+    }
+    return(FALSE)
+  }
+
+  any(map_lgl(as.list(expr)[-1L], optional_arg_assigned, nm = nm))
+}
+
+optional_arg_missing_init <- function(expr, nm) {
+  if (!is.call(expr)) {
+    return(FALSE)
+  }
+
+  if (is_call(expr, quote(`{`))) {
+    return(any(map_lgl(as.list(expr)[-1L], optional_arg_missing_init, nm = nm)))
+  }
+
+  if (is_call(expr, quote(`if`))) {
+    cond <- expr[[2L]]
+    then_branch <- expr[[3L]]
+    else_branch <- if (length(expr) == 4L) expr[[4L]] else NULL
+
+    if (
+      is_call(cond, quote(is.null)) &&
+        length(cond) == 2L &&
+        is.symbol(cond[[2L]]) &&
+        identical(as.character(cond[[2L]]), nm)
+    ) {
+      if (optional_arg_assigned(then_branch, nm = nm)) return(TRUE)
+    }
+
+    if (
+      is_call(cond, quote(`!`)) &&
+        length(cond) == 2L &&
+        is_call(cond[[2L]], quote(is.null)) &&
+        length(cond[[2L]]) == 2L &&
+        is.symbol(cond[[2L]][[2L]]) &&
+        identical(as.character(cond[[2L]][[2L]]), nm)
+    ) {
+      if (
+        !is.null(else_branch) &&
+          optional_arg_assigned(else_branch, nm = nm)
+      ) {
+        return(TRUE)
+      }
+    }
+
+    if (optional_arg_missing_init(then_branch, nm = nm)) {
+      return(TRUE)
+    }
+    if (
+      !is.null(else_branch) &&
+        optional_arg_missing_init(else_branch, nm = nm)
+    ) {
+      return(TRUE)
+    }
+    return(FALSE)
+  }
+
+  FALSE
 }
 
 closure_formal_vars <- function(args_f, formal_names) {
