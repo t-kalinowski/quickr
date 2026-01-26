@@ -545,6 +545,11 @@ compile_closure_call_assignment <- function(
 
   target_var <- get0(target_name, scope)
   target_exists <- inherits(target_var, Variable)
+  target_fortran_name <- if (target_exists) {
+    target_var@name
+  } else {
+    assignment_fortran_name(target_name, scope)
+  }
 
   if (is.null(closure_last_expr(closure_obj@fun))) {
     stop("local closure calls that return `NULL` cannot be assigned")
@@ -559,7 +564,8 @@ compile_closure_call_assignment <- function(
     out <- Variable(
       mode = target_var@mode,
       dims = target_var@dims,
-      name = target_name
+      name = target_fortran_name,
+      r_name = target_name
     )
     if (logical_as_int(target_var)) {
       out@logical_as_int <- TRUE
@@ -585,7 +591,8 @@ compile_closure_call_assignment <- function(
       mode = inferred_res_var@mode,
       dims = inferred_res_var@dims
     )
-    target_var@name <- target_name
+    target_var@r_name <- target_name
+    target_var@name <- target_fortran_name
     if (
       identical(inferred_res_var@mode, "logical") &&
         target_name %in% return_names
@@ -593,7 +600,8 @@ compile_closure_call_assignment <- function(
       target_var@logical_as_int <- TRUE
       # Recompile with the correct storage for the output dummy argument.
       res_var <- Variable(mode = target_var@mode, dims = target_var@dims)
-      res_var@name <- target_name
+      res_var@r_name <- target_name
+      res_var@name <- target_fortran_name
       res_var@logical_as_int <- TRUE
       proc <- compile_local_closure_proc(
         closure_name,
@@ -611,7 +619,7 @@ compile_closure_call_assignment <- function(
     any(all.vars(e, functions = FALSE) == target_name)
   }))
 
-  res_target <- target_name
+  res_target <- target_fortran_name
   post <- character()
   if (arg_reads_target) {
     tmp <- hoist$declare_tmp(
@@ -620,7 +628,7 @@ compile_closure_call_assignment <- function(
       logical_as_int = logical_as_int(target_var)
     )
     res_target <- tmp@name
-    post <- glue("{target_name} = {res_target}")
+    post <- glue("{target_fortran_name} = {res_target}")
   }
 
   call_args <- c(
@@ -1034,7 +1042,11 @@ compile_subscript_lhs <- function(
         }
 
         shadow <- Variable(mode = parent_base@mode, dims = parent_base@dims)
-        shadow@name <- make_shadow_fortran_name(scope, base_name)
+        shadow@r_name <- base_name
+        shadow@name <- make_shadow_fortran_name(
+          scope,
+          fortranize_name(base_name)
+        )
         if (logical_as_int(parent_base)) {
           shadow@logical_as_int <- TRUE
         }

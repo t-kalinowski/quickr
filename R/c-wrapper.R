@@ -12,14 +12,15 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   c_body <- character()
   c_hoist <- c_bridge_hoist()
 
-  if (!all(closure_arg_names %in% fsub_arg_names)) {
+  closure_arg_vars <- mget(closure_arg_names, scope)
+  closure_arg_fortran_names <- map_chr(closure_arg_vars, \(var) var@name)
+  if (!all(closure_arg_fortran_names %in% fsub_arg_names)) {
+    missing_idx <- which(!closure_arg_fortran_names %in% fsub_arg_names)
     stop(
       "Undeclared arguments: ",
-      str_flatten_commas(setdiff(closure_arg_names, fsub_arg_names))
+      str_flatten_commas(closure_arg_names[missing_idx])
     )
   }
-
-  closure_arg_vars <- mget(closure_arg_names, scope)
 
   # first unpack all the input vars into named C variables (including sizes and pointer)
   append(c_body) <- lapply(
@@ -44,9 +45,10 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   return_var_names <- closure_return_var_names(closure)
   # Deduplicate by the underlying variable name to avoid duplicate C defs
   for (return_var in mget(unique(unname(return_var_names)), scope)) {
-    if (!return_var@name %in% closure_arg_names) {
+    return_var_r_name <- return_var@r_name %||% return_var@name
+    if (!return_var_r_name %in% closure_arg_names) {
       return_var@modified <- TRUE
-      assign(return_var@name, return_var, scope)
+      assign(return_var_r_name, return_var, scope)
       append(c_body) <- return_var_c_defs(
         return_var,
         fsub@scope,
@@ -99,12 +101,18 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   is_list_return <- is_call(last(body(closure)), quote(list))
 
   if (length(return_var_names) == 1L && !is_list_return) {
+    return_var_r_name <- unname(return_var_names)[[1L]]
+    return_var_c_name <- scope[[return_var_r_name]]@name
     if (n_protected > 0) {
       append(c_body) <- glue("UNPROTECT({n_protected});")
     }
-    append(c_body) <- glue("return {return_var_names};")
+    append(c_body) <- glue("return {return_var_c_name};")
   } else {
     return_var_values <- unname(return_var_names)
+    return_var_c_names <- unname(map_chr(
+      mget(return_var_values, scope),
+      \(var) var@name
+    ))
     provided_names <- names(return_var_names)
     if (is.null(provided_names)) {
       provided_names <- rep("", length(return_var_values))
@@ -115,7 +123,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
       glue(
         "SEXP _ans = PROTECT(Rf_allocVector(VECSXP, {length(return_var_values)}));"
       ),
-      imap(return_var_values, function(nm, i) {
+      imap(return_var_c_names, function(nm, i) {
         glue("SET_VECTOR_ELT(_ans, {i-1}, {nm});")
       })
     )
@@ -742,7 +750,7 @@ fsub_extern_decl <- function(fsub) {
       }
       glue("const {type} {name}")
     } else {
-      var <- get0(name, scope)
+      var <- scope_var_by_fortran_name(scope, name)
       if (!inherits(var, Variable)) {
         stop("internal error: could not resolve variable: ", name)
       }

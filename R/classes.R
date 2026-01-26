@@ -283,6 +283,16 @@ Variable := new_class(
       set_once = FALSE #TRUE
     ),
 
+    r_name = prop_string(
+      allow_null = TRUE,
+      coerce = quote(switch(
+        typeof(value),
+        symbol = as.character(value),
+        value
+      )),
+      set_once = FALSE
+    ),
+
     rank = new_property(
       class_integer,
       getter = function(self) {

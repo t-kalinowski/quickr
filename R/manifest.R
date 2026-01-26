@@ -101,6 +101,17 @@ scope_vars <- function(scope) {
   keep(vars, inherits, what = Variable)
 }
 
+scope_var_by_fortran_name <- function(scope, name) {
+  stopifnot(inherits(scope, "quickr_scope"), is_string(name))
+  vars <- scope_vars(scope)
+  var_names <- map_chr(vars, \(var) var@name %||% "")
+  idx <- match(tolower(name), tolower(var_names))
+  if (is.na(idx)) {
+    return(NULL)
+  }
+  vars[[idx]]
+}
+
 iso_c_binding_symbols <- function(
   vars,
   body_code = "",
@@ -267,9 +278,10 @@ emit_block <- function(decls, stmts) {
 r2f.scope <- function(scope, include_errors = FALSE) {
   vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
-    intent_in <- var@name %in% names(formals(scope@closure))
+    r_name <- var@r_name %||% var@name
+    intent_in <- r_name %in% names(formals(scope@closure))
     intent_out <-
-      (var@name %in% closure_return_var_names(scope@closure)) ||
+      (r_name %in% closure_return_var_names(scope@closure)) ||
       (intent_in && var@modified)
 
     intent <-
@@ -354,7 +366,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
   # symbols that must come in as args to the subroutine
   # # method="radix" for locale-independent stable order.
   signature <- unique(c(
-    non_local_var_names,
+    map_chr(mget(non_local_var_names, scope), \(var) var@name),
     sort(size_names, method = "radix"),
     if (isTRUE(include_errors)) quickr_error_arg_names()
   ))
@@ -417,7 +429,9 @@ dims2f_eval_base_env[["max"]] <- function(...) {
 
 dims2f <- function(dims, scope) {
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
-  vars <- as.list(syms)
+  vars <- lapply(syms, function(sym) {
+    scope_fortran_symbol(as.symbol(sym), scope)
+  })
   names(vars) <- syms
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {

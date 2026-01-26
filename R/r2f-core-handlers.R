@@ -15,11 +15,12 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
       set_pending_parallel(scope, parse_parallel_decl(a))
     } else if (is_type_call(a)) {
       var <- type_call_to_var(a)
-      var@is_arg <- var@name %in% names(formals(scope@closure))
+      r_name <- var@r_name %||% var@name
+      var@is_arg <- r_name %in% names(formals(scope@closure))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
         var@logical_as_int <- TRUE
       }
-      scope[[var@name]] <- var
+      scope[[r_name]] <- var
     } else if (is_call(a, quote(`{`))) {
       Recall(as.list(a)[-1], scope)
     }

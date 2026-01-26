@@ -38,10 +38,11 @@ assignment_extract_fallthrough <- function(rhs) {
 
 assignment_fortran_name <- function(name, scope) {
   stopifnot(is_string(name))
+  base <- fortranize_name(name)
   if (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) {
-    make_shadow_fortran_name(scope, name)
+    make_shadow_fortran_name(scope, base)
   } else {
-    name
+    base
   }
 }
 
@@ -170,6 +171,7 @@ register_r2f_handler(
       if (is.null(fortran_name)) {
         fortran_name <- assignment_fortran_name(name, scope)
       }
+      var@r_name <- name
       var@name <- fortran_name
       # keep a reference to the R expression assigned, if available
       tryCatch(
