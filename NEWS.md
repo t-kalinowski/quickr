@@ -3,7 +3,15 @@
 - Added initial matrix/linear algebra handler support from base R, using the
   same BLAS/LAPACK as R: `%*%`, `t()`, `crossprod()`, `tcrossprod()`,
   `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, `backsolve()`, `diag()`,
-  `t()`, `chol()`, `chol2inv()`, `solve()`, and `qr.solve()`.
+  `t()`, `chol()`, `chol2inv()`, `solve()`, and `qr.solve()`. This includes
+  support for:
+
+  - `drop()` for rank 0-2 inputs (including singleton matrices).
+  - `svd()` results via `$d`, `$u`, and `$v` (either from `s <- svd(x)` or
+    directly from `svd(x)$d`/`$u`/`$v`).
+  - `.Machine$double.eps`.
+  - `qr.solve()` using the LINPACK QR path (for better compatibility with
+    base R behavior).
 
   The plan is to add more functions in the future (#77, #79 @mns-nordicals)
 
@@ -78,6 +86,21 @@
 
 - Fixed a crash when compiling chained / fall-through assignments like
   `a <- b <- 1` (#60).
+
+- `quick()` now supports dotted symbols (e.g. `foo.bar`) for arguments, locals,
+  and loop variables. Conflicting names that map to the same Fortran symbol now
+  error (Fortran is case-insensitive).
+
+- `quick()` now gives a helpful error message when a function argument is used
+  without being declared
+  (i.e. missing `declare(type(arg = ...))`).
+
+- Vector-matrix recycling in arithmetic is now restricted to recycling
+  along the first axes only.
+
+- Local closures now support optional arguments with `NULL` defaults, with
+  validation to ensure optional arguments are initialized (via `is.null()`)
+  before use.
 
 # quickr 0.2.1
 
