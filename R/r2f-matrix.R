@@ -152,6 +152,44 @@ r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
   }
 }
 
+register_r2f_handler(
+  "drop",
+  function(args, scope, ..., hoist = NULL) {
+    x_arg <- args$x %||% args[[1L]]
+    if (is.null(x_arg) || is_missing(x_arg)) {
+      stop("drop() expects `x`", call. = FALSE)
+    }
+    x <- r2f(x_arg, scope, ..., hoist = hoist)
+    if (is.null(x@value)) {
+      stop("drop() expects a typed value", call. = FALSE)
+    }
+    if (x@value@rank <= 1L) {
+      return(x)
+    }
+    if (x@value@rank != 2L) {
+      stop("drop() only supports rank 0-2 inputs", call. = FALSE)
+    }
+
+    row_dim <- x@value@dims[[1L]]
+    col_dim <- x@value@dims[[2L]]
+    row_is_one <- dim_is_one(row_dim)
+    col_is_one <- dim_is_one(col_dim)
+
+    if (row_is_one && col_is_one) {
+      return(scalarize_matrix(x))
+    }
+    if (row_is_one) {
+      out_val <- Variable(x@value@mode, list(col_dim))
+      return(Fortran(glue("{x}(1, :)"), out_val))
+    }
+    if (col_is_one) {
+      out_val <- Variable(x@value@mode, list(row_dim))
+      return(Fortran(glue("{x}(:, 1)"), out_val))
+    }
+    x
+  }
+)
+
 bind_output_mode <- function(values, context) {
   modes <- unique(vapply(
     values,
