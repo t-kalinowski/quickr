@@ -220,6 +220,12 @@ lang2fortran <- r2f <- function(
     symbol = {
       r_name <- as.character(e)
       val <- if (is.null(scope)) NULL else get0(r_name, scope)
+      if (inherits(val, SvdResult)) {
+        stop(
+          "svd() results must be accessed with $d, $u, or $v",
+          call. = FALSE
+        )
+      }
       if (is.null(val) && inherits(scope, "quickr_scope")) {
         closure <- scope@closure
         arg_names <- if (is.null(closure)) NULL else names(formals(closure))

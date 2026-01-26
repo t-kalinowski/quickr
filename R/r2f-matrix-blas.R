@@ -1177,3 +1177,82 @@ end do"
   }
   out
 }
+
+svd_dims <- function(A, context = "svd") {
+  stopifnot(inherits(A, Fortran))
+  assert_rank2_matrix(A, paste0(context, " expects a matrix"))
+  a_dims <- matrix_dims(A)
+  m <- a_dims$rows
+  n <- a_dims$cols
+  mn <- if (is_wholenumber(m) && is_wholenumber(n)) {
+    as.integer(min(m, n))
+  } else {
+    call("min", m, n)
+  }
+  list(m = m, n = n, mn = mn)
+}
+
+lapack_svd <- function(
+  A,
+  d,
+  u,
+  v,
+  scope,
+  hoist,
+  context = "svd"
+) {
+  assert_hoist_env(hoist)
+  stopifnot(inherits(d, Variable), inherits(u, Variable), inherits(v, Variable))
+
+  A <- maybe_cast_double(A)
+  dims <- svd_dims(A, context = context)
+  m <- dims$m
+  n <- dims$n
+  mn <- dims$mn
+
+  A_name <- ensure_blas_operand_name(A, hoist)
+  A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
+  hoist$emit(glue("{A_work@name} = {A_name}"))
+
+  vt <- hoist$declare_tmp(mode = "double", dims = list(mn, n))
+
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  lwork <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  work_query <- hoist$declare_tmp(
+    mode = "double",
+    dims = list(call("+", 1L, 0L))
+  )
+  iwork <- hoist$declare_tmp(
+    mode = "integer",
+    dims = list(call("*", 8L, mn))
+  )
+
+  hoist$emit(glue("{lwork@name} = -1_c_int"))
+  hoist$emit(glue(
+    "call dgesdd('S', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u@name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work_query@name}, {lwork@name}, {iwork@name}, {info@name})"
+  ))
+  hoist$emit(glue(
+    "{lwork@name} = int({work_query@name}(1), kind=c_int)"
+  ))
+  work <- hoist$declare_tmp(mode = "double", dims = list(NA))
+  hoist$emit(glue("allocate({work@name}({lwork@name}))"))
+
+  hoist$emit(glue(
+    "call dgesdd('S', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u@name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work@name}, {lwork@name}, {iwork@name}, {info@name})"
+  ))
+  emit_quickr_error_if(
+    glue("{info@name} < 0_c_int"),
+    "Lapack routine dgesdd: illegal argument",
+    hoist,
+    scope
+  )
+  emit_quickr_error_if(
+    glue("{info@name} > 0_c_int"),
+    "Lapack routine dgesdd failed to converge",
+    hoist,
+    scope
+  )
+  hoist$emit(glue("{v@name} = transpose({vt@name})"))
+
+  invisible(list(d = d, u = u, v = v))
+}

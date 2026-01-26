@@ -938,3 +938,115 @@ crossprod_like <- function(
     context = context
   )
 }
+
+svd_call_args <- function(args, context = "svd") {
+  x_arg <- args$x %||% args[[1L]]
+  if (is.null(x_arg) || is_missing(x_arg)) {
+    stop(context, "() expects `x`", call. = FALSE)
+  }
+  if (!is.null(args$LINPACK) && !is_missing(args$LINPACK)) {
+    stop(context, "() does not support LINPACK", call. = FALSE)
+  }
+  if (!is.null(args$nu) && !is_missing(args$nu)) {
+    stop(context, "() does not support `nu` yet", call. = FALSE)
+  }
+  if (!is.null(args$nv) && !is_missing(args$nv)) {
+    stop(context, "() does not support `nv` yet", call. = FALSE)
+  }
+  x_arg
+}
+
+svd_output_vars_scope <- function(scope, dims) {
+  stopifnot(
+    inherits(scope, "quickr_scope"),
+    is.list(dims),
+    all(c("m", "n", "mn") %in% names(dims))
+  )
+  list(
+    d = scope@get_unique_var(mode = "double", dims = list(dims$mn)),
+    u = scope@get_unique_var(mode = "double", dims = list(dims$m, dims$mn)),
+    v = scope@get_unique_var(mode = "double", dims = list(dims$n, dims$mn))
+  )
+}
+
+svd_output_vars_tmp <- function(hoist, dims) {
+  assert_hoist_env(hoist)
+  list(
+    d = hoist$declare_tmp(mode = "double", dims = list(dims$mn)),
+    u = hoist$declare_tmp(mode = "double", dims = list(dims$m, dims$mn)),
+    v = hoist$declare_tmp(mode = "double", dims = list(dims$n, dims$mn))
+  )
+}
+
+compile_svd_assignment <- function(name, svd_call, scope, ..., hoist) {
+  stopifnot(is_string(name), is_call(svd_call, "svd"))
+  return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
+  if (name %in% return_names) {
+    stop(
+      "svd() results must be accessed with $d, $u, or $v",
+      call. = FALSE
+    )
+  }
+  existing <- get0(name, scope, inherits = FALSE)
+  if (inherits(existing, Variable)) {
+    stop(
+      "svd() result cannot overwrite declared variable: ",
+      name,
+      call. = FALSE
+    )
+  }
+
+  args <- as.list(svd_call)[-1L]
+  x_arg <- svd_call_args(args, context = "svd")
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  dims <- svd_dims(x, context = "svd")
+  outputs <- svd_output_vars_scope(scope, dims)
+
+  lapack_svd(
+    A = x,
+    d = outputs$d,
+    u = outputs$u,
+    v = outputs$v,
+    scope = scope,
+    hoist = hoist,
+    context = "svd"
+  )
+
+  scope[[name]] <- SvdResult(d = outputs$d, u = outputs$u, v = outputs$v)
+  Fortran("")
+}
+
+svd_component_from_call <- function(svd_call, field, scope, ..., hoist) {
+  stopifnot(is_call(svd_call, "svd"), is_string(field))
+  if (!field %in% c("d", "u", "v")) {
+    stop("svd() only supports $d, $u, and $v", call. = FALSE)
+  }
+  args <- as.list(svd_call)[-1L]
+  x_arg <- svd_call_args(args, context = "svd")
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  dims <- svd_dims(x, context = "svd")
+  outputs <- svd_output_vars_tmp(hoist, dims)
+
+  lapack_svd(
+    A = x,
+    d = outputs$d,
+    u = outputs$u,
+    v = outputs$v,
+    scope = scope,
+    hoist = hoist,
+    context = "svd"
+  )
+
+  out_var <- outputs[[field]]
+  Fortran(out_var@name, out_var)
+}
+
+register_r2f_handler(
+  "svd",
+  function(args, scope, ..., hoist = NULL) {
+    stop(
+      "svd() must be assigned to a symbol or accessed via $d, $u, $v",
+      call. = FALSE
+    )
+  }
+)

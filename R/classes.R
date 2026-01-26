@@ -375,6 +375,14 @@ Fortran := new_class(
   }
 )
 
+SvdResult := new_class(
+  properties = list(
+    d = Variable,
+    u = NULL | Variable,
+    v = NULL | Variable
+  )
+)
+
 LocalClosure := new_class(
   properties = list(
     name = prop_string(default = NULL, allow_null = TRUE),

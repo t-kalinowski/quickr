@@ -134,6 +134,17 @@ register_r2f_handler(
       )
     }
 
+    rhs_unwrapped <- unwrap_parens(rhs)
+    if (is_call(rhs_unwrapped, "svd")) {
+      return(compile_svd_assignment(
+        name,
+        rhs_unwrapped,
+        scope,
+        ...,
+        hoist = hoist
+      ))
+    }
+
     dest_allowed <- dest_supported_for_call(rhs)
 
     # If target already exists (declared), thread destination hint to a single BLAS-capable child

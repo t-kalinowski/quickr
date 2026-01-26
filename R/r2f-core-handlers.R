@@ -68,7 +68,7 @@ r2f_handlers[["("]] <- function(args, scope, ...) {
   Fortran(glue("({x})"), x@value)
 }
 
-r2f_handlers[["$"]] <- function(args, scope, ...) {
+r2f_handlers[["$"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 2L)
   base <- args[[1L]]
   field <- args[[2L]]
@@ -87,7 +87,43 @@ r2f_handlers[["$"]] <- function(args, scope, ...) {
     stop("`.Machine$", field_name, "` is not supported", call. = FALSE)
   }
 
-  stop("`$` only supports `.Machine$double.eps`", call. = FALSE)
+  if (field_name %in% c("d", "u", "v")) {
+    if (is.symbol(base)) {
+      base_name <- as.character(base)
+      base_val <- if (is.null(scope)) NULL else get0(base_name, scope)
+      if (inherits(base_val, SvdResult)) {
+        out_var <- switch(
+          field_name,
+          d = base_val@d,
+          u = base_val@u,
+          v = base_val@v
+        )
+        if (is.null(out_var)) {
+          stop(
+            "svd() result does not include `$",
+            field_name,
+            "`",
+            call. = FALSE
+          )
+        }
+        return(Fortran(out_var@name, out_var))
+      }
+    }
+    if (is_call(base, "svd")) {
+      return(svd_component_from_call(
+        base,
+        field_name,
+        scope,
+        ...,
+        hoist = hoist
+      ))
+    }
+  }
+
+  stop(
+    "`$` only supports `.Machine$double.eps` and `svd()` results ($d, $u, $v)",
+    call. = FALSE
+  )
 }
 
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {
