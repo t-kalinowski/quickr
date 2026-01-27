@@ -521,6 +521,9 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
       return(nm)
     }
     var <- get0(nm, scope)
+    if (!inherits(var, Variable) && inherits(scope, "quickr_scope")) {
+      var <- scope_var_by_fortran_name(scope, nm)
+    }
     if (!inherits(var, Variable)) {
       stop("could not resolve size: ", nm)
     }

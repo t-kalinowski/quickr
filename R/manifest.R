@@ -340,6 +340,14 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     lapply(var@dims, all.names, functions = FALSE, unique = TRUE)
   }))) |>
     setdiff(names(formals(scope@closure)))
+  if (length(names(formals(scope@closure)))) {
+    formal_vars <- mget(names(formals(scope@closure)), scope)
+    formal_fortran_names <- unique(map_chr(formal_vars, \(var) {
+      var@name %||% ""
+    }))
+    formal_fortran_names <- formal_fortran_names[nzchar(formal_fortran_names)]
+    size_names <- setdiff(size_names, formal_fortran_names)
+  }
   if (is.null(size_names)) {
     size_names <- character()
   }
