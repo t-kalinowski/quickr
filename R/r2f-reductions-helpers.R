@@ -5,6 +5,7 @@
 # Used by: r2f-reductions.R
 create_mask_hoist <- function() {
   .hoisted_mask <- NULL
+  .conflict <- FALSE
 
   try_set <- function(mask) {
     stopifnot(inherits(mask, Fortran), mask@value@mode == "logical")
@@ -18,10 +19,12 @@ create_mask_hoist <- function() {
       return(TRUE)
     }
     # can't hoist this mask.
+    .conflict <<- TRUE
     FALSE
   }
 
   get_hoisted <- function() .hoisted_mask
+  has_conflict <- function() .conflict
 
   environment()
 }
