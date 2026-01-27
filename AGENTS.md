@@ -22,6 +22,11 @@ R -q -e 'devtools::test(filter = "regex")'
 ```
 filter arg behavior: If not `NULL`, only tests with file names matching this regular expression will be executed. Matching is performed on the file name after it's stripped of "test-" and ".R".
 
+- To run full coverage and save zero-coverage JSON output:
+```sh
+R -q -e 'covr::package_coverage() -> cov; saveRDS(cov, "cov.rds"); z <- covr::zero_coverage(cov); jsonlite::toJSON(z, pretty = TRUE)'
+```
+
 - To see the generated C and Fortran code for an R function, use `r2f()`:
 ```sh
 R --no-save -q <<'EOF'

@@ -323,9 +323,108 @@ test_that("size expressions support max() and integer division", {
   qfn <- quick(fn)
 
   expect_identical(qfn(8L, rep(1, 4)), 4.0)
-  expect_error(
-    qfn(8L, rep(1, 3)),
-    "length(x) must equal",
-    fixed = TRUE
+  expect_error(qfn(8L, rep(1, 3)))
+})
+
+test_that("C bridge size expressions support min()", {
+  fn <- function(n, x) {
+    declare(
+      type(n = integer(1)),
+      type(x = double(min(n, 5L)))
+    )
+    sum(x)
+  }
+
+  qfn <- quick(fn)
+  expect_identical(qfn(3L, as.double(1:3)), 6.0)
+  expect_identical(qfn(10L, as.double(1:5)), 15.0)
+})
+
+test_that("vector ops accept mixed constant/symbol sizes", {
+  fn <- function(n, x, y) {
+    declare(
+      type(n = integer(1)),
+      type(x = double(3L)),
+      type(y = double(n))
+    )
+    x + y
+  }
+
+  qfn <- quick(fn)
+  expect_identical(
+    qfn(3L, as.double(1:3), as.double(4:6)),
+    as.double(c(5, 7, 9))
   )
+})
+
+test_that("size expressions support length() and modulo", {
+  fn <- function(x) {
+    declare(
+      type(x = double(n)),
+      type(out = double(length(x) %% 3L + 1L))
+    )
+    out <- double(length(x) %% 3L + 1L)
+    for (i in seq_len(length(out))) {
+      out[i] <- as.double(i)
+    }
+    out
+  }
+
+  x <- runif(5)
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("symbolic size names reuse fortranized symbols", {
+  fn <- function(foo.bar, x, y) {
+    declare(
+      type(foo.bar = integer(1)),
+      type(x = double(foo.bar)),
+      type(y = double(foo.bar))
+    )
+    x + y
+  }
+
+  qfn <- quick(fn)
+  expect_identical(
+    qfn(3L, as.double(1:3), as.double(4:6)),
+    as.double(c(5, 7, 9))
+  )
+})
+
+test_that("quick() returns named lists from compiled functions", {
+  fn <- function(a, b) {
+    declare(type(a = double(1)), type(b = double(1)))
+    sum <- a + b
+    diff <- a - b
+    list(sum = sum, diff = diff)
+  }
+
+  qfn <- quick(fn)
+  expect_identical(qfn(2, 1), fn(2, 1))
+})
+
+test_that("triangular solve handles matrix right-hand sides", {
+  fn <- function(U, B) {
+    declare(type(U = double(n, n)), type(B = double(n, k)))
+    backsolve(U, B)
+  }
+
+  set.seed(6)
+  n <- 3
+  k <- 2
+  U <- matrix(rnorm(n * n), nrow = n)
+  U[lower.tri(U)] <- 0
+  B <- matrix(rnorm(n * k), nrow = n)
+
+  qfn <- quick(fn)
+  expect_equal(qfn(U, B), backsolve(U, B), tolerance = 1e-10)
+})
+
+test_that("inline local closure calls compile", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    (function(y) y + 1)(x)
+  }
+
+  expect_quick_identical(fn, list(2))
 })

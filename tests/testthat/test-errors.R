@@ -135,3 +135,35 @@ test_that("missing argument declarations get a clear error", {
     "arg not declared: x"
   )
 })
+
+test_that("declare() type() calls validate syntax", {
+  too_many <- function(x, y) {
+    declare(type(x = double(1), y = double(1)))
+    x + y
+  }
+  expect_error(
+    quick(too_many),
+    "only one variable can be declared per type\\(\\) call",
+    fixed = FALSE
+  )
+
+  missing_name <- function(x) {
+    declare(type(double(1)))
+    x
+  }
+  expect_error(
+    quick(missing_name),
+    "name must be provided as:",
+    fixed = TRUE
+  )
+
+  bad_mode <- function(x) {
+    declare(type(x = double))
+    x
+  }
+  expect_error(
+    quick(bad_mode),
+    "only atomic modes are supported",
+    fixed = TRUE
+  )
+})

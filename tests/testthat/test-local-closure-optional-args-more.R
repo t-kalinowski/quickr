@@ -80,6 +80,58 @@ test_that("local closure calls error when required arguments have no inferred ty
   )
 })
 
+test_that("optional NULL defaults must be initialized before use", {
+  bad <- function(x) {
+    declare(type(x = double(n)))
+
+    f <- function(i, shift = NULL) {
+      x[i] + shift
+    }
+
+    f(1L)
+  }
+
+  expect_error(
+    quick(bad),
+    "optional argument\\(s\\) used without initializing when NULL: shift",
+    fixed = FALSE
+  )
+})
+
+test_that("optional NULL defaults can be assigned before use", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+
+    f <- function(shift = NULL) {
+      shift <- 2
+      x + shift
+    }
+
+    f()
+  }
+
+  expect_quick_identical(fn, list(3))
+})
+
+test_that("optional arg shadow names avoid existing fortran names", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    declare(type(`x..local.` = double(1)))
+    `x..local.` <- x + 1
+
+    f <- function(x = NULL) {
+      if (is.null(x)) {
+        x <- 2
+      }
+      x + `x..local.`
+    }
+
+    f()
+  }
+
+  expect_quick_identical(fn, list(1))
+})
+
 test_that("local closure calls returning NULL cannot be used as values", {
   bad <- function(x) {
     declare(type(x = double(1)))

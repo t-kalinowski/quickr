@@ -62,3 +62,16 @@ test_that("declare() size expressions reject unsupported calls", {
 
   expect_error(quick(bad), "could not find function \"sum\"", fixed = TRUE)
 })
+
+test_that("declare() size expressions require dim() to reference a symbol", {
+  bad <- function(x) {
+    declare(type(x = double(dim(1)[1L])))
+    sum(x)
+  }
+
+  expect_error(
+    quick(bad),
+    "dim\\(\\) size expressions must refer to a symbol",
+    fixed = FALSE
+  )
+})
