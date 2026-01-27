@@ -91,9 +91,15 @@
   and loop variables. Conflicting names that map to the same Fortran symbol now
   error (Fortran is case-insensitive).
 
+- Fixed C bridge size checks for dotted argument names used in
+  `declare(type(...))` size expressions (e.g. `type(x = double(foo.bar))`).
+
 - `quick()` now gives a helpful error message when a function argument is used
   without being declared
   (i.e. missing `declare(type(arg = ...))`).
+
+- Fixed an error in invalid subscript arity reporting, e.g. `x[1, 2, 3]` on a
+  matrix now errors cleanly instead of failing while formatting the message.
 
 - Vector-matrix recycling in arithmetic is now restricted to recycling
   along the first axes only.
