@@ -1018,13 +1018,6 @@ svd_output_vars_tmp <- function(hoist, dims) {
 
 compile_svd_assignment <- function(name, svd_call, scope, ..., hoist) {
   stopifnot(is_string(name), is_call(svd_call, "svd"))
-  return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
-  if (name %in% return_names) {
-    stop(
-      "svd() results must be accessed with $d, $u, or $v",
-      call. = FALSE
-    )
-  }
   existing <- get0(name, scope, inherits = FALSE)
   if (inherits(existing, Variable)) {
     stop(

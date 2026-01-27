@@ -276,12 +276,13 @@ emit_block <- function(decls, stmts) {
 }
 
 r2f.scope <- function(scope, include_errors = FALSE) {
+  return_var_names <- unname(scope_return_var_names(scope))
   vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
     r_name <- var@r_name %||% var@name
     intent_in <- r_name %in% names(formals(scope@closure))
     intent_out <-
-      (r_name %in% closure_return_var_names(scope@closure)) ||
+      (r_name %in% return_var_names) ||
       (intent_in && var@modified)
 
     intent <-
@@ -331,7 +332,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
   # vars that will be visible in the C bridge, either as an input or output
   non_local_var_names <- unique(c(
     names(formals(scope@closure)),
-    closure_return_var_names(scope@closure)
+    return_var_names
   ))
 
   # collect all size_names; sort so non-locals are declared first.

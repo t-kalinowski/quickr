@@ -33,14 +33,19 @@ test_that("quick() errors when svd() is used without $d/$u/$v", {
     "svd\\(\\) must be assigned to a symbol or accessed via \\$d, \\$u, \\$v",
     fixed = FALSE
   )
+})
 
-  expect_error(
-    quick(function(x) {
-      declare(type(x = double(3, 2)))
-      s <- svd(x)
-      s
-    }),
-    "svd\\(\\) results must be accessed with \\$d, \\$u, or \\$v",
-    fixed = FALSE
-  )
+test_that("quick() returns svd() results as a named list", {
+  fn <- function(x) {
+    declare(type(x = double(3, 2)))
+    s <- svd(x)
+    s
+  }
+
+  x <- matrix(c(3, 0, 0, 0, 2, 0), nrow = 3)
+  out <- quick(fn)(x)
+  expect_named(out, c("d", "u", "v"))
+  expect_equal(out$d, svd(x)$d)
+  recon <- out$u %*% diag(out$d, nrow = length(out$d)) %*% t(out$v)
+  expect_equal(recon, x, tolerance = 1e-8)
 })

@@ -1271,7 +1271,7 @@ test_that("svd rejects unsupported field access", {
   )
 })
 
-test_that("svd results must use $d, $u, or $v", {
+test_that("svd returns a named list", {
   fn <- function(x) {
     declare(type(x = double(3L, 2L)))
     s <- svd(x)
@@ -1279,9 +1279,9 @@ test_that("svd results must use $d, $u, or $v", {
   }
 
   x <- matrix(c(3, 0, 0, 0, 2, 0), nrow = 3)
-  expect_error(
-    quick(fn)(x),
-    "svd() results must be accessed with $d, $u, or $v",
-    fixed = TRUE
-  )
+  out <- quick(fn)(x)
+  expect_named(out, c("d", "u", "v"))
+  expect_equal(out$d, svd(x)$d)
+  recon <- out$u %*% diag(out$d, nrow = length(out$d)) %*% t(out$v)
+  expect_equal(recon, x, tolerance = 1e-8)
 })
