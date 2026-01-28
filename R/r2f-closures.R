@@ -1329,7 +1329,16 @@ compile_sapply_assignment <- function(
   out_var@modified <- TRUE
   scope[[out_name]] <- out_var
 
-  directives <- openmp_directives(parallel)
+  extra_private <- NULL
+  if (!is.null(parallel)) {
+    validate_parallel_private(parallel$private, scope)
+    extra_private <- vapply(
+      parallel$private %||% character(),
+      fortranize_name,
+      character(1L)
+    )
+  }
+  directives <- openmp_directives(parallel, private = extra_private)
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }
