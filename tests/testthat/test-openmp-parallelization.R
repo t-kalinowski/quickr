@@ -72,7 +72,7 @@ test_that("parallel loop uses multiple threads", {
       type(iters = integer(1)),
       type(out = double(n))
     )
-    declare(parallel())
+    declare(parallel(private = c(v, k)))
     for (i in seq_len(n)) {
       v <- x[i]
       for (k in seq_len(iters)) {
