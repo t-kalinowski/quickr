@@ -248,67 +248,6 @@ validate_parallel_private <- function(private, scope) {
   invisible(TRUE)
 }
 
-parallel_private_tracking_start <- function(scope) {
-  stopifnot(inherits(scope, "quickr_scope"))
-  stack <- attr(scope, "parallel_private_tracking", exact = TRUE) %||% list()
-  stack[[length(stack) + 1L]] <- character()
-  attr(scope, "parallel_private_tracking") <- stack
-  invisible(TRUE)
-}
-
-parallel_private_tracking_active <- function(scope) {
-  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
-  length(stack) > 0L
-}
-
-parallel_private_tracking_record <- function(scope, name, var) {
-  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
-  if (is.null(stack) || !length(stack)) {
-    return(invisible(FALSE))
-  }
-  if (!inherits(var, Variable) || !passes_as_scalar(var)) {
-    return(invisible(FALSE))
-  }
-  idx <- length(stack)
-  stack[[idx]] <- unique(c(stack[[idx]], as.character(name)))
-  attr(scope, "parallel_private_tracking") <- stack
-  invisible(TRUE)
-}
-
-parallel_private_tracking_finish <- function(scope) {
-  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
-  if (is.null(stack) || !length(stack)) {
-    return(character())
-  }
-  assigned <- stack[[length(stack)]]
-  stack <- stack[-length(stack)]
-  if (length(stack)) {
-    attr(scope, "parallel_private_tracking") <- stack
-  } else {
-    attr(scope, "parallel_private_tracking") <- NULL
-  }
-  assigned
-}
-
-parallel_private_tracking_abort <- function(scope) {
-  parallel_private_tracking_finish(scope)
-  invisible(TRUE)
-}
-
-validate_parallel_private_complete <- function(private, assigned) {
-  private <- unique(as.character(private %||% character()))
-  assigned <- unique(as.character(assigned %||% character()))
-  missing <- setdiff(assigned, private)
-  if (length(missing)) {
-    stop(
-      "parallel()/omp() must declare private scalars assigned in loop body: ",
-      str_flatten_commas(missing),
-      call. = FALSE
-    )
-  }
-  invisible(TRUE)
-}
-
 openmp_fflags <- function() {
   env_flags <- trimws(Sys.getenv("QUICKR_OPENMP_FFLAGS", ""))
   if (nzchar(env_flags)) {

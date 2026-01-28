@@ -161,7 +161,7 @@ test_that("parallel private errors on undeclared symbols (rolling mean)", {
   )
 })
 
-test_that("parallel private errors when assigned scalars are missing", {
+test_that("parallel private ignores scalars assigned inside loop", {
   fn <- function(x, window) {
     declare(
       type(x = double(n)),
@@ -183,10 +183,7 @@ test_that("parallel private errors when assigned scalars are missing", {
     out
   }
 
-  expect_error(
-    r2f(fn),
-    "must declare private scalars assigned in loop body"
-  )
+  expect_no_error(r2f(fn))
 })
 
 test_that("is_parallel_target_stmt handles edge cases", {
