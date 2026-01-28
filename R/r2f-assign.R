@@ -211,6 +211,8 @@ register_r2f_handler(
       assign(name, var, scope)
     }
 
+    parallel_private_tracking_record(scope, name, var)
+
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
       Fortran("")

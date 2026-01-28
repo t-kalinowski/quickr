@@ -172,9 +172,18 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     if (!is.null(parallel)) {
       previous_openmp <- enter_openmp_scope(scope)
       on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+      parallel_private_tracking_start(scope)
+      on.exit(parallel_private_tracking_abort(scope), add = TRUE)
+    } else if (parallel_private_tracking_active(scope)) {
+      parallel_private_tracking_record(scope, var, loop_var)
     }
     body <- r2f(body, scope, ...)
     check_pending_parallel_consumed(scope)
+    if (!is.null(parallel)) {
+      assigned_private <- parallel_private_tracking_finish(scope)
+      validate_parallel_private(parallel$private, scope)
+      validate_parallel_private_complete(parallel$private, assigned_private)
+    }
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
 
     loop_header <- if (iterable_reversed) {
@@ -183,7 +192,15 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
-    directives <- openmp_directives(parallel, private = var_name)
+    extra_private <- vapply(
+      parallel$private %||% character(),
+      fortranize_name,
+      character(1L)
+    )
+    directives <- openmp_directives(
+      parallel,
+      private = c(var_name, extra_private)
+    )
     if (!is.null(parallel)) {
       mark_openmp_used(scope)
     }
@@ -217,11 +234,25 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   if (!is.null(parallel)) {
     previous_openmp <- enter_openmp_scope(scope)
     on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+    parallel_private_tracking_start(scope)
+    on.exit(parallel_private_tracking_abort(scope), add = TRUE)
+  } else if (parallel_private_tracking_active(scope)) {
+    parallel_private_tracking_record(scope, var, loop_var)
   }
   body <- r2f(body, scope, ...)
   check_pending_parallel_consumed(scope)
+  if (!is.null(parallel)) {
+    assigned_private <- parallel_private_tracking_finish(scope)
+    validate_parallel_private(parallel$private, scope)
+    validate_parallel_private_complete(parallel$private, assigned_private)
+  }
 
-  directives <- openmp_directives(parallel)
+  extra_private <- vapply(
+    parallel$private %||% character(),
+    fortranize_name,
+    character(1L)
+  )
+  directives <- openmp_directives(parallel, private = extra_private)
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }

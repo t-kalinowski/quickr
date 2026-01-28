@@ -72,11 +72,120 @@ test_that("take_pending_parallel returns NULL for NULL or non-scope", {
   expect_null(quickr:::take_pending_parallel(list()))
 })
 
-test_that("parse_parallel_decl errors when arguments provided", {
+test_that("parse_parallel_decl errors on unknown arguments", {
   e <- quote(parallel(foo))
   expect_error(
     quickr:::parse_parallel_decl(e),
-    "does not accept arguments"
+    "unknown argument to parallel"
+  )
+})
+
+test_that("parse_parallel_decl parses private argument", {
+  e <- quote(parallel(private = c(x, y)))
+  result <- quickr:::parse_parallel_decl(e)
+  expect_equal(result$backend, "omp")
+  expect_equal(result$private, c("x", "y"))
+
+  # Single symbol
+  e2 <- quote(parallel(private = z))
+  result2 <- quickr:::parse_parallel_decl(e2)
+  expect_equal(result2$private, "z")
+})
+
+test_that("parse_parallel_decl errors on invalid private values", {
+  expect_error(
+    quickr:::parse_parallel_decl(quote(parallel(private = 1))),
+    "private must be a symbol or c\\(\\) of symbols"
+  )
+
+  expect_error(
+    quickr:::parse_parallel_decl(quote(parallel(private = c(x, 1)))),
+    "private must be a symbol or c\\(\\) of symbols"
+  )
+})
+
+test_that("parallel private validates declared symbols (rolling mean)", {
+  fn <- function(x, window) {
+    declare(
+      type(x = double(n)),
+      type(window = double(j))
+    )
+
+    out <- double(length(x) - length(window) + 1)
+
+    window_size <- as.double(length(window))
+
+    declare(parallel(private = c(acc, j)))
+    for (i in seq_along(out)) {
+      acc <- 0
+      for (j in seq_along(window)) {
+        acc <- acc + x[(i + j - 1)] * window[j]
+      }
+      out[i] <- acc * window_size
+    }
+    out
+  }
+
+  skip_if_no_openmp()
+  expect_quick_identical(
+    fn,
+    list(x = as.double(1:10), window = as.double(1:3))
+  )
+})
+
+test_that("parallel private errors on undeclared symbols (rolling mean)", {
+  fn <- function(x, window) {
+    declare(
+      type(x = double(n)),
+      type(window = double(j))
+    )
+
+    out <- double(length(x) - length(window) + 1)
+
+    window_size <- as.double(length(window))
+
+    declare(parallel(private = c(qwerty, j)))
+    for (i in seq_along(out)) {
+      acc <- 0
+      for (j in seq_along(window)) {
+        acc <- acc + x[(i + j - 1)] * window[j]
+      }
+      out[i] <- acc * window_size
+    }
+    out
+  }
+
+  expect_error(
+    r2f(fn),
+    "could not resolve private symbol"
+  )
+})
+
+test_that("parallel private errors when assigned scalars are missing", {
+  fn <- function(x, window) {
+    declare(
+      type(x = double(n)),
+      type(window = double(j))
+    )
+
+    out <- double(length(x) - length(window) + 1)
+
+    window_size <- as.double(length(window))
+
+    declare(parallel(private = j))
+    for (i in seq_along(out)) {
+      acc <- 0
+      for (j in seq_along(window)) {
+        acc <- acc + x[(i + j - 1)] * window[j]
+      }
+      out[i] <- acc * window_size
+    }
+    out
+  }
+
+  expect_error(
+    r2f(fn),
+    "must declare private scalars assigned in loop body"
   )
 })
 

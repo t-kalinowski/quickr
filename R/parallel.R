@@ -87,14 +87,44 @@ is_parallel_decl_call <- function(e) {
 parse_parallel_decl <- function(e) {
   stopifnot(is_parallel_decl_call(e))
   args <- as.list(e)[-1L]
-  if (length(args)) {
-    stop(
-      as.character(e[[1L]]),
-      "() does not accept arguments yet.",
-      call. = FALSE
-    )
+  arg_names <- names(args) %||% rep("", length(args))
+
+  private <- NULL
+  for (i in seq_along(args)) {
+    nm <- arg_names[i]
+    val <- args[[i]]
+    if (nm == "private") {
+      if (is_call(val, quote(c))) {
+        elems <- as.list(val)[-1L]
+        if (!all(vapply(elems, is.symbol, logical(1L)))) {
+          stop(
+            "private must be a symbol or c() of symbols, got: ",
+            deparse(val),
+            call. = FALSE
+          )
+        }
+        private <- vapply(elems, as.character, character(1L))
+      } else if (is.symbol(val)) {
+        private <- as.character(val)
+      } else {
+        stop(
+          "private must be a symbol or c() of symbols, got: ",
+          deparse(val),
+          call. = FALSE
+        )
+      }
+    } else {
+      stop(
+        "unknown argument to ",
+        as.character(e[[1L]]),
+        "(): ",
+        if (nzchar(nm)) nm else deparse(val),
+        call. = FALSE
+      )
+    }
   }
-  list(backend = "omp", source = as.character(e[[1L]]))
+
+  list(backend = "omp", source = as.character(e[[1L]]), private = private)
 }
 
 unwrap_parens <- function(x) {
@@ -192,6 +222,92 @@ openmp_config_value <- local({
     value
   }
 })
+
+validate_parallel_private <- function(private, scope) {
+  if (is.null(private) || !length(private)) {
+    return(invisible(TRUE))
+  }
+  stopifnot(inherits(scope, "quickr_scope"))
+  private <- unique(as.character(private))
+  unknown <- private[
+    !vapply(
+      private,
+      function(name) inherits(get0(name, scope), Variable),
+      logical(1L)
+    )
+  ]
+  if (length(unknown)) {
+    stop(
+      "could not resolve private symbol",
+      if (length(unknown) > 1L) "s" else "",
+      ": ",
+      str_flatten_commas(unknown),
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+parallel_private_tracking_start <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  stack <- attr(scope, "parallel_private_tracking", exact = TRUE) %||% list()
+  stack[[length(stack) + 1L]] <- character()
+  attr(scope, "parallel_private_tracking") <- stack
+  invisible(TRUE)
+}
+
+parallel_private_tracking_active <- function(scope) {
+  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
+  length(stack) > 0L
+}
+
+parallel_private_tracking_record <- function(scope, name, var) {
+  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
+  if (is.null(stack) || !length(stack)) {
+    return(invisible(FALSE))
+  }
+  if (!inherits(var, Variable) || !passes_as_scalar(var)) {
+    return(invisible(FALSE))
+  }
+  idx <- length(stack)
+  stack[[idx]] <- unique(c(stack[[idx]], as.character(name)))
+  attr(scope, "parallel_private_tracking") <- stack
+  invisible(TRUE)
+}
+
+parallel_private_tracking_finish <- function(scope) {
+  stack <- attr(scope, "parallel_private_tracking", exact = TRUE)
+  if (is.null(stack) || !length(stack)) {
+    return(character())
+  }
+  assigned <- stack[[length(stack)]]
+  stack <- stack[-length(stack)]
+  if (length(stack)) {
+    attr(scope, "parallel_private_tracking") <- stack
+  } else {
+    attr(scope, "parallel_private_tracking") <- NULL
+  }
+  assigned
+}
+
+parallel_private_tracking_abort <- function(scope) {
+  parallel_private_tracking_finish(scope)
+  invisible(TRUE)
+}
+
+validate_parallel_private_complete <- function(private, assigned) {
+  private <- unique(as.character(private %||% character()))
+  assigned <- unique(as.character(assigned %||% character()))
+  missing <- setdiff(assigned, private)
+  if (length(missing)) {
+    stop(
+      "parallel()/omp() must declare private scalars assigned in loop body: ",
+      str_flatten_commas(missing),
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
 
 openmp_fflags <- function() {
   env_flags <- trimws(Sys.getenv("QUICKR_OPENMP_FFLAGS", ""))
