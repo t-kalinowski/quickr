@@ -1329,6 +1329,12 @@ compile_sapply_assignment <- function(
   out_var@modified <- TRUE
   scope[[out_name]] <- out_var
 
+  if (!is.null(parallel) && length(parallel$private %||% character())) {
+    stop(
+      "sapply() parallelization does not support private() variables yet.",
+      call. = FALSE
+    )
+  }
   directives <- openmp_directives(parallel)
   if (!is.null(parallel)) {
     mark_openmp_used(scope)

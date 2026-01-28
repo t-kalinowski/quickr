@@ -173,7 +173,13 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       previous_openmp <- enter_openmp_scope(scope)
       on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
       parallel_private_tracking_start(scope)
-      on.exit(parallel_private_tracking_abort(scope), add = TRUE)
+      abort_private_tracking <- TRUE
+      on.exit(
+        if (abort_private_tracking) {
+          parallel_private_tracking_abort(scope)
+        },
+        add = TRUE
+      )
     } else if (parallel_private_tracking_active(scope)) {
       parallel_private_tracking_record(scope, var, loop_var)
     }
@@ -181,6 +187,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     check_pending_parallel_consumed(scope)
     if (!is.null(parallel)) {
       assigned_private <- parallel_private_tracking_finish(scope)
+      abort_private_tracking <- FALSE
       validate_parallel_private(parallel$private, scope)
       validate_parallel_private_complete(parallel$private, assigned_private)
     }
@@ -235,7 +242,13 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     previous_openmp <- enter_openmp_scope(scope)
     on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
     parallel_private_tracking_start(scope)
-    on.exit(parallel_private_tracking_abort(scope), add = TRUE)
+    abort_private_tracking <- TRUE
+    on.exit(
+      if (abort_private_tracking) {
+        parallel_private_tracking_abort(scope)
+      },
+      add = TRUE
+    )
   } else if (parallel_private_tracking_active(scope)) {
     parallel_private_tracking_record(scope, var, loop_var)
   }
@@ -243,6 +256,7 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   check_pending_parallel_consumed(scope)
   if (!is.null(parallel)) {
     assigned_private <- parallel_private_tracking_finish(scope)
+    abort_private_tracking <- FALSE
     validate_parallel_private(parallel$private, scope)
     validate_parallel_private_complete(parallel$private, assigned_private)
   }
