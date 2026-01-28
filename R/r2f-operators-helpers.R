@@ -43,6 +43,27 @@ dims_match <- function(left, right) {
   identical(left, right)
 }
 
+# Check if two lengths recycle without warnings.
+# Used by: r2f-arithmetic.R, r2f-logical.R
+check_recyclable_pair <- function(left, right) {
+  if (is_wholenumber(left) && is_wholenumber(right)) {
+    left <- as.integer(left)
+    right <- as.integer(right)
+    if (left == 0L || right == 0L) {
+      return(list(ok = TRUE, unknown = FALSE))
+    }
+    longer <- max(left, right)
+    shorter <- min(left, right)
+    return(list(ok = (longer %% shorter) == 0L, unknown = FALSE))
+  }
+  left_norm <- fortranize_expr_symbols(left)
+  right_norm <- fortranize_expr_symbols(right)
+  if (identical(left_norm, right_norm)) {
+    return(list(ok = TRUE, unknown = FALSE))
+  }
+  list(ok = TRUE, unknown = TRUE)
+}
+
 # Reshape a vector to match a matrix's dimensions.
 # Used by: r2f-arithmetic.R, r2f-logical.R
 reshape_vector_for_matrix <- function(vec, rows, cols) {
@@ -54,7 +75,7 @@ reshape_vector_for_matrix <- function(vec, rows, cols) {
     glue("{vec}")
   }
   out_expr <- glue(
-    "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
+    "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}], pad = {source})"
   )
   Fortran(out_expr, out_val)
 }
@@ -79,45 +100,73 @@ maybe_reshape_vector_matrix <- function(left, right) {
     return(list(left = left, right = right))
   }
 
-  left_rank <- left@value@rank
-  right_rank <- right@value@rank
+  left_scalar <- passes_as_scalar(left@value)
+  right_scalar <- passes_as_scalar(right@value)
+  left_rank <- if (left_scalar) 0L else left@value@rank
+  right_rank <- if (right_scalar) 0L else right@value@rank
 
-  if (left_rank == 1L && right_rank == 2L) {
-    right_dims <- matrix_dims(right)
-    left_len <- dim_or_one(left, 1L)
-    if (dim_is_one(right_dims$cols) && dims_match(right_dims$rows, left_len)) {
-      left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
-    } else if (
-      dim_is_one(right_dims$rows) &&
-        dims_match(right_dims$cols, left_len)
-    ) {
-      left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
-    }
-  } else if (left_rank == 2L && right_rank == 1L) {
-    left_dims <- matrix_dims(left)
-    right_len <- dim_or_one(right, 1L)
-    if (dim_is_one(left_dims$cols) && dims_match(left_dims$rows, right_len)) {
-      right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
-    } else if (
-      dim_is_one(left_dims$rows) &&
-        dims_match(left_dims$cols, right_len)
-    ) {
-      right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
-    }
-  }
-
-  left_rank <- left@value@rank
-  right_rank <- right@value@rank
   if (left_rank == 2L && right_rank == 1L && is_one_by_one(left)) {
     right_len <- dim_or_one(right, 1L)
     if (!dim_is_one(right_len)) {
       left <- scalarize_matrix(left)
+      left_rank <- 0L
     }
   } else if (left_rank == 1L && right_rank == 2L && is_one_by_one(right)) {
     left_len <- dim_or_one(left, 1L)
     if (!dim_is_one(left_len)) {
       right <- scalarize_matrix(right)
+      right_rank <- 0L
     }
+  }
+
+  if (left_rank == 1L && right_rank == 1L) {
+    conform <- check_recyclable_pair(
+      dim_or_one(left, 1L),
+      dim_or_one(right, 1L)
+    )
+    if (!conform$ok) {
+      stop(
+        "elementwise vector operations require lengths that recycle cleanly unless one operand is scalar",
+        call. = FALSE
+      )
+    }
+  }
+
+  if (left_rank == 2L && right_rank == 2L) {
+    left_dims <- matrix_dims(left)
+    right_dims <- matrix_dims(right)
+    row_conform <- check_conformable(left_dims$rows, right_dims$rows)
+    col_conform <- check_conformable(left_dims$cols, right_dims$cols)
+    if (!row_conform$ok || !col_conform$ok) {
+      stop(
+        "elementwise matrix operations require matching dimensions",
+        call. = FALSE
+      )
+    }
+  }
+
+  if (left_rank == 1L && right_rank == 2L) {
+    right_dims <- matrix_dims(right)
+    left_len <- dim_or_one(left, 1L)
+    row_conform <- check_conformable(left_len, right_dims$rows)
+    if (!row_conform$ok || row_conform$unknown) {
+      stop(
+        "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
+        call. = FALSE
+      )
+    }
+    left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
+  } else if (left_rank == 2L && right_rank == 1L) {
+    left_dims <- matrix_dims(left)
+    right_len <- dim_or_one(right, 1L)
+    row_conform <- check_conformable(right_len, left_dims$rows)
+    if (!row_conform$ok || row_conform$unknown) {
+      stop(
+        "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
+        call. = FALSE
+      )
+    }
+    right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
   }
 
   list(left = left, right = right)

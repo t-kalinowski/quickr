@@ -283,6 +283,16 @@ Variable := new_class(
       set_once = FALSE #TRUE
     ),
 
+    r_name = prop_string(
+      allow_null = TRUE,
+      coerce = quote(switch(
+        typeof(value),
+        symbol = as.character(value),
+        value
+      )),
+      set_once = FALSE
+    ),
+
     rank = new_property(
       class_integer,
       getter = function(self) {
@@ -328,7 +338,11 @@ Variable := new_class(
 
     # TRUE when the variable is available via host association and should not
     # be redeclared in the local scope.
-    host_associated = prop_bool(default = FALSE)
+    host_associated = prop_bool(default = FALSE),
+
+    # When set, references to this variable should treat the named dummy
+    # argument as an optional input (e.g., is.null() -> .not. present()).
+    optional_dummy = prop_string(default = NULL, allow_null = TRUE)
   ),
 
   validator = function(self) {
@@ -363,6 +377,14 @@ Fortran := new_class(
       "must be a length 1 string"
     }
   }
+)
+
+SvdResult := new_class(
+  properties = list(
+    d = Variable,
+    u = NULL | Variable,
+    v = NULL | Variable
+  )
 )
 
 LocalClosure := new_class(

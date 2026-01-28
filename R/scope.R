@@ -125,6 +125,51 @@ new_scope <- function(closure, parent = emptyenv()) {
   scope
 }
 
+scope_return_var_names <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  return_var_names <- closure_return_var_names(scope@closure)
+  if (!length(return_var_names)) {
+    return(return_var_names)
+  }
+
+  is_list_return <- is_call(last(body(scope@closure)), quote(list))
+  values <- unname(return_var_names)
+  names_in <- names(return_var_names)
+  if (is.null(names_in)) {
+    names_in <- rep("", length(values))
+  }
+
+  expanded_values <- character()
+  expanded_names <- character()
+
+  for (i in seq_along(values)) {
+    value <- values[[i]]
+    name <- names_in[[i]]
+    obj <- get0(value, scope, inherits = FALSE)
+    if (inherits(obj, SvdResult)) {
+      comps <- list(d = obj@d, u = obj@u, v = obj@v)
+      comps <- drop_nulls(comps)
+      comp_names <- names(comps)
+      name_prefix <- if (!is_list_return && identical(name, value)) "" else name
+      if (nzchar(name_prefix)) {
+        comp_names <- paste0(name_prefix, ".", comp_names)
+      }
+      expanded_values <- c(
+        expanded_values,
+        map_chr(comps, \(var) var@name)
+      )
+      expanded_names <- c(expanded_names, comp_names)
+      next
+    }
+
+    expanded_values <- c(expanded_values, value)
+    expanded_names <- c(expanded_names, name)
+  }
+
+  names(expanded_values) <- expanded_names
+  expanded_values
+}
+
 
 #' @export
 `@.quickr_scope` <- function(x, name) attr(x, name, exact = TRUE)

@@ -244,14 +244,16 @@
         if (steps__len_ != 1)
           Rf_error("length(steps) must be 1, not %0.f",
                     (double)steps__len_);
-        const R_xlen_t temp__len_ = (Rf_asInteger(nx)) * (Rf_asInteger(ny));
+        const int _as_int_nx = Rf_asInteger(nx);
+        const int _as_int_ny = Rf_asInteger(ny);
+        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
           const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
           int* const _dim = INTEGER(_dim_sexp);
-          _dim[0] = Rf_asInteger(nx);
-          _dim[1] = Rf_asInteger(ny);
+          _dim[0] = _as_int_nx;
+          _dim[1] = _as_int_ny;
           Rf_dimgets(temp, _dim_sexp);
         }
         
@@ -498,14 +500,16 @@
         if (steps__len_ != 1)
           Rf_error("length(steps) must be 1, not %0.f",
                     (double)steps__len_);
-        const R_xlen_t temp__len_ = (Rf_asInteger(nx)) * (Rf_asInteger(ny));
+        const int _as_int_nx = Rf_asInteger(nx);
+        const int _as_int_ny = Rf_asInteger(ny);
+        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
           const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
           int* const _dim = INTEGER(_dim_sexp);
-          _dim[0] = Rf_asInteger(nx);
-          _dim[1] = Rf_asInteger(ny);
+          _dim[0] = _as_int_nx;
+          _dim[1] = _as_int_ny;
           Rf_dimgets(temp, _dim_sexp);
         }
         

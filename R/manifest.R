@@ -101,6 +101,17 @@ scope_vars <- function(scope) {
   keep(vars, inherits, what = Variable)
 }
 
+scope_var_by_fortran_name <- function(scope, name) {
+  stopifnot(inherits(scope, "quickr_scope"), is_string(name))
+  vars <- scope_vars(scope)
+  var_names <- map_chr(vars, \(var) var@name %||% "")
+  idx <- match(tolower(name), tolower(var_names))
+  if (is.na(idx)) {
+    return(NULL)
+  }
+  vars[[idx]]
+}
+
 iso_c_binding_symbols <- function(
   vars,
   body_code = "",
@@ -265,11 +276,13 @@ emit_block <- function(decls, stmts) {
 }
 
 r2f.scope <- function(scope, include_errors = FALSE) {
+  return_var_names <- unname(scope_return_var_names(scope))
   vars <- scope_vars(scope)
   vars <- lapply(vars, function(var) {
-    intent_in <- var@name %in% names(formals(scope@closure))
+    r_name <- var@r_name %||% var@name
+    intent_in <- r_name %in% names(formals(scope@closure))
     intent_out <-
-      (var@name %in% closure_return_var_names(scope@closure)) ||
+      (r_name %in% return_var_names) ||
       (intent_in && var@modified)
 
     intent <-
@@ -319,7 +332,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
   # vars that will be visible in the C bridge, either as an input or output
   non_local_var_names <- unique(c(
     names(formals(scope@closure)),
-    closure_return_var_names(scope@closure)
+    return_var_names
   ))
 
   # collect all size_names; sort so non-locals are declared first.
@@ -328,6 +341,14 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     lapply(var@dims, all.names, functions = FALSE, unique = TRUE)
   }))) |>
     setdiff(names(formals(scope@closure)))
+  if (length(names(formals(scope@closure)))) {
+    formal_vars <- mget(names(formals(scope@closure)), scope)
+    formal_fortran_names <- unique(map_chr(formal_vars, \(var) {
+      var@name %||% ""
+    }))
+    formal_fortran_names <- formal_fortran_names[nzchar(formal_fortran_names)]
+    size_names <- setdiff(size_names, formal_fortran_names)
+  }
   if (is.null(size_names)) {
     size_names <- character()
   }
@@ -354,7 +375,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
   # symbols that must come in as args to the subroutine
   # # method="radix" for locale-independent stable order.
   signature <- unique(c(
-    non_local_var_names,
+    map_chr(mget(non_local_var_names, scope), \(var) var@name),
     sort(size_names, method = "radix"),
     if (isTRUE(include_errors)) quickr_error_arg_names()
   ))
@@ -405,6 +426,31 @@ dims2f_eval_base_env[["length"]] <- function(x) {
     glue("size({x})")
   }
 }
+dims2f_eval_base_env[["nrow"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, 1)")
+  } else {
+    glue("size({x}, 1)")
+  }
+}
+dims2f_eval_base_env[["ncol"]] <- function(x) {
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, 2)")
+  } else {
+    glue("size({x}, 2)")
+  }
+}
+dims2f_eval_base_env[["dim"]] <- function(x) x
+dims2f_eval_base_env[["["]] <- function(x, i) {
+  if (!is_wholenumber(i)) {
+    stop("dim(x)[axis] requires integer axis")
+  }
+  if (is.symbol(x)) {
+    glue("size({as.character(x)}, {as.integer(i)})")
+  } else {
+    glue("size({x}, {as.integer(i)})")
+  }
+}
 dims2f_eval_base_env[["min"]] <- function(...) {
   args <- list(...)
   glue("min({str_flatten_commas(args)})")
@@ -417,7 +463,9 @@ dims2f_eval_base_env[["max"]] <- function(...) {
 
 dims2f <- function(dims, scope) {
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
-  vars <- as.list(syms)
+  vars <- lapply(syms, function(sym) {
+    scope_fortran_symbol(as.symbol(sym), scope)
+  })
   names(vars) <- syms
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {

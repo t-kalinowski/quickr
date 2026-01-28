@@ -614,7 +614,8 @@
         if (k__len_ != 1)
           Rf_error("length(k) must be 1, not %0.f",
                     (double)k__len_);
-        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (Rf_asInteger(k));
+        const int _as_int_k = Rf_asInteger(k);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (_as_int_k);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -622,7 +623,7 @@
           int* const _dim = INTEGER(_dim_sexp);
           _dim[0] = x__dim_1_;
           _dim[1] = x__dim_2_;
-          _dim[2] = Rf_asInteger(k);
+          _dim[2] = _as_int_k;
           Rf_dimgets(out, _dim_sexp);
         }
         
@@ -990,7 +991,8 @@
         if (k__len_ != 1)
           Rf_error("length(k) must be 1, not %0.f",
                     (double)k__len_);
-        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (x__dim_3_) * (Rf_asInteger(k));
+        const int _as_int_k = Rf_asInteger(k);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (x__dim_3_) * (_as_int_k);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -999,7 +1001,7 @@
           _dim[0] = x__dim_1_;
           _dim[1] = x__dim_2_;
           _dim[2] = x__dim_3_;
-          _dim[3] = Rf_asInteger(k);
+          _dim[3] = _as_int_k;
           Rf_dimgets(out, _dim_sexp);
         }
         

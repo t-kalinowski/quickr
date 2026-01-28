@@ -141,6 +141,70 @@ test_that("parenthesized closure calls work", {
   expect_quick_identical(fn, list(3), list(7))
 })
 
+test_that("local closures support NULL defaults via optional args", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      if (is.null(a)) {
+        a <- x + 1
+      }
+      a * 2
+    }
+    f()
+  }
+
+  expect_translation_snapshots(fn)
+  expect_identical(fn(2), 6)
+  expect_quick_identical(fn, list(2), list(5))
+
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      if (is.null(a)) {
+        a <- x + 1
+      }
+      a * 2
+    }
+    f(4)
+  }
+
+  expect_identical(fn(2), 8)
+  expect_quick_identical(fn, list(2), list(5))
+})
+
+test_that("optional NULL defaults require a presence guard", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      if (!is.null(a)) {
+        a <- x
+      }
+      a + x
+    }
+    f()
+  }
+
+  expect_identical(fn(2), numeric())
+  expect_error(
+    quick(fn),
+    "optional argument\\(s\\) used without initializing when NULL: a"
+  )
+})
+
+test_that("optional NULL defaults allow unconditional assignment", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    f <- function(a = NULL) {
+      a <- x + 1
+      a * 2
+    }
+    f()
+  }
+
+  expect_identical(fn(2), 6)
+  expect_quick_identical(fn, list(2), list(5))
+})
+
 test_that("closure returning logical assigned to return variable", {
   fn <- function(x) {
     declare(type(x = double(NA)))

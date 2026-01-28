@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             481ms 481.18ms      2.08     782KB     8.31
-#> 2 quickr        911µs   1.06ms    940.       782KB    18.2 
-#> 3 c             916µs   1.06ms    946.       782KB    17.9
+#> 1 r          484.96ms 484.96ms      2.06     782KB     8.25
+#> 2 quickr       1.01ms   1.07ms    929.       782KB    17.7 
+#> 3 c            1.01ms   1.09ms    912.       782KB    16.9
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -165,25 +165,26 @@ In the case of `convolve()`, `quick()` returns a function approximately
 
 <!-- -->
 
-    #>  [1] -            :            !            !=           (           
-    #>  [6] [            [<-          [<<-         {            *           
-    #> [11] /            &            &&           %*%          %/%         
-    #> [16] %%           %o%          ^            +            <           
-    #> [21] <-           <<-          <=           =            ==          
-    #> [26] >            >=           |            ||           Arg         
-    #> [31] Conj         Fortran      Im           Mod          Re          
-    #> [36] abs          acos         array        as.double    asin        
-    #> [41] atan         backsolve    break        c            cat         
-    #> [46] cbind        ceiling      character    chol         chol2inv    
-    #> [51] cos          crossprod    declare      diag         dim         
-    #> [56] double       exp          floor        for          forwardsolve
-    #> [61] if           ifelse       integer      length       log         
-    #> [66] log10        logical      matrix       max          min         
-    #> [71] ncol         next         nrow         numeric      outer       
-    #> [76] print        prod         qr.solve     raw          rbind       
-    #> [81] repeat       runif        seq          seq_along    seq_len     
-    #> [86] sin          solve        sqrt         sum          t           
-    #> [91] tan          tcrossprod   which.max    which.min    while
+    #>   [1] -            :            !            !=           (           
+    #>   [6] [            [<-          [<<-         {            *           
+    #>  [11] /            &            &&           %*%          %/%         
+    #>  [16] %%           %o%          ^            +            <           
+    #>  [21] <-           <<-          <=           =            ==          
+    #>  [26] >            >=           |            ||           $           
+    #>  [31] Arg          Conj         Fortran      Im           Mod         
+    #>  [36] Re           abs          acos         array        as.double   
+    #>  [41] asin         atan         backsolve    break        c           
+    #>  [46] cat          cbind        ceiling      character    chol        
+    #>  [51] chol2inv     cos          crossprod    declare      diag        
+    #>  [56] dim          double       drop         exp          floor       
+    #>  [61] for          forwardsolve if           ifelse       integer     
+    #>  [66] is.null      length       log          log10        logical     
+    #>  [71] matrix       max          min          ncol         next        
+    #>  [76] nrow         numeric      outer        print        prod        
+    #>  [81] qr.solve     raw          rbind        repeat       runif       
+    #>  [86] seq          seq_along    seq_len      sin          solve       
+    #>  [91] sqrt         stop         sum          svd          t           
+    #>  [96] tan          tcrossprod   which.max    which.min    while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -300,8 +301,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   62.36µs  72.08µs    13291.    1.59KB     29.2
-#> 2 quick_viterbi   1.68µs   1.89µs   522138.        0B      0
+#> 1 slow_viterbi   68.35µs  73.23µs    12893.    1.59KB     29.6
+#> 2 quick_viterbi   1.93µs   2.05µs   476397.        0B      0
 plot(timings)
 ```
 
@@ -392,8 +393,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        10.1   11.6       1       4893.      Inf
-#> 2 quick_diffuse_heat   1      1        13.4        1       NaN
+#> 1 diffuse_heat        7.08   13.0       1       4893.      Inf
+#> 2 quick_diffuse_heat  1       1        11.6        1       NaN
 plot(timings)
 ```
 
@@ -439,9 +440,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           68.34ms  78.79ms      9.64  124.24MB    21.2 
-#> 2 rcpp         5.92ms   6.29ms    155.      4.46MB     1.99
-#> 3 quickr       2.15ms   2.26ms    438.    781.35KB     3.98
+#> 1 r           70.05ms  88.14ms      9.07  124.24MB    18.1 
+#> 2 rcpp         5.94ms   6.27ms    158.      4.46MB     0   
+#> 3 quickr       2.31ms   2.49ms    390.    781.35KB     3.98
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -465,40 +466,26 @@ RcppArmadillo implementation. The `fastLm` function is adapted from the
 README of the RcppArmadillo project.
 
 ``` r
-fast_lm <- function(X, y) {
-  declare(
-    type(X = double(n, k)),
-    type(y = double(n))
-  )
-
-  n <- nrow(X)
-  k <- ncol(X)
-  df_residual <- n - k
-
-  coef <- qr.solve(X, y)     # fit model y ~ X
-  res <- y - X %*% coef      # residuals
-  s2 <- sum(res * res) / df_residual
-
-  XtX <- crossprod(X)
-  XtX_inv <- qr.solve(XtX, diag(k))
-  std_err <- sqrt(s2 * diag(XtX_inv))
+# reference implementation
+fast_lm_ref <- function(X, y) {
+  fit <- lm(y ~ X - 1)
+  s <- summary(fit)
 
   list(
-    coefficients = coef,
-    stderr       = std_err,
-    df.residual  = df_residual
+    coefficients = unname(coef(fit)),
+    stderr = unname(s$coefficients[, "Std. Error"]),
+    df.residual = fit$df.residual
   )
 }
 
-quick_fast_lm <- quick(fast_lm)
-
+# RcppArmadillo implementation
 Rcpp::sourceCpp(
 code = '
 #include <RcppArmadillo/Lighter>
 // [[Rcpp::depends(RcppArmadillo)]]
 
 // [[Rcpp::export]]
-Rcpp::List rcpp_armadillo_fast_lm(const arma::mat& X, const arma::colvec& y) {
+Rcpp::List fast_lm_rcpp_armadillo(const arma::mat& X, const arma::colvec& y) {
     int n = X.n_rows, k = X.n_cols;
 
     arma::colvec coef = arma::solve(X, y);     // fit model y ~ X
@@ -510,6 +497,43 @@ Rcpp::List rcpp_armadillo_fast_lm(const arma::mat& X, const arma::colvec& y) {
                               Rcpp::Named("stderr")       = std_err,
                               Rcpp::Named("df.residual")  = n - k);
 }')
+
+# Plain R fast-path
+fast_lm_r <- function(X, y) {
+  declare(
+    type(X = double(n, k)),
+    type(y = double(n))
+  )
+
+  # analogous to arma::pinv()
+  pinv_svd <- function(A, tol = NULL) {
+    s <- svd(A)
+    if (is.null(tol)) {
+      tol <- max(dim(A)) * max(s$d) * .Machine$double.eps
+    }
+    d_inv <- ifelse(s$d > tol, 1 / s$d, 0)
+    s$v %*% (d_inv * t(s$u))
+  }
+
+  df_residual <- nrow(X) - ncol(X)
+
+  coef <- qr.solve(X, y) # analogous to arma::solve(X, y)
+  res <- y - X %*% coef
+  s2 <- drop(crossprod(res)) / df_residual
+
+  XtX <- crossprod(X)
+  XtX_pinv <- pinv_svd(XtX) # analogous to arma::pinv()
+  std_err <- sqrt(s2 * diag(XtX_pinv))
+
+  list(
+    coefficients = coef, 
+    stderr = std_err,
+    df.residual = df_residual
+  )
+}
+
+# quickr func
+quick_fast_lm <- quick(fast_lm_r)
 ```
 
 ### Benchmark
@@ -522,19 +546,23 @@ X <- cbind(1, matrix(rnorm(3 * 10^5), ncol = 4))
 y <- as.vector(X %*% beta + rnorm(nrow(X), sd = 2))
 
 timings <- bench::mark(
-  R = fast_lm(X, y),
-  quickr = quick_fast_lm(X, y),
-  RcppArmadillo = rcpp_armadillo_fast_lm(X, y)
+  `reference`     = fast_lm_ref(X, y),
+  `RcppArmadillo` = fast_lm_rcpp_armadillo(X, y),
+  `plain R`       = fast_lm_r(X, y),
+  `quickr`        = quick_fast_lm(X, y)
 )
 
 timings
-#> # A tibble: 3 × 6
+#> # A tibble: 4 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 R               1.28ms   1.82ms      545.    13.7MB     148.
-#> 2 quickr          1.65ms   1.73ms      575.        0B       0 
-#> 3 RcppArmadillo   1.67ms   2.02ms      491.        0B       0
-plot(timings)
+#> 1 reference      12.14ms  12.58ms      79.0    29.6MB     84.0
+#> 2 RcppArmadillo   1.78ms   2.03ms     473.         0B      0  
+#> 3 plain R         1.65ms   2.02ms     487.     13.2MB    114. 
+#> 4 quickr        940.05µs   1.11ms     836.         0B      0
+plot(timings) + ggplot2::scale_y_discrete(limits = rev(c( 
+  "reference", "RcppArmadillo", "plain R", "quickr"
+)))
 ```
 
 <img src="man/figures/README-unnamed-chunk-10-1.png" alt="" width="100%" />

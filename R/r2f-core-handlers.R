@@ -15,11 +15,12 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
       set_pending_parallel(scope, parse_parallel_decl(a))
     } else if (is_type_call(a)) {
       var <- type_call_to_var(a)
-      var@is_arg <- var@name %in% names(formals(scope@closure))
+      r_name <- var@r_name %||% var@name
+      var@is_arg <- r_name %in% names(formals(scope@closure))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
         var@logical_as_int <- TRUE
       }
-      scope[[var@name]] <- var
+      scope[[r_name]] <- var
     } else if (is_call(a, quote(`{`))) {
       Recall(as.list(a)[-1], scope)
     }
@@ -65,6 +66,64 @@ r2f_handlers[["stop"]] <- function(args, scope = NULL, ...) {
 r2f_handlers[["("]] <- function(args, scope, ...) {
   x <- r2f(args[[1L]], scope, ...)
   Fortran(glue("({x})"), x@value)
+}
+
+r2f_handlers[["$"]] <- function(args, scope, ..., hoist = NULL) {
+  stopifnot(length(args) == 2L)
+  base <- args[[1L]]
+  field <- args[[2L]]
+  field_name <- if (is.symbol(field)) {
+    as.character(field)
+  } else if (is_string(field)) {
+    field
+  } else {
+    stop("`$` expects a symbol or string field name", call. = FALSE)
+  }
+
+  if (is.symbol(base) && identical(as.character(base), ".Machine")) {
+    if (identical(field_name, "double.eps")) {
+      return(Fortran("epsilon(1.0_c_double)", Variable("double")))
+    }
+    stop("`.Machine$", field_name, "` is not supported", call. = FALSE)
+  }
+
+  if (field_name %in% c("d", "u", "v")) {
+    if (is.symbol(base)) {
+      base_name <- as.character(base)
+      base_val <- if (is.null(scope)) NULL else get0(base_name, scope)
+      if (inherits(base_val, SvdResult)) {
+        out_var <- switch(
+          field_name,
+          d = base_val@d,
+          u = base_val@u,
+          v = base_val@v
+        )
+        if (is.null(out_var)) {
+          stop(
+            "svd() result does not include `$",
+            field_name,
+            "`",
+            call. = FALSE
+          )
+        }
+        return(Fortran(out_var@name, out_var))
+      }
+    }
+    if (is_call(base, "svd")) {
+      return(svd_component_from_call(
+        base,
+        field_name,
+        scope,
+        ...,
+        hoist = hoist
+      ))
+    }
+  }
+
+  stop(
+    "`$` only supports `.Machine$double.eps` and `svd()` results ($d, $u, $v)",
+    call. = FALSE
+  )
 }
 
 r2f_handlers[["{"]] <- function(args, scope, ..., hoist = NULL) {

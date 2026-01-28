@@ -1,11 +1,12 @@
 test_that("case-sensitive variable name clashes", {
-  expect_error(regexp = "case-insensitive.+`j`.+`J`", {
+  expect_snapshot(
     quick(function(j) {
       declare(type(j = integer(1)))
       J <- double(length = j)
       J
-    })
-  })
+    }),
+    error = TRUE
+  )
 })
 
 test_that("non-final expressions must be assigned", {
@@ -69,33 +70,34 @@ test_that("value-returning local closures can be called as statements", {
 })
 
 test_that("reserved or underscored names are rejected", {
-  expect_error(
+  expect_snapshot(
     quick(function(x) {
-      declare(type(x = integer(1)))
       `_bad` <- x + 1L
       `_bad`
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
   )
 
-  expect_error(
+  expect_snapshot(
     quick(function(x) {
-      declare(type(x = integer(1)))
       `bad_` <- x + 1L
       `bad_`
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
   )
 
-  expect_error(
+  expect_snapshot(
     quick(function(int) {
-      declare(type(int = integer(1)))
       int
     }),
-    "symbols cannot start or end with '_'",
-    fixed = TRUE
+    error = TRUE
+  )
+
+  expect_snapshot(
+    quick(function(`foo.bar`, foo_bar) {
+      1
+    }),
+    error = TRUE
   )
 })
 
@@ -122,5 +124,46 @@ test_that("closure must return scalar for scalar outputs", {
       s
     }),
     "closure must return a scalar"
+  )
+})
+
+test_that("missing argument declarations get a clear error", {
+  expect_error(
+    quick(function(x) {
+      x + 1
+    }),
+    "arg not declared: x"
+  )
+})
+
+test_that("declare() type() calls validate syntax", {
+  too_many <- function(x, y) {
+    declare(type(x = double(1), y = double(1)))
+    x + y
+  }
+  expect_error(
+    quick(too_many),
+    "only one variable can be declared per type\\(\\) call",
+    fixed = FALSE
+  )
+
+  missing_name <- function(x) {
+    declare(type(double(1)))
+    x
+  }
+  expect_error(
+    quick(missing_name),
+    "name must be provided as:",
+    fixed = TRUE
+  )
+
+  bad_mode <- function(x) {
+    declare(type(x = double))
+    x
+  }
+  expect_error(
+    quick(bad_mode),
+    "only atomic modes are supported",
+    fixed = TRUE
   )
 })

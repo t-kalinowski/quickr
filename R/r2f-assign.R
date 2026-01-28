@@ -38,10 +38,11 @@ assignment_extract_fallthrough <- function(rhs) {
 
 assignment_fortran_name <- function(name, scope) {
   stopifnot(is_string(name))
+  base <- fortranize_name(name)
   if (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) {
-    make_shadow_fortran_name(scope, name)
+    make_shadow_fortran_name(scope, base)
   } else {
-    name
+    base
   }
 }
 
@@ -133,6 +134,17 @@ register_r2f_handler(
       )
     }
 
+    rhs_unwrapped <- unwrap_parens(rhs)
+    if (is_call(rhs_unwrapped, "svd")) {
+      return(compile_svd_assignment(
+        name,
+        rhs_unwrapped,
+        scope,
+        ...,
+        hoist = hoist
+      ))
+    }
+
     dest_allowed <- dest_supported_for_call(rhs)
 
     # If target already exists (declared), thread destination hint to a single BLAS-capable child
@@ -170,6 +182,7 @@ register_r2f_handler(
       if (is.null(fortran_name)) {
         fortran_name <- assignment_fortran_name(name, scope)
       }
+      var@r_name <- name
       var@name <- fortran_name
       # keep a reference to the R expression assigned, if available
       tryCatch(
@@ -179,6 +192,17 @@ register_r2f_handler(
       scope[[name]] <- var
     } else {
       # The var already exists, this assignment is a modification / reassignment
+      if (is.null(var@r_name)) {
+        var@r_name <- name
+      }
+      if (
+        is.null(var@mode) &&
+          inherits(value@value, Variable) &&
+          !is.null(value@value@mode)
+      ) {
+        var@mode <- value@value@mode
+        var@dims <- value@value@dims
+      }
       check_assignment_compatible(var, value@value)
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track

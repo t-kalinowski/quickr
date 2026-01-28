@@ -101,7 +101,7 @@ r2f_handlers[["["]] <- function(
   if (length(idxs) != var@value@rank) {
     stop(
       "number of args to x[...] must match the rank of x, received:",
-      deparse1(as.call(c(quote(`[`, args))))
+      deparse1(as.call(c(list(as.name("[")), args)))
     )
   }
 
@@ -134,7 +134,7 @@ r2f_handlers[["["]] <- function(
       # double1 = { },
       stop(
         "all args to x[...] must be logical or integer of rank 0 or 1",
-        deparse1(as.call(c(quote(`[`, args))))
+        deparse1(as.call(c(list(as.name("[")), args)))
       )
     )
   })

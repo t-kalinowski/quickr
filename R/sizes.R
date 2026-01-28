@@ -14,8 +14,10 @@ check_type_call <- function(cl) {
 
 type_call_to_var <- function(cl) {
   check_type_call(cl)
+  r_name <- names(cl)[-1]
   Variable(
-    name = names(cl)[-1],
+    name = fortranize_name(r_name),
+    r_name = r_name,
     mode = as.character(cl[[2L]][[1L]]),
     dims = unname(as.list(cl[[2]])[-1])
   )
@@ -23,7 +25,7 @@ type_call_to_var <- function(cl) {
 
 var_to_type_call <- function(var) {
   arg <- as.call(c(as.symbol(var@mode), var@dims))
-  arg <- setNames(list(arg), var@name)
+  arg <- setNames(list(arg), var@r_name %||% var@name)
   as.call(c(quote(type), arg))
 }
 
@@ -130,6 +132,13 @@ substitute_declared_sizes <- function(e) {
 
 
 r2size <- function(r, scope) {
+  sanitize_dim <- function(dim) {
+    if (is.symbol(dim) || is.call(dim)) {
+      return(r2size(dim, scope))
+    }
+    dim
+  }
+
   typeof(r) |>
     switch(
       integer = r,
@@ -152,11 +161,11 @@ r2size <- function(r, scope) {
           warning("size is not an integer:", as.character(r))
         }
         if (var@is_arg && !var@modified) {
-          return(r)
+          return(scope_fortran_symbol(r, scope))
         }
         # TODO: add specific unit tests here
         if (identical(var@r, r)) {
-          return(r)
+          return(scope_fortran_symbol(r, scope))
         }
         # make a best effort to use the r expression last assigned to the
         # symbol, or fail gracefully and return NA.
@@ -188,7 +197,7 @@ r2size <- function(r, scope) {
               stop("could not resolve size: ", deparse1(r))
             }
             if (var@rank == 1) {
-              return(var@dims[[1L]])
+              return(sanitize_dim(var@dims[[1L]]))
             }
             len <- reduce(var@dims, \(d1, d2) call("*", d1, d2))
             r2size(len, scope)
@@ -209,7 +218,7 @@ r2size <- function(r, scope) {
             if (axis > var@rank) {
               stop("insufficient rank of variable in ", deparse1(r))
             }
-            var@dims[[axis]]
+            sanitize_dim(var@dims[[axis]])
           },
           # dim = {
           #
@@ -219,14 +228,14 @@ r2size <- function(r, scope) {
             if (!inherits(var, Variable)) {
               stop("could not resolve size: ", deparse1(r))
             }
-            var@dims[[1]]
+            sanitize_dim(var@dims[[1]])
           },
           ncol = {
             var <- get0(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
               stop("could not resolve size: ", deparse1(r))
             }
-            var@dims[[2]]
+            sanitize_dim(var@dims[[2]])
           },
           NA_integer_
         )

@@ -47,7 +47,7 @@ new_fortran_subroutine <- function(
 
   # Ensure return vars are marked (primarily to mark logical outputs as integer
   # storage for bind(c) and to support early "external-ness" checks).
-  for (return_name in attr(scope, "return_names", exact = TRUE)) {
+  for (return_name in unique(unname(scope_return_var_names(scope)))) {
     if (!is.null(var <- get0(return_name, scope))) {
       stopifnot(inherits(var, Variable))
       var@is_return <- TRUE

@@ -58,7 +58,8 @@
         if (n__len_ != 1)
           Rf_error("length(n) must be 1, not %0.f",
                     (double)n__len_);
-        const R_xlen_t out___len_ = Rf_asInteger(n);
+        const int _as_int_n = Rf_asInteger(n);
+        const R_xlen_t out___len_ = _as_int_n;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
@@ -311,7 +312,8 @@
         if (b__len_ != 1)
           Rf_error("length(b) must be 1, not %0.f",
                     (double)b__len_);
-        const R_xlen_t out___len_ = Rf_asInteger(n);
+        const int _as_int_n = Rf_asInteger(n);
+        const R_xlen_t out___len_ = _as_int_n;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
@@ -406,7 +408,8 @@
         if (b__len_ != 1)
           Rf_error("length(b) must be 1, not %0.f",
                     (double)b__len_);
-        const R_xlen_t out___len_ = Rf_asInteger(n);
+        const int _as_int_n = Rf_asInteger(n);
+        const R_xlen_t out___len_ = _as_int_n;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
