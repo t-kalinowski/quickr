@@ -175,6 +175,9 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     }
     body <- r2f(body, scope, ...)
     check_pending_parallel_consumed(scope)
+    if (!is.null(parallel)) {
+      validate_parallel_private(parallel$private, scope)
+    }
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
 
     loop_header <- if (iterable_reversed) {
@@ -183,7 +186,15 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
-    directives <- openmp_directives(parallel, private = var_name)
+    extra_private <- vapply(
+      parallel$private %||% character(),
+      fortranize_name,
+      character(1L)
+    )
+    directives <- openmp_directives(
+      parallel,
+      private = c(var_name, extra_private)
+    )
     if (!is.null(parallel)) {
       mark_openmp_used(scope)
     }
@@ -220,8 +231,16 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   }
   body <- r2f(body, scope, ...)
   check_pending_parallel_consumed(scope)
+  if (!is.null(parallel)) {
+    validate_parallel_private(parallel$private, scope)
+  }
 
-  directives <- openmp_directives(parallel)
+  extra_private <- vapply(
+    parallel$private %||% character(),
+    fortranize_name,
+    character(1L)
+  )
+  directives <- openmp_directives(parallel, private = extra_private)
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }
