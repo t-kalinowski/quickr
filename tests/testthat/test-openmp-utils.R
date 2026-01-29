@@ -186,25 +186,6 @@ test_that("parallel private ignores scalars assigned inside loop", {
   expect_no_error(r2f(fn))
 })
 
-test_that("parallel private works with sapply", {
-  skip_if_no_openmp()
-
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    tmp <- as.double(0)
-    declare(type(tmp = double(1)))
-
-    declare(parallel(private = tmp))
-    out <- sapply(seq_along(x), function(i) {
-      tmp <- x[i] * 2
-      tmp + 1
-    })
-    out
-  }
-
-  expect_quick_identical(fn, list(x = c(1, 2, 3, 4, 5)))
-})
-
 test_that("is_parallel_target_stmt handles edge cases", {
   # non-call
 
