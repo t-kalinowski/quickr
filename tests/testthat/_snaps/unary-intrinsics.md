@@ -667,7 +667,7 @@
         ! manifest end
       
       
-        out = floor(x)
+        out = real(floor(x), kind=c_double)
       end subroutine
     Code
       cat(cwrapper)
@@ -731,7 +731,7 @@
         ! manifest end
       
       
-        out = ceiling(x)
+        out = real(ceiling(x), kind=c_double)
       end subroutine
     Code
       cat(cwrapper)
