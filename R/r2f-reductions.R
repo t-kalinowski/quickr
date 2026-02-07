@@ -20,7 +20,17 @@ register_r2f_handler(
 
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+      # Nested reductions (e.g., min(max(...), ...)) can thread an existing
+      # hoist_mask through `...`. We always want a single mask hoister per
+      # reduction context, so we ignore any inherited one and install ours.
+      dots <- list(...)
+      x <- r2f(
+        arg,
+        scope,
+        calls = dots$calls,
+        hoist = dots$hoist,
+        hoist_mask = mask_hoist$try_set
+      )
       if (mask_hoist$has_conflict()) {
         stop(
           "reduction expressions only support a single logical mask",
