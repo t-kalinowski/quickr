@@ -84,8 +84,73 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
     stop("array(dimnames=) not supported")
   }
 
+  dim_to_dims <- function(dim_arg) {
+    if (
+      is.atomic(dim_arg) &&
+        typeof(dim_arg) %in% c("integer", "double")
+    ) {
+      if (!length(dim_arg) || anyNA(dim_arg)) {
+        stop(
+          "array(dim=) must be non-empty and must not contain NA",
+          call. = FALSE
+        )
+      }
+      dim_arg <- vapply(
+        dim_arg,
+        function(x) {
+          if (!is_wholenumber(x)) {
+            stop(
+              "array(dim=) must be whole numbers, found: ",
+              x,
+              call. = FALSE
+            )
+          }
+          as.integer(x)
+        },
+        integer(1L)
+      )
+      return(as.list(dim_arg))
+    }
+
+    if (is.call(dim_arg) && is.symbol(dim_arg[[1L]])) {
+      op <- as.character(dim_arg[[1L]])
+      if (op == ":") {
+        if (length(dim_arg) != 3L) {
+          stop("bad dim sequence", call. = FALSE)
+        }
+        from <- dim_arg[[2L]]
+        to <- dim_arg[[3L]]
+        if (
+          !(is.atomic(from) && length(from) == 1L && is_wholenumber(from)) ||
+            !(is.atomic(to) && length(to) == 1L && is_wholenumber(to))
+        ) {
+          stop(
+            "array(dim=) only supports literal sequences like 2:4",
+            call. = FALSE
+          )
+        }
+        return(as.list(seq.int(as.integer(from), as.integer(to))))
+      }
+    }
+
+    if (is.symbol(dim_arg)) {
+      var <- get0(as.character(dim_arg), scope)
+      if (
+        inherits(var, Variable) &&
+          var@mode %in% c("integer", "double") &&
+          var@rank == 1L &&
+          (is.language(var@r) || is.atomic(var@r)) &&
+          !identical(var@r, dim_arg)
+      ) {
+        return(dim_to_dims(var@r))
+      }
+    }
+
+    r2dims(dim_arg, scope)
+  }
+
   out <- r2f(args$data, scope, ...)
-  target_dims <- r2dims(args$dim, scope)
+  target_dims <- dim_to_dims(args$dim)
   if (!passes_as_scalar(out@value)) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
     # We implement this as `reshape()`; recycling is not supported here.
@@ -111,11 +176,22 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
         )
 
     source <- if (is_fill_constructor) {
-      dims_terms <- strsplit(dims_f, ",\\s*")[[1L]]
-      n_expr <- if (length(dims_terms) == 1L) {
-        dims_terms[[1L]]
+      axis_terms <- vapply(
+        target_dims,
+        function(d) {
+          axis <- dims2f(list(d), scope)
+          if (!nzchar(axis)) {
+            "1"
+          } else {
+            axis
+          }
+        },
+        character(1L)
+      )
+      n_expr <- if (length(axis_terms) == 1L) {
+        axis_terms[[1L]]
       } else {
-        glue("({paste(dims_terms, collapse = ' * ')})")
+        paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
       }
       i <- scope@get_unique_var("integer")
       glue("[({out}, {i}=1, int({n_expr}))]")

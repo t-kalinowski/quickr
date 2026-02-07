@@ -55,3 +55,42 @@ test_that("array() reshape accepts literal dim vectors in the AST", {
   x <- array(sample(1:10, 24, replace = TRUE), dim = c(2L, 3L, 4L))
   expect_quick_identical(fn, list(x))
 })
+
+test_that("array() reshape accepts dim as a literal sequence (2:4)", {
+  fn <- function(x) {
+    declare(type(x = integer(2L, 3L, 4L)))
+    array(as.double(x), dim = 2:4)
+  }
+
+  set.seed(1)
+  x <- array(sample(1:10, 24, replace = TRUE), dim = c(2L, 3L, 4L))
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("array() reshape accepts dim passed as a variable bound to a literal sequence", {
+  fn <- function(x) {
+    declare(type(x = integer(2L, 3L, 4L)))
+    d <- 2:4
+    array(as.double(x), dim = d)
+  }
+
+  set.seed(1)
+  x <- array(sample(1:10, 24, replace = TRUE), dim = c(2L, 3L, 4L))
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("array() fill reshape handles dim expressions that lower to comma-containing Fortran", {
+  fn <- function(y, x) {
+    declare(type(y = double(NA, NA)), type(x = double(nrow(y), ncol(y))))
+
+    # `dim(x)` uses the dims declared above, which dims2f() lowers to
+    # `size(y, 1), size(y, 2)` (commas inside expressions). Codegen must not
+    # split on commas in Fortran output.
+    array(integer(nrow(y) * ncol(y)), dim = dim(x))
+  }
+
+  set.seed(1)
+  y <- matrix(runif(6), 2, 3)
+  x <- y
+  expect_quick_identical(fn, list(y, x))
+})
