@@ -127,6 +127,28 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
   }
   expect_quick_identical(all_scalar_masked_empty, list(TRUE), list(FALSE))
 
+  # Scalar masked subset with a scalar mask variable: should compile and
+  # preserve empty-selection semantics.
+  any_scalar_masked_var <- function(x, m) {
+    declare(type(x = logical(1)), type(m = logical(1)))
+    any(x[m])
+  }
+  expect_quick_identical(
+    any_scalar_masked_var,
+    list(x = TRUE, m = FALSE),
+    list(x = FALSE, m = TRUE)
+  )
+
+  all_scalar_masked_var <- function(x, m) {
+    declare(type(x = logical(1)), type(m = logical(1)))
+    all(x[m])
+  }
+  expect_quick_identical(
+    all_scalar_masked_var,
+    list(x = FALSE, m = FALSE),
+    list(x = FALSE, m = TRUE)
+  )
+
   # Masked subset: preserve empty-selection semantics via pack().
   any_masked <- function(x) {
     declare(type(x = double(NA)))

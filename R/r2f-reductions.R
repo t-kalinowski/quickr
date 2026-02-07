@@ -114,16 +114,25 @@ register_r2f_handler(
           return(x)
         }
 
-        # `hoisted_mask` often comes from `c(FALSE)`-like expressions, which
-        # compile to rank-1 array constructors (e.g. `[ .false. ]`) even when
-        # they represent scalar R masks. Reduce it to a scalar so we can use it
-        # in scalar control flow.
-        mask_scalar <- if (
-          !is.null(hoisted_mask@value) && hoisted_mask@value@rank > 0L
-        ) {
-          glue("all({hoisted_mask})")
-        } else {
+        # For scalar `x`, `x[mask]` is empty iff `!any(mask)`.
+        #
+        # Note: `logical(1)` masks are represented as rank-1 (dims = list(1L))
+        # but pass as scalars in the ABI and must *not* be wrapped in `any()` /
+        # `all()` (compilers reject `any()` / `all()` on scalar arguments).
+        #
+        # Conversely, literal masks like `c(FALSE)` compile to array constructors
+        # (e.g. `[ .false. ]`) and must be reduced to a scalar condition.
+        mask_code <- trimws(as.character(hoisted_mask))
+        is_array_ctor <- startsWith(mask_code, "[")
+        mask_is_scalar <-
+          !is.null(hoisted_mask@value) &&
+          passes_as_scalar(hoisted_mask@value) &&
+          !is_array_ctor
+
+        mask_scalar <- if (mask_is_scalar) {
           glue("{hoisted_mask}")
+        } else {
+          glue("any({hoisted_mask})")
         }
 
         # When `[` hoists a scalar mask (x[mask] -> x with a hoisted mask),
