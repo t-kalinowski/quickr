@@ -11,6 +11,16 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
 
   # Scalars (incl. length-1 vectors that are lowered as scalars) reverse to self.
   if (passes_as_scalar(x@value)) {
+    # For bind(c) logical scalars, the default symbol lowering booleanizes the
+    # argument as `(m/=0)`, which would both lose NA_LOGICAL and force a
+    # nonstandard logical->integer assignment into the integer-backed return.
+    # Preserve the underlying integer storage when available.
+    if (identical(x@value@mode, "logical") && logical_as_int(x@value)) {
+      base_name <- x@value@name
+      if (!is.null(base_name)) {
+        return(Fortran(base_name, x@value))
+      }
+    }
     return(x)
   }
 
