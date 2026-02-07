@@ -1,5 +1,8 @@
 # r2f-reductions.R
-# Handlers for reduction operations: max, min, sum, prod, which.max, which.min
+# Handlers for reduction operations:
+# - numeric: max, min, sum, prod
+# - logical: any, all
+# - index: which.max, which.min
 
 # --- Handlers ---
 
@@ -65,6 +68,156 @@ register_r2f_handler(
       )
       Fortran(s, Variable(mode))
     }
+  }
+)
+
+register_r2f_handler(
+  c("any", "all"),
+  function(
+    args,
+    scope,
+    ...
+  ) {
+    # For now, we only support the most common `any(x)` / `all(x)` shape.
+    # We intentionally do not support named arguments like `na.rm`.
+    arg_names <- names(args) %||% character()
+    if (length(arg_names) && any(nzchar(arg_names))) {
+      stop(
+        "any()/all() do not support named arguments (e.g. `na.rm`)",
+        call. = FALSE
+      )
+    }
+
+    call_name <- last(list(...)$calls)
+    intrinsic <- switch(
+      call_name,
+      any = "any",
+      all = "all",
+      stop("internal error: unexpected call: ", call_name, call. = FALSE)
+    )
+
+    # Match R's base semantics: any() == FALSE, all() == TRUE.
+    if (length(args) == 0L) {
+      lit <- if (identical(call_name, "any")) ".false." else ".true."
+      return(Fortran(lit, Variable("logical")))
+    }
+
+    reduce_arg <- function(arg) {
+      mask_hoist <- create_mask_hoist()
+      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+      if (mask_hoist$has_conflict()) {
+        stop(
+          "reduction expressions only support a single logical mask",
+          call. = FALSE
+        )
+      }
+
+      if (!identical(x@value@mode, "logical")) {
+        stop("any()/all() only implemented for logical", call. = FALSE)
+      }
+
+      hoisted_mask <- mask_hoist$get_hoisted()
+
+      # Scalar logical: any(x) == x, all(x) == x
+      if (x@value@is_scalar) {
+        if (is.null(hoisted_mask)) {
+          # `c(FALSE)` lowers to a 1-element Fortran array constructor
+          # (`[.false.]`) but any()/all() must still return scalars.
+          x_code <- trimws(as.character(x))
+          if (startsWith(x_code, "[")) {
+            return(Fortran(glue("{intrinsic}({x})"), Variable("logical")))
+          }
+          return(x)
+        }
+
+        # For scalar `x`, `x[mask]` is empty iff `!any(mask)`.
+        #
+        # Note: `logical(1)` masks are represented as rank-1 (dims = list(1L))
+        # but pass as scalars in the ABI and must *not* be wrapped in `any()` /
+        # `all()` (compilers reject `any()` / `all()` on scalar arguments).
+        #
+        # Conversely, literal masks like `c(FALSE)` compile to array constructors
+        # (e.g. `[ .false. ]`) and must be reduced to a scalar condition.
+        mask_code <- trimws(as.character(hoisted_mask))
+        is_array_ctor <- startsWith(mask_code, "[")
+        mask_is_scalar <-
+          !is.null(hoisted_mask@value) &&
+          passes_as_scalar(hoisted_mask@value) &&
+          !is_array_ctor
+
+        mask_len1 <-
+          !is.null(hoisted_mask@value) &&
+          identical(hoisted_mask@value@dims, list(1L))
+
+        if (!mask_is_scalar && !mask_len1) {
+          stop(
+            "any()/all(): scalar masked subsets only support scalar or length-1 masks",
+            call. = FALSE
+          )
+        }
+
+        mask_scalar <- if (mask_is_scalar) {
+          glue("{hoisted_mask}")
+        } else {
+          glue("any({hoisted_mask})")
+        }
+
+        # When `[` hoists a scalar mask (x[mask] -> x with a hoisted mask),
+        # we must preserve empty-selection semantics:
+        # - any(logical(0)) == FALSE
+        # - all(logical(0)) == TRUE
+        identity <- if (identical(call_name, "any")) ".false." else ".true."
+        x_code <- trimws(as.character(x))
+        x_scalar <- if (startsWith(x_code, "[")) {
+          glue("{intrinsic}({x})")
+        } else {
+          glue("{x}")
+        }
+        return(Fortran(
+          glue("merge({x_scalar}, {identity}, {mask_scalar})"),
+          Variable("logical", x@value@dims)
+        ))
+      }
+
+      x_expr <- if (is.null(hoisted_mask)) {
+        glue("{x}")
+      } else {
+        # Avoid `pack()` temporaries. For a mask-selected subset:
+        # - any(x[mask]) is equivalent to any(x .and. mask)
+        # - all(x[mask]) is equivalent to all((.not. mask) .or. x)
+        # Both preserve empty-selection semantics.
+        #
+        # Note: A length-1 mask constructor like `c(TRUE)` compiles to a rank-1
+        # array constructor (`[ .true. ]`). In R, this is recycled as a scalar
+        # mask, so we must scalarize it to keep elementwise ops conformable.
+        mask_code <- trimws(as.character(hoisted_mask))
+        mask_is_array_ctor <- startsWith(mask_code, "[")
+        mask_ctor_len1 <-
+          mask_is_array_ctor &&
+          !is.null(hoisted_mask@value) &&
+          identical(hoisted_mask@value@dims, list(1L))
+        mask_expr <- if (mask_ctor_len1) {
+          glue("any({hoisted_mask})")
+        } else {
+          glue("{hoisted_mask}")
+        }
+        if (identical(call_name, "any")) {
+          glue("(({x}) .and. ({mask_expr}))")
+        } else {
+          glue("((.not. ({mask_expr})) .or. ({x}))")
+        }
+      }
+
+      Fortran(glue("{intrinsic}({x_expr})"), Variable("logical"))
+    }
+
+    if (length(args) == 1L) {
+      return(reduce_arg(args[[1L]]))
+    }
+
+    args <- lapply(args, reduce_arg)
+    op <- if (identical(call_name, "any")) ".or." else ".and."
+    Fortran(glue("({str_flatten(args, glue(' {op} '))})"), Variable("logical"))
   }
 )
 
