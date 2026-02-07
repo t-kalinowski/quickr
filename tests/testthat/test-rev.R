@@ -34,6 +34,26 @@ test_that("rev(rev()) preserves bind(c) logical storage (incl. NA)", {
   expect_quick_identical(fn, list(m))
 })
 
+test_that("rev() result can flow into logical coercions and reductions", {
+  fn_as_integer <- function(m) {
+    declare(type(m = logical(NA)))
+    as.integer(rev(m))
+  }
+  fn_which_max <- function(m) {
+    declare(type(m = logical(NA)))
+    which.max(rev(m))
+  }
+  fn_which_min <- function(m) {
+    declare(type(m = logical(NA)))
+    which.min(rev(m))
+  }
+
+  m <- c(TRUE, FALSE, TRUE, FALSE, TRUE, TRUE)
+  expect_quick_identical(fn_as_integer, list(m))
+  expect_quick_identical(fn_which_max, list(m))
+  expect_quick_identical(fn_which_min, list(m))
+})
+
 test_that("rev() works inside compound logical expressions", {
   fn <- function(x) {
     declare(type(x = logical(NA)))
