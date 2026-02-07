@@ -146,8 +146,14 @@ register_r2f_handler(
         # - any(logical(0)) == FALSE
         # - all(logical(0)) == TRUE
         identity <- if (identical(call_name, "any")) ".false." else ".true."
+        x_code <- trimws(as.character(x))
+        x_scalar <- if (startsWith(x_code, "[")) {
+          glue("{intrinsic}({x})")
+        } else {
+          glue("{x}")
+        }
         return(Fortran(
-          glue("merge({x}, {identity}, {mask_scalar})"),
+          glue("merge({x_scalar}, {identity}, {mask_scalar})"),
           Variable("logical", x@value@dims)
         ))
       }

@@ -161,6 +161,19 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
   }
   expect_quick_identical(all_array_ctor_len1, list())
 
+  # Masked reduction over a 1-element array constructor: `[` can hoist the mask
+  # while leaving `x` as a rank-1 array constructor (`[.true.]`), but the
+  # reduction result must still be scalar.
+  any_array_ctor_len1_masked <- function() {
+    any(c(TRUE)[c(TRUE)])
+  }
+  expect_quick_identical(any_array_ctor_len1_masked, list())
+
+  all_array_ctor_len1_masked_empty <- function() {
+    all(c(TRUE)[c(FALSE)])
+  }
+  expect_quick_identical(all_array_ctor_len1_masked_empty, list())
+
   # Masked subset: preserve empty-selection semantics without pack() temporaries.
   any_masked <- function(x) {
     declare(type(x = double(NA)))
