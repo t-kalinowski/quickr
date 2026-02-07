@@ -1,6 +1,6 @@
 # r2f-math.R
 # Handlers for math intrinsics: sin, cos, tan, asin, acos, atan, sqrt, exp,
-# log, floor, ceiling, trunc, log10, abs, Re, Im, Mod, Arg, Conj
+# log, tanh, floor, ceiling, trunc, log10, abs, Re, Im, Mod, Arg, Conj
 
 # --- Local Helpers ---
 
@@ -30,6 +30,7 @@ register_unary_intrinsic(
     "sin",
     "cos",
     "tan",
+    "tanh",
     "asin",
     "acos",
     "atan",
