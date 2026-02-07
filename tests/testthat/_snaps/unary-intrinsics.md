@@ -667,7 +667,7 @@
         ! manifest end
       
       
-        out = floor(x)
+        out = (aint(x) - merge(1.0_c_double, 0.0_c_double, (x < aint(x))))
       end subroutine
     Code
       cat(cwrapper)
@@ -731,7 +731,7 @@
         ! manifest end
       
       
-        out = ceiling(x)
+        out = (aint(x) + merge(1.0_c_double, 0.0_c_double, (x > aint(x))))
       end subroutine
     Code
       cat(cwrapper)

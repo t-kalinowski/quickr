@@ -1,5 +1,8 @@
 # quickr (development version)
 
+- Added support for `as.integer()` coercion from `double`, `logical`, and
+  `integer` values (with `double` truncating towards 0).
+
 - Added initial matrix/linear algebra handler support from base R, using the
   same BLAS/LAPACK as R: `%*%`, `t()`, `crossprod()`, `tcrossprod()`,
   `outer()` (with `FUN="*"`), `%o%`, `forwardsolve()`, `backsolve()`, `diag()`,
