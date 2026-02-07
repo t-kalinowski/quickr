@@ -47,6 +47,7 @@ r2f_handlers[["["]] <- function(
       idxs[[1]]@value@rank == var@value@rank
   ) {
     mask <- idxs[[1]]
+    mask <- booleanize_logical_as_int(mask)
     if (hoist_mask(mask)) {
       return(var)
     }

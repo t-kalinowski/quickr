@@ -179,6 +179,17 @@ register_r2f_handler(
         src <- value@value
         var <- Variable(mode = src@mode, dims = src@dims)
       }
+      if (
+        inherits(value, Fortran) &&
+          inherits(value@value, Variable) &&
+          identical(value@value@mode, "logical") &&
+          logical_as_int(value@value) &&
+          !isTRUE(attr(value, "logical_booleanized", exact = TRUE))
+      ) {
+        # Keep bind(c) logicals as integer storage when the RHS is an
+        # integer-backed expression (e.g. rev(x) for external logicals).
+        var@logical_as_int <- TRUE
+      }
       if (is.null(fortran_name)) {
         fortran_name <- assignment_fortran_name(name, scope)
       }

@@ -91,6 +91,9 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
 
       has_var_name <- inherits(x@value, Variable) && !is.null(x@value@name)
       use_lgl_storage <- has_var_name && !logical_as_int(x@value)
+      int_backed_expr <-
+        logical_as_int(x@value) &&
+        !isTRUE(attr(x, "logical_booleanized", exact = TRUE))
 
       # Prefer searching the underlying integer storage directly when available
       # (external logical arrays are passed as integer(0/1)). If the input is an
@@ -98,6 +101,8 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
       # casting.
       haystack <- if (has_var_name) {
         x@value@name
+      } else if (int_backed_expr) {
+        as.character(x)
       } else {
         glue("merge(1_c_int, 0_c_int, {x})")
       }

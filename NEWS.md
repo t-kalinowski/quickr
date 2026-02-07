@@ -36,6 +36,10 @@
 - Improved `for (... in <iterable>)` lowering, including value iteration
   (`for (v in x)`) and support for `rev()` wrappers on supported iterables.
 
+- Added support for `tanh()` as a unary intrinsic and `rev()` for reversing
+  rank-0/1 vectors (including bind(c) logicals, preserving `NA` storage where
+  possible).
+
 - Added nested compilation scopes with local declaration emission, enabling
   block-scoped temporaries (Fortran 2008 `block ... end block`) and local
   closures (lowered to internal procedures under `contains`), including `sapply()`

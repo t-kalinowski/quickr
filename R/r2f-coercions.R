@@ -22,7 +22,16 @@ r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
     arg@value@mode,
     integer = arg,
     double = Fortran(glue("int({arg}, kind=c_int)"), out_val),
-    logical = Fortran(glue("merge(1_c_int, 0_c_int, {arg})"), out_val),
+    logical = {
+      # External logicals are integer-backed (0/1/NA) under bind(c); if the
+      # expression preserves that storage (e.g. rev(m)), return it directly.
+      if (logical_as_int(arg@value)) {
+        src <- arg@value@name %||% as.character(arg)
+        return(Fortran(src, out_val))
+      }
+      arg <- booleanize_logical_as_int(arg)
+      Fortran(glue("merge(1_c_int, 0_c_int, {arg})"), out_val)
+    },
     stop("as.integer() only implemented for logical, integer, and double")
   )
 }
