@@ -29,11 +29,15 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
     stop("missing array name for rev()", call. = FALSE)
 
   # External logical args are stored as integer(0/1) and symbol-lowered as `(x/=0)`.
-  # Reverse the underlying storage then booleanize the resulting section.
+  # Reverse the underlying storage (including NA_LOGICAL sentinel values).
+  #
+  # Note: this returns integer storage (0/1/NA) for bind(c) logicals, which
+  # preserves NA when the reversed value is returned back to R.
   if (identical(x@value@mode, "logical") && logical_as_int(x@value)) {
     out_val <- Variable("logical", x@value@dims)
+    out_val@logical_as_int <- TRUE
     return(Fortran(
-      glue("({base_name}(size({base_name}):1:-1) /= 0)"),
+      glue("{base_name}(size({base_name}):1:-1)"),
       out_val
     ))
   }

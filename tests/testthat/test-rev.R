@@ -21,6 +21,7 @@ test_that("rev() reverses vectors", {
     rev(x)
   }
   expect_quick_identical(fn_lgl, list(c(TRUE, FALSE, TRUE, FALSE)))
+  expect_quick_identical(fn_lgl, list(c(TRUE, NA, FALSE, TRUE)))
 })
 
 test_that("rev() hoists array expressions", {
