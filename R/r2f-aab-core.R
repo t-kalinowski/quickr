@@ -251,9 +251,10 @@ lang2fortran <- r2f <- function(
         s <- paste0("(", s, "/=0)")
         out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
         attr(out, "logical_booleanized") <- TRUE
-        return(out)
+        out
+      } else {
+        Fortran(s, value = if (inherits(val, Variable)) val else NULL)
       }
-      Fortran(s, value = if (inherits(val, Variable)) val else NULL)
     },
 
     ## handling 'object' and 'closure' here are both bad ideas,
