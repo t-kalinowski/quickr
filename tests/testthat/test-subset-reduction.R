@@ -73,6 +73,92 @@ test_that("reduction intrinsics cover scalar, multi-arg, and mask cases", {
   expect_quick_equal(prod_two, list(c(1, 2, 3), c(4, 5, 6)))
 })
 
+test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases", {
+  any_basic <- function(x) {
+    declare(type(x = logical(NA)))
+    any(x)
+  }
+  fsub <- r2f(any_basic)
+  expect_match(as.character(fsub), "any\\(")
+  expect_quick_identical(any_basic, list(c(FALSE, FALSE)), list(c(FALSE, TRUE)))
+
+  all_basic <- function(x) {
+    declare(type(x = logical(NA)))
+    all(x)
+  }
+  fsub <- r2f(all_basic)
+  expect_match(as.character(fsub), "all\\(")
+  expect_quick_identical(all_basic, list(c(TRUE, TRUE)), list(c(TRUE, FALSE)))
+
+  any_two <- function(a, b) {
+    declare(type(a = logical(NA)), type(b = logical(NA)))
+    any(a, b)
+  }
+  fsub <- r2f(any_two)
+  expect_match(as.character(fsub), "\\.or\\.")
+  expect_quick_identical(
+    any_two,
+    list(a = c(FALSE, FALSE), b = c(FALSE, FALSE)),
+    list(a = c(FALSE, FALSE), b = c(TRUE, FALSE))
+  )
+
+  all_two <- function(a, b) {
+    declare(type(a = logical(NA)), type(b = logical(NA)))
+    all(a, b)
+  }
+  fsub <- r2f(all_two)
+  expect_match(as.character(fsub), "\\.and\\.")
+  expect_quick_identical(
+    all_two,
+    list(a = c(TRUE, TRUE), b = c(TRUE, TRUE)),
+    list(a = c(TRUE, TRUE), b = c(FALSE, TRUE))
+  )
+
+  # Scalar masked subset: preserve empty-selection semantics.
+  any_scalar_masked_empty <- function(x) {
+    declare(type(x = logical(1)))
+    any(x[c(FALSE)])
+  }
+  expect_quick_identical(any_scalar_masked_empty, list(TRUE), list(FALSE))
+
+  all_scalar_masked_empty <- function(x) {
+    declare(type(x = logical(1)))
+    all(x[c(FALSE)])
+  }
+  expect_quick_identical(all_scalar_masked_empty, list(TRUE), list(FALSE))
+
+  # Masked subset: preserve empty-selection semantics via pack().
+  any_masked <- function(x) {
+    declare(type(x = double(NA)))
+    pred <- x > 1
+    any(pred[x > 0])
+  }
+  fsub <- r2f(any_masked)
+  expect_match(as.character(fsub), "pack\\(")
+  expect_match(as.character(fsub), "any\\(")
+  expect_quick_identical(
+    any_masked,
+    list(c(-2, -1)), # empty selection -> any(logical(0)) == FALSE
+    list(c(0.2, 0.3)), # selection all FALSE
+    list(c(0.5, 2)) # selection contains TRUE
+  )
+
+  all_masked <- function(x) {
+    declare(type(x = double(NA)))
+    pred <- x > 1
+    all(pred[x > 0])
+  }
+  fsub <- r2f(all_masked)
+  expect_match(as.character(fsub), "pack\\(")
+  expect_match(as.character(fsub), "all\\(")
+  expect_quick_identical(
+    all_masked,
+    list(c(-2, -1)), # empty selection -> all(logical(0)) == TRUE
+    list(c(0.2, 0.3)), # selection all FALSE -> FALSE
+    list(c(0.5, 2)) # selection has a FALSE -> FALSE
+  )
+})
+
 
 test_that("1x1 subsetting keeps dims and C bridge builds", {
   fn <- function(m) {

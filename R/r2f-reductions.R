@@ -1,5 +1,8 @@
 # r2f-reductions.R
-# Handlers for reduction operations: max, min, sum, prod, which.max, which.min
+# Handlers for reduction operations:
+# - numeric: max, min, sum, prod
+# - logical: any, all
+# - index: which.max, which.min
 
 # --- Handlers ---
 
@@ -55,6 +58,103 @@ register_r2f_handler(
       )
       Fortran(s, Variable(mode))
     }
+  }
+)
+
+register_r2f_handler(
+  c("any", "all"),
+  function(
+    args,
+    scope,
+    ...
+  ) {
+    # For now, we only support the most common `any(x)` / `all(x)` shape.
+    # We intentionally do not support named arguments like `na.rm`.
+    arg_names <- names(args) %||% character()
+    if (length(arg_names) && any(nzchar(arg_names))) {
+      stop(
+        "any()/all() do not support named arguments (e.g. `na.rm`)",
+        call. = FALSE
+      )
+    }
+
+    call_name <- last(list(...)$calls)
+    intrinsic <- switch(
+      call_name,
+      any = "any",
+      all = "all",
+      stop("internal error: unexpected call: ", call_name, call. = FALSE)
+    )
+
+    # Match R's base semantics: any() == FALSE, all() == TRUE.
+    if (length(args) == 0L) {
+      lit <- if (identical(call_name, "any")) ".false." else ".true."
+      return(Fortran(lit, Variable("logical")))
+    }
+
+    reduce_arg <- function(arg) {
+      mask_hoist <- create_mask_hoist()
+      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
+      if (mask_hoist$has_conflict()) {
+        stop(
+          "reduction expressions only support a single logical mask",
+          call. = FALSE
+        )
+      }
+
+      if (!identical(x@value@mode, "logical")) {
+        stop("any()/all() only implemented for logical", call. = FALSE)
+      }
+
+      hoisted_mask <- mask_hoist$get_hoisted()
+
+      # Scalar logical: any(x) == x, all(x) == x
+      if (x@value@is_scalar) {
+        if (is.null(hoisted_mask)) {
+          return(x)
+        }
+
+        # `hoisted_mask` often comes from `c(FALSE)`-like expressions, which
+        # compile to rank-1 array constructors (e.g. `[ .false. ]`) even when
+        # they represent scalar R masks. Reduce it to a scalar so we can use it
+        # in scalar control flow.
+        mask_scalar <- if (
+          !is.null(hoisted_mask@value) && hoisted_mask@value@rank > 0L
+        ) {
+          glue("all({hoisted_mask})")
+        } else {
+          glue("{hoisted_mask}")
+        }
+
+        # When `[` hoists a scalar mask (x[mask] -> x with a hoisted mask),
+        # we must preserve empty-selection semantics:
+        # - any(logical(0)) == FALSE
+        # - all(logical(0)) == TRUE
+        identity <- if (identical(call_name, "any")) ".false." else ".true."
+        return(Fortran(
+          glue("merge({x}, {identity}, {mask_scalar})"),
+          Variable("logical", x@value@dims)
+        ))
+      }
+
+      x_expr <- if (is.null(hoisted_mask)) {
+        glue("{x}")
+      } else {
+        # `any(x[mask])` / `all(x[mask])` becomes `any(pack(x, mask))` /
+        # `all(pack(x, mask))` to preserve empty-selection semantics.
+        glue("pack({x}, {hoisted_mask})")
+      }
+
+      Fortran(glue("{intrinsic}({x_expr})"), Variable("logical"))
+    }
+
+    if (length(args) == 1L) {
+      return(reduce_arg(args[[1L]]))
+    }
+
+    args <- lapply(args, reduce_arg)
+    op <- if (identical(call_name, "any")) ".or." else ".and."
+    Fortran(glue("({str_flatten(args, glue(' {op} '))})"), Variable("logical"))
   }
 )
 
