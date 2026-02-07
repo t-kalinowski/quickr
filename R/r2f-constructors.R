@@ -63,9 +63,9 @@ r2f_handlers[["character"]] <- r2f_handlers[["raw"]] <-
   .r2f_handler_not_implemented_yet
 
 
-r2f_handlers[["matrix"]] <- function(args, scope = NULL, ...) {
+r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   args$data %||% stop("matrix(data=) must be provided, cannot be NA")
-  out <- r2f(args$data, scope, ...)
+  out <- r2f(args$data, scope, ..., hoist = hoist)
   out@value <- Variable(
     mode = out@value@mode,
     dims = r2dims(list(args$nrow, args$ncol), scope)
@@ -149,7 +149,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     r2dims(dim_arg, scope)
   }
 
-  out <- r2f(args$data, scope, ...)
+  out <- r2f(args$data, scope, ..., hoist = hoist)
   target_dims <- dim_to_dims(args$dim)
   if (!passes_as_scalar(out@value)) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.

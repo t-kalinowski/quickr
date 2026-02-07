@@ -107,3 +107,15 @@ test_that("array() reshape supports dim = 1 for non-scalar data", {
   x <- array(sample(1:10, 24, replace = TRUE), dim = c(2L, 3L, 4L))
   expect_quick_identical(fn, list(x))
 })
+
+test_that("array() forwards hoist when data needs hoisted temporaries", {
+  fn <- function(x, y) {
+    declare(type(x = double(2L, 2L)), type(y = double(2L, 2L)))
+    array((x + y)[, 1], dim = c(2L, 1L))
+  }
+
+  set.seed(1)
+  x <- matrix(runif(4), 2, 2)
+  y <- matrix(runif(4), 2, 2)
+  expect_quick_identical(fn, list(x, y))
+})
