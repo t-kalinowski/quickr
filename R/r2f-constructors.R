@@ -89,13 +89,20 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
     # We implement this as `reshape()`; recycling is not supported here.
     dim_vec <- r2f(args$dim, scope, ...)
-    if (is.null(dim_vec@value) || dim_vec@value@mode != "integer") {
-      stop("array(dim=) must be an integer vector", call. = FALSE)
+    if (
+      is.null(dim_vec@value) ||
+        !(dim_vec@value@mode %in% c("integer", "double"))
+    ) {
+      stop("array(dim=) must be an integer/numeric value", call. = FALSE)
     }
-    if (dim_vec@value@rank != 1L) {
-      stop("array(dim=) must be a 1-d integer vector", call. = FALSE)
+    shape <- if (passes_as_scalar(dim_vec@value)) {
+      glue("[int({dim_vec})]")
+    } else if (dim_vec@value@rank == 1L) {
+      glue("int({dim_vec})")
+    } else {
+      stop("array(dim=) must be a scalar or 1-d vector", call. = FALSE)
     }
-    out <- Fortran(glue("reshape({out}, int({dim_vec}))"), out@value)
+    out <- Fortran(glue("reshape({out}, {shape})"), out@value)
   }
 
   out@value <- Variable(
