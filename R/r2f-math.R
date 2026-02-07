@@ -45,22 +45,39 @@ r2f_handlers[["floor"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1L]], scope, ...)
 
-  # R's floor() always returns a double, even when the input is integer/logical.
-  # Fortran floor() returns an integer, so we convert back to real(c_double) to
-  # keep expression typing correct inside larger expressions (e.g. floor(x)/2).
   arg <- maybe_cast_double(arg)
+  if (!identical(arg@value@mode, "double")) {
+    stop("floor() only implemented for logical, integer, and double")
+  }
   out_val <- Variable("double", arg@value@dims)
-  Fortran(glue("real(floor({arg}), kind=c_double)"), out_val)
+
+  # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in the
+  # real domain:
+  # - aint(x) truncates toward 0 (real result)
+  # - adjust by -1 where trunc differs from floor (negative non-integers)
+  aint <- glue("aint({arg})")
+  Fortran(
+    glue("({aint} - merge(1.0_c_double, 0.0_c_double, ({arg} < {aint})))"),
+    out_val
+  )
 }
 
 r2f_handlers[["ceiling"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1L]], scope, ...)
 
-  # R's ceiling() always returns a double. See floor() handler for rationale.
   arg <- maybe_cast_double(arg)
+  if (!identical(arg@value@mode, "double")) {
+    stop("ceiling() only implemented for logical, integer, and double")
+  }
   out_val <- Variable("double", arg@value@dims)
-  Fortran(glue("real(ceiling({arg}), kind=c_double)"), out_val)
+
+  # As with floor(): avoid integer overflow by implementing in real arithmetic.
+  aint <- glue("aint({arg})")
+  Fortran(
+    glue("({aint} + merge(1.0_c_double, 0.0_c_double, ({arg} > {aint})))"),
+    out_val
+  )
 }
 
 r2f_handlers[["trunc"]] <- function(args, scope, ...) {

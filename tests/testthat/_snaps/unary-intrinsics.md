@@ -667,7 +667,7 @@
         ! manifest end
       
       
-        out = real(floor(x), kind=c_double)
+        out = (aint(x) - merge(1.0_c_double, 0.0_c_double, (x < aint(x))))
       end subroutine
     Code
       cat(cwrapper)
@@ -731,7 +731,7 @@
         ! manifest end
       
       
-        out = real(ceiling(x), kind=c_double)
+        out = (aint(x) + merge(1.0_c_double, 0.0_c_double, (x > aint(x))))
       end subroutine
     Code
       cat(cwrapper)
