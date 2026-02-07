@@ -111,6 +111,12 @@ register_r2f_handler(
       # Scalar logical: any(x) == x, all(x) == x
       if (x@value@is_scalar) {
         if (is.null(hoisted_mask)) {
+          # `c(FALSE)` lowers to a 1-element Fortran array constructor
+          # (`[.false.]`) but any()/all() must still return scalars.
+          x_code <- trimws(as.character(x))
+          if (startsWith(x_code, "[")) {
+            return(Fortran(glue("{intrinsic}({x})"), Variable("logical")))
+          }
           return(x)
         }
 
@@ -149,9 +155,15 @@ register_r2f_handler(
       x_expr <- if (is.null(hoisted_mask)) {
         glue("{x}")
       } else {
-        # `any(x[mask])` / `all(x[mask])` becomes `any(pack(x, mask))` /
-        # `all(pack(x, mask))` to preserve empty-selection semantics.
-        glue("pack({x}, {hoisted_mask})")
+        # Avoid `pack()` temporaries. For a mask-selected subset:
+        # - any(x[mask]) is equivalent to any(x .and. mask)
+        # - all(x[mask]) is equivalent to all((.not. mask) .or. x)
+        # Both preserve empty-selection semantics.
+        if (identical(call_name, "any")) {
+          glue("(({x}) .and. ({hoisted_mask}))")
+        } else {
+          glue("((.not. ({hoisted_mask})) .or. ({x}))")
+        }
       }
 
       Fortran(glue("{intrinsic}({x_expr})"), Variable("logical"))

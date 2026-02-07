@@ -149,14 +149,27 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
     list(x = FALSE, m = TRUE)
   )
 
-  # Masked subset: preserve empty-selection semantics via pack().
+  # 1-element vector expressions like c(FALSE) compile to Fortran array
+  # constructors (`[.false.]`) but any()/all() must still return scalars.
+  any_array_ctor_len1 <- function() {
+    any(c(FALSE))
+  }
+  expect_quick_identical(any_array_ctor_len1, list())
+
+  all_array_ctor_len1 <- function() {
+    all(c(TRUE))
+  }
+  expect_quick_identical(all_array_ctor_len1, list())
+
+  # Masked subset: preserve empty-selection semantics without pack() temporaries.
   any_masked <- function(x) {
     declare(type(x = double(NA)))
     pred <- x > 1
     any(pred[x > 0])
   }
   fsub <- r2f(any_masked)
-  expect_match(as.character(fsub), "pack\\(")
+  expect_false(grepl("pack\\(", as.character(fsub)))
+  expect_match(as.character(fsub), "\\.and\\.")
   expect_match(as.character(fsub), "any\\(")
   expect_quick_identical(
     any_masked,
@@ -171,7 +184,9 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
     all(pred[x > 0])
   }
   fsub <- r2f(all_masked)
-  expect_match(as.character(fsub), "pack\\(")
+  expect_false(grepl("pack\\(", as.character(fsub)))
+  expect_match(as.character(fsub), "\\.not\\.")
+  expect_match(as.character(fsub), "\\.or\\.")
   expect_match(as.character(fsub), "all\\(")
   expect_quick_identical(
     all_masked,
