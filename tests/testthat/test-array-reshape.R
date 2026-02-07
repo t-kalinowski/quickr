@@ -119,3 +119,14 @@ test_that("array() forwards hoist when data needs hoisted temporaries", {
   y <- matrix(runif(4), 2, 2)
   expect_quick_identical(fn, list(x, y))
 })
+
+test_that("array() rejects empty dim vectors (dim=c())", {
+  fn <- function(x) {
+    declare(type(x = double(2L, 2L)))
+    array(as.double(x), dim = c())
+  }
+
+  # Base R errors here ("'dims' cannot be of length 0"); quickr should fail
+  # early too, rather than emitting rank-mismatched Fortran.
+  expect_error(quick(fn), "dim")
+})
