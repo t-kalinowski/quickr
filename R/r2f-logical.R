@@ -55,6 +55,7 @@ r2f_handlers[["!"]] <- function(args, scope, ...) {
   if (x@value@mode != "logical") {
     stop("'!' expects a logical value; numeric coercions not yet supported")
   }
+  x <- booleanize_logical_as_int(x)
   Fortran(glue("(.not. {x})"), Variable("logical", x@value@dims))
 }
 
@@ -97,6 +98,8 @@ register_r2f_handler(
       a
     })
     .[left, right] <- args
+    left <- booleanize_logical_as_int(left)
+    right <- booleanize_logical_as_int(right)
 
     operator <- switch(
       last(list(...)$calls),

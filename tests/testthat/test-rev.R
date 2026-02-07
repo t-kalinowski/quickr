@@ -24,6 +24,84 @@ test_that("rev() reverses vectors", {
   expect_quick_identical(fn_lgl, list(c(TRUE, NA, FALSE, TRUE)))
 })
 
+test_that("rev() works inside compound logical expressions", {
+  fn <- function(x) {
+    declare(type(x = logical(NA)))
+    out <- ifelse(rev(x) & x, 1L, 0L)
+    out
+  }
+
+  x <- c(TRUE, FALSE, TRUE, TRUE, FALSE, TRUE)
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("rev() works as an external logical mask in x[mask]", {
+  fn <- function(x, m) {
+    declare({
+      type(x = double(NA))
+      type(m = logical(NA))
+    })
+    sum(x[rev(m)])
+  }
+
+  x <- as.double(seq_len(10))
+  m <- c(TRUE, FALSE, TRUE, TRUE, FALSE, TRUE, FALSE, FALSE, TRUE, FALSE)
+  expect_quick_equal(fn, list(x, m))
+})
+
+test_that("rev() mask assignment preserves bind(c) storage through local symbols", {
+  fn <- function(x, m) {
+    declare({
+      type(x = double(NA))
+      type(m = logical(NA))
+    })
+    r <- rev(m)
+    sum(x[r])
+  }
+
+  x <- as.double(seq_len(12))
+  m <- c(
+    TRUE,
+    FALSE,
+    TRUE,
+    TRUE,
+    FALSE,
+    TRUE,
+    FALSE,
+    TRUE,
+    FALSE,
+    FALSE,
+    TRUE,
+    TRUE
+  )
+  expect_quick_equal(fn, list(x, m))
+})
+
+test_that("rev() works on local Fortran logical vectors and masks", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    m <- x > 0
+    sum(x[rev(m)])
+  }
+
+  x <- as.double(c(-2, -1, 0, 1, 2, 3, -4, 5))
+  expect_quick_equal(fn, list(x))
+})
+
+test_that("rev() can be used as a reduction mask (sum(x[mask]))", {
+  fn <- function(x, m) {
+    declare({
+      type(x = double(NA))
+      type(m = logical(NA))
+    })
+    sum(x[rev(m)])
+  }
+
+  x <- as.double(seq_len(20))
+  m <- rep(c(TRUE, FALSE, TRUE, TRUE), length.out = length(x))
+  expect_quick_equal(fn, list(x, m))
+})
+
 test_that("rev() hoists array expressions", {
   fn <- function(x) {
     declare(type(x = double(NA)))

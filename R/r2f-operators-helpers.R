@@ -1,6 +1,30 @@
 # r2f-operators-helpers.R
 # Generic helpers for binary operators and type conformance.
 
+# Convert a logical value backed by bind(c) integer storage (0/1/NA) to a
+# Fortran LOGICAL expression. Symbols are typically booleanized during r2f()
+# (see r2f-aab-core.R), but expressions like rev(x) need handling at use sites.
+# Used by: r2f-logical.R, r2f-conditionals.R, r2f-subscript.R, r2f-reductions.R
+booleanize_logical_as_int <- function(x) {
+  stopifnot(inherits(x, Fortran))
+
+  if (
+    is.null(x@value) ||
+      !identical(x@value@mode, "logical") ||
+      !logical_as_int(x@value)
+  ) {
+    return(x)
+  }
+
+  if (isTRUE(attr(x, "logical_booleanized", exact = TRUE))) {
+    return(x)
+  }
+
+  out <- Fortran(glue("({x} /= 0)"), Variable("logical", x@value@dims))
+  attr(out, "logical_booleanized") <- TRUE
+  out
+}
+
 # Cast a value to double if it's logical or integer.
 # Used by: r2f-arithmetic.R
 maybe_cast_double <- function(x) {

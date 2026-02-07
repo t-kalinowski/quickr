@@ -249,6 +249,9 @@ lang2fortran <- r2f <- function(
         # logicals passed via the bind(c) interface are stored as integer(0/1)
         # and must be "booleanized" for Fortran logical operations.
         s <- paste0("(", s, "/=0)")
+        out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
+        attr(out, "logical_booleanized") <- TRUE
+        return(out)
       }
       Fortran(s, value = if (inherits(val, Variable)) val else NULL)
     },

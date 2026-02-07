@@ -9,6 +9,7 @@ create_mask_hoist <- function() {
 
   try_set <- function(mask) {
     stopifnot(inherits(mask, Fortran), mask@value@mode == "logical")
+    mask <- booleanize_logical_as_int(mask)
     # each hoist can only accept one mask.
     if (is.null(.hoisted_mask)) {
       .hoisted_mask <<- mask
