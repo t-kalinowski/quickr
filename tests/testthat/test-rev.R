@@ -24,6 +24,17 @@ test_that("rev() reverses vectors", {
   expect_quick_identical(fn_lgl, list(c(TRUE, NA, FALSE, TRUE)))
 })
 
+test_that("rev() preserves bind(c) logical scalar storage (incl. NA)", {
+  fn <- function(m) {
+    declare(type(m = logical(1)))
+    rev(m)
+  }
+
+  expect_quick_identical(fn, list(TRUE))
+  expect_quick_identical(fn, list(FALSE))
+  expect_quick_identical(fn, list(NA))
+})
+
 test_that("rev(rev()) preserves bind(c) logical storage (incl. NA)", {
   fn <- function(m) {
     declare(type(m = logical(NA)))
