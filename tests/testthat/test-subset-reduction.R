@@ -174,6 +174,36 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
   }
   expect_quick_identical(all_array_ctor_len1_masked_empty, list())
 
+  # Length-1 mask constructors (c(TRUE)/c(FALSE)) are hoisted as rank-1 array
+  # constructors but should behave like scalars via recycling in R. The lowering
+  # must scalarize them so elementwise `.and.`/`.or.` remain conformable.
+  any_mask_ctor_len1 <- function(x) {
+    declare(type(x = double(NA)))
+    pred <- x > 1
+    any(pred[c(TRUE)])
+  }
+  fsub <- r2f(any_mask_ctor_len1)
+  expect_false(grepl("\\.and\\. \\(\\[", as.character(fsub)))
+  expect_quick_identical(
+    any_mask_ctor_len1,
+    list(c(-2, -1)),
+    list(c(0.2, 2))
+  )
+
+  all_mask_ctor_len1_empty <- function(x) {
+    declare(type(x = double(NA)))
+    pred <- x > 1
+    all(pred[c(FALSE)])
+  }
+  fsub <- r2f(all_mask_ctor_len1_empty)
+  expect_false(grepl("\\.not\\. \\(\\[", as.character(fsub)))
+  expect_false(grepl("\\.or\\. \\(\\[", as.character(fsub)))
+  expect_quick_identical(
+    all_mask_ctor_len1_empty,
+    list(c(-2, -1)),
+    list(c(0.2, 2))
+  )
+
   # Masked subset: preserve empty-selection semantics without pack() temporaries.
   any_masked <- function(x) {
     declare(type(x = double(NA)))

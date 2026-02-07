@@ -165,10 +165,25 @@ register_r2f_handler(
         # - any(x[mask]) is equivalent to any(x .and. mask)
         # - all(x[mask]) is equivalent to all((.not. mask) .or. x)
         # Both preserve empty-selection semantics.
-        if (identical(call_name, "any")) {
-          glue("(({x}) .and. ({hoisted_mask}))")
+        #
+        # Note: A length-1 mask constructor like `c(TRUE)` compiles to a rank-1
+        # array constructor (`[ .true. ]`). In R, this is recycled as a scalar
+        # mask, so we must scalarize it to keep elementwise ops conformable.
+        mask_code <- trimws(as.character(hoisted_mask))
+        mask_is_array_ctor <- startsWith(mask_code, "[")
+        mask_ctor_len1 <-
+          mask_is_array_ctor &&
+          !is.null(hoisted_mask@value) &&
+          identical(hoisted_mask@value@dims, list(1L))
+        mask_expr <- if (mask_ctor_len1) {
+          glue("any({hoisted_mask})")
         } else {
-          glue("((.not. ({hoisted_mask})) .or. ({x}))")
+          glue("{hoisted_mask}")
+        }
+        if (identical(call_name, "any")) {
+          glue("(({x}) .and. ({mask_expr}))")
+        } else {
+          glue("((.not. ({mask_expr})) .or. ({x}))")
         }
       }
 
