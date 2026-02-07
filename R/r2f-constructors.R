@@ -85,29 +85,52 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
   }
 
   out <- r2f(args$data, scope, ...)
+  target_dims <- r2dims(args$dim, scope)
   if (!passes_as_scalar(out@value)) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
     # We implement this as `reshape()`; recycling is not supported here.
-    dim_vec <- r2f(args$dim, scope, ...)
-    if (
-      is.null(dim_vec@value) ||
-        !(dim_vec@value@mode %in% c("integer", "double"))
-    ) {
-      stop("array(dim=) must be an integer/numeric value", call. = FALSE)
+    dims_f <- dims2f(target_dims, scope)
+    if (!nzchar(dims_f)) {
+      dims_f <- "1"
     }
-    shape <- if (passes_as_scalar(dim_vec@value)) {
-      glue("[int({dim_vec})]")
-    } else if (dim_vec@value@rank == 1L) {
-      glue("int({dim_vec})")
+    if (grepl(":", dims_f, fixed = TRUE)) {
+      stop("array(dim=) must be known", call. = FALSE)
+    }
+    shape <- glue("int([{dims_f}])")
+
+    data_r <- args$data
+    is_fill_constructor <-
+      is.call(data_r) &&
+      is.symbol(data_r[[1L]]) &&
+      as.character(data_r[[1L]]) %in%
+        c(
+          "logical",
+          "integer",
+          "double",
+          "numeric"
+        )
+
+    source <- if (is_fill_constructor) {
+      dims_terms <- strsplit(dims_f, ",\\s*")[[1L]]
+      n_expr <- if (length(dims_terms) == 1L) {
+        dims_terms[[1L]]
+      } else {
+        glue("({paste(dims_terms, collapse = ' * ')})")
+      }
+      i <- scope@get_unique_var("integer")
+      glue("[({out}, {i}=1, int({n_expr}))]")
     } else {
-      stop("array(dim=) must be a scalar or 1-d vector", call. = FALSE)
+      # RESHAPE() requires `SOURCE` to be an array expression; array constructors
+      # flatten array-valued expressions (which matches R's array() semantics).
+      glue("[{out}]")
     }
-    out <- Fortran(glue("reshape({out}, {shape})"), out@value)
+
+    out <- Fortran(glue("reshape({source}, {shape})"), out@value)
   }
 
   out@value <- Variable(
     mode = out@value@mode,
-    dims = r2dims(args$dim, scope)
+    dims = target_dims
   )
   out
 }
