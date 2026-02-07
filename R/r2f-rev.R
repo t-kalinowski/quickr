@@ -20,7 +20,11 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
 
   # Fortran array sections require an array designator; hoist array expressions.
   if (is.null(x@value@name)) {
-    tmp <- hoist$declare_tmp(mode = x@value@mode, dims = x@value@dims)
+    tmp <- hoist$declare_tmp(
+      mode = x@value@mode,
+      dims = x@value@dims,
+      logical_as_int = logical_as_int(x@value)
+    )
     hoist$emit(glue("{tmp@name} = {x}"))
     x <- Fortran(tmp@name, tmp)
   }
