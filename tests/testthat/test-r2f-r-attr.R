@@ -13,4 +13,3 @@ test_that("r2f() attaches `r` metadata for bind(c) logical symbols", {
   expect_true(inherits(a_var, Variable))
   expect_identical(a_var@r, quote(m))
 })
-
