@@ -75,7 +75,7 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ...) {
   # TODO: reshape() if !passes_as_scalar(out)
 }
 
-r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
+r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   args$data %||% stop("array(data=) must be provided, cannot be NA")
   if (is.null(args$dim)) {
     stop("array(dim=) must be provided, cannot be NA")
@@ -155,53 +155,70 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ...) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
     # We implement this as `reshape()`; recycling is not supported here.
     dims_f <- dims2f(target_dims, scope)
-    if (!nzchar(dims_f)) {
-      dims_f <- "1"
-    }
-    if (grepl(":", dims_f, fixed = TRUE)) {
-      stop("array(dim=) must be known", call. = FALSE)
-    }
-    shape <- glue("int([{dims_f}])")
-
-    data_r <- args$data
-    is_fill_constructor <-
-      is.call(data_r) &&
-      is.symbol(data_r[[1L]]) &&
-      as.character(data_r[[1L]]) %in%
-        c(
-          "logical",
-          "integer",
-          "double",
-          "numeric"
-        )
-
-    source <- if (is_fill_constructor) {
-      axis_terms <- vapply(
-        target_dims,
-        function(d) {
-          axis <- dims2f(list(d), scope)
-          if (!nzchar(axis)) {
-            "1"
-          } else {
-            axis
-          }
-        },
-        character(1L)
-      )
-      n_expr <- if (length(axis_terms) == 1L) {
-        axis_terms[[1L]]
-      } else {
-        paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
+    scalar_target <- !nzchar(dims_f) && length(target_dims) == 1L
+    if (scalar_target) {
+      # `dim = 1` is scalar-like in quickr (rank-1 length-1 is declared scalar).
+      # Avoid `reshape(..., [1])` (rank-1) and instead return the first element.
+      if (is.null(hoist)) {
+        stop("internal error: array() requires hoist context", call. = FALSE)
       }
-      i <- scope@get_unique_var("integer")
-      glue("[({out}, {i}=1, int({n_expr}))]")
+      target_dims <- list(1L)
+      tmp <- hoist$declare_tmp(mode = out@value@mode, dims = out@value@dims)
+      hoist$emit(glue("{tmp@name} = {out}"))
+      idxs <- rep("1", out@value@rank)
+      out <- Fortran(
+        glue("{tmp@name}({str_flatten_commas(idxs)})"),
+        Variable(mode = out@value@mode, dims = list(1L))
+      )
     } else {
-      # RESHAPE() requires `SOURCE` to be an array expression; array constructors
-      # flatten array-valued expressions (which matches R's array() semantics).
-      glue("[{out}]")
-    }
+      if (!nzchar(dims_f)) {
+        dims_f <- "1"
+      }
+      if (grepl(":", dims_f, fixed = TRUE)) {
+        stop("array(dim=) must be known", call. = FALSE)
+      }
+      shape <- glue("int([{dims_f}])")
 
-    out <- Fortran(glue("reshape({source}, {shape})"), out@value)
+      data_r <- args$data
+      is_fill_constructor <-
+        is.call(data_r) &&
+        is.symbol(data_r[[1L]]) &&
+        as.character(data_r[[1L]]) %in%
+          c(
+            "logical",
+            "integer",
+            "double",
+            "numeric"
+          )
+
+      source <- if (is_fill_constructor) {
+        axis_terms <- vapply(
+          target_dims,
+          function(d) {
+            axis <- dims2f(list(d), scope)
+            if (!nzchar(axis)) {
+              "1"
+            } else {
+              axis
+            }
+          },
+          character(1L)
+        )
+        n_expr <- if (length(axis_terms) == 1L) {
+          axis_terms[[1L]]
+        } else {
+          paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
+        }
+        i <- scope@get_unique_var("integer")
+        glue("[({out}, {i}=1, int({n_expr}))]")
+      } else {
+        # RESHAPE() requires `SOURCE` to be an array expression; array constructors
+        # flatten array-valued expressions (which matches R's array() semantics).
+        glue("[{out}]")
+      }
+
+      out <- Fortran(glue("reshape({source}, {shape})"), out@value)
+    }
   }
 
   out@value <- Variable(

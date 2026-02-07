@@ -94,3 +94,16 @@ test_that("array() fill reshape handles dim expressions that lower to comma-cont
   x <- y
   expect_quick_identical(fn, list(y, x))
 })
+
+test_that("array() reshape supports dim = 1 for non-scalar data", {
+  fn <- function(x) {
+    declare(type(x = integer(2L, 3L, 4L)))
+    # Rank-1 length-1 arrays are scalar-like in quickr; index the first element
+    # to compare against base R without relying on `dim` attributes.
+    array(as.double(x), dim = 1L)[1]
+  }
+
+  set.seed(1)
+  x <- array(sample(1:10, 24, replace = TRUE), dim = c(2L, 3L, 4L))
+  expect_quick_identical(fn, list(x))
+})
