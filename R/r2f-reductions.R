@@ -135,6 +135,17 @@ register_r2f_handler(
           passes_as_scalar(hoisted_mask@value) &&
           !is_array_ctor
 
+        mask_len1 <-
+          !is.null(hoisted_mask@value) &&
+          identical(hoisted_mask@value@dims, list(1L))
+
+        if (!mask_is_scalar && !mask_len1) {
+          stop(
+            "any()/all(): scalar masked subsets only support scalar or length-1 masks",
+            call. = FALSE
+          )
+        }
+
         mask_scalar <- if (mask_is_scalar) {
           glue("{hoisted_mask}")
         } else {

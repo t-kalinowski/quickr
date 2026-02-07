@@ -149,6 +149,22 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
     list(x = FALSE, m = TRUE)
   )
 
+  # Scalar `x` with a longer logical mask diverges from simple empty/non-empty
+  # semantics in R because selecting out-of-range positions yields NAs. We don't
+  # implement that behavior here, so fail fast instead of silently emitting
+  # wrong code.
+  any_scalar_masked_long_mask <- function(x) {
+    declare(type(x = logical(1)))
+    any(x[c(FALSE, TRUE)])
+  }
+  expect_error(r2f(any_scalar_masked_long_mask), "scalar masked subsets")
+
+  all_scalar_masked_long_mask <- function(x) {
+    declare(type(x = logical(1)))
+    all(x[c(FALSE, TRUE)])
+  }
+  expect_error(r2f(all_scalar_masked_long_mask), "scalar masked subsets")
+
   # 1-element vector expressions like c(FALSE) compile to Fortran array
   # constructors (`[.false.]`) but any()/all() must still return scalars.
   any_array_ctor_len1 <- function() {
