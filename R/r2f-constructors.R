@@ -65,14 +65,38 @@ r2f_handlers[["character"]] <- r2f_handlers[["raw"]] <-
 
 r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   args$data %||% stop("matrix(data=) must be provided, cannot be NA")
-  out <- r2f(args$data, scope, ..., hoist = hoist)
-  out@value <- Variable(
-    mode = out@value@mode,
-    dims = r2dims(list(args$nrow, args$ncol), scope)
-  )
-  out
+  if (!is.null(args$byrow) && !is_missing(args$byrow) && !isFALSE(args$byrow)) {
+    stop("matrix(byrow=TRUE) is not supported", call. = FALSE)
+  }
 
-  # TODO: reshape() if !passes_as_scalar(out)
+  # Require explicit dims for now. (R can infer one dimension, but quickr's
+  # lowering keeps this strict to avoid surprising recycling rules.)
+  if (is.null(args$nrow) || is_missing(args$nrow)) {
+    stop("matrix(nrow=) must be provided", call. = FALSE)
+  }
+  if (is.null(args$ncol) || is_missing(args$ncol)) {
+    stop("matrix(ncol=) must be provided", call. = FALSE)
+  }
+
+  src <- r2f(args$data, scope, ..., hoist = hoist)
+  dims <- r2dims(list(args$nrow, args$ncol), scope)
+  out_val <- Variable(mode = src@value@mode, dims = dims)
+
+  # Scalars can be broadcast into an array on assignment, so keep them as-is.
+  if (passes_as_scalar(src@value)) {
+    src@value <- out_val
+    return(src)
+  }
+
+  rows <- dims[[1L]]
+  cols <- dims[[2L]]
+  source <- glue("{src}")
+  Fortran(
+    glue(
+      "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}], pad = {source})"
+    ),
+    out_val
+  )
 }
 
 r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
