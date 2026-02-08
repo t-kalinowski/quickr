@@ -91,6 +91,23 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   rows <- dims[[1L]]
   cols <- dims[[2L]]
   source <- glue("{src}")
+
+  # Avoid double-evaluating non-trivial expressions when used in both the
+  # `source` and `pad` args. In Fortran, intrinsic actual args are evaluated
+  # before the call, so repeating the expression can duplicate side effects
+  # (e.g. RNG state via runif()).
+  if (
+    is.null(src@value@name) ||
+      !identical(trimws(source), src@value@name)
+  ) {
+    tmp <- hoist$declare_tmp(
+      mode = src@value@mode,
+      dims = src@value@dims,
+      logical_as_int = logical_as_int(src@value)
+    )
+    hoist$emit(glue("{tmp@name} = {src}"))
+    source <- tmp@name
+  }
   Fortran(
     glue(
       "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}], pad = {source})"
