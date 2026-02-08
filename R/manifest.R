@@ -77,7 +77,7 @@ var_storage_bytes <- function(var) {
     complex = 16,
     logical = 4,
     raw = 1,
-    stop("unrecognized kind for stack sizing: ", format(var))
+    stop("unrecognized kind for stack sizing: ", format(var)) # nocov
   )
 }
 

@@ -110,3 +110,16 @@ test_that("unknown local element counts are treated as allocatable", {
   x <- matrix(runif(40 * 40), nrow = 40)
   expect_identical(quick(f)(x, 40L), f(x, 40L))
 })
+
+test_that("raw locals are sized as 1 byte for heap allocation decisions", {
+  f <- function(x) {
+    declare(type(x = raw(513L, 513L)))
+    a <- x
+    b <- a
+    b
+  }
+
+  code <- as.character(r2f(f))
+  expect_match(code, "allocatable[^\\n]*:: a\\(")
+  expect_match(code, "allocate\\(a\\(")
+})
