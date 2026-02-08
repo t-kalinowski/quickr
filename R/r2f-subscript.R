@@ -133,6 +133,55 @@ r2f_handlers[["["]] <- function(
         }
       },
       integer1 = {
+        if (drop && passes_as_scalar(subscript@value)) {
+          # R drop=TRUE drops any dimensions of length 1 in the result, even when
+          # the index is a length-1 range like 1:1. Fortran, however, treats a
+          # triplet subscript (1:1) as an array section, so the rank would not
+          # be reduced. Scalarize the index so the generated Fortran rank
+          # matches the dropped R result.
+          r <- attr(subscript, "r", exact = TRUE)
+          while (is_call(r, quote(`(`)) && length(r) == 2L) {
+            r <- r[[2L]]
+          }
+          while (is_call(r, quote(rev)) && length(r) == 2L) {
+            r <- r[[2L]]
+          }
+
+          if (is_call(r, quote(`:`)) && length(r) == 3L) {
+            scalar <- r2f(r[[2L]], scope, ..., hoist = hoist)
+            if (scalar@value@mode == "double") {
+              scalar <- Fortran(
+                glue("int({scalar}, kind=c_ptrdiff_t)"),
+                Variable("integer", scalar@value@dims)
+              )
+            }
+            return(scalar)
+          }
+
+          if (is_call(r, quote(seq_len)) && length(r) == 2L) {
+            n <- r[[2L]]
+            if (is_wholenumber(n) && identical(as.integer(n), 1L)) {
+              return(Fortran("1_c_int", Variable("integer")))
+            }
+          }
+
+          if (is_call(r, quote(seq_along)) && length(r) == 2L) {
+            return(Fortran("1_c_int", Variable("integer")))
+          }
+
+          if (is_call(r, quote(seq))) {
+            info <- seq_like_parse("seq", as.list(r)[-1L], scope)
+            scalar <- r2f(info$from, scope, ..., hoist = hoist)
+            if (scalar@value@mode == "double") {
+              scalar <- Fortran(
+                glue("int({scalar}, kind=c_ptrdiff_t)"),
+                Variable("integer", scalar@value@dims)
+              )
+            }
+            return(scalar)
+          }
+        }
+
         subscript
       },
       # double0 = { },
