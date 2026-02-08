@@ -34,6 +34,73 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
 }
 
 
+r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
+  # This handler exists to support `x[rep.int(i, n)]` style subscripting. A
+  # general rep.int() translation would need to preserve x's type/shape; until
+  # implemented, fail fast outside `[` context to avoid silent semantic changes.
+  context <- r2f_iterable_context(list(...)$calls)
+  if (!identical(context, "[")) {
+    stop(
+      "rep.int() is only supported when used as an index inside `x[...]`",
+      call. = FALSE
+    )
+  }
+
+  # Only support the common scalar form used in indexing: rep.int(scalar, times).
+  x_arg <- args$x %||% args[[1L]]
+  times_arg <- args$times %||% args[[2L]]
+
+  if (is_missing(x_arg) || is_missing(times_arg) || length(args) != 2L) {
+    stop(
+      "rep.int() only supports `rep.int(x, times)` with 2 arguments",
+      call. = FALSE
+    )
+  }
+
+  x_arg <- whole_doubles_to_ints(x_arg)
+  times_arg <- whole_doubles_to_ints(times_arg)
+
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  times <- r2f(times_arg, scope, ..., hoist = hoist)
+
+  if (is.null(x@value) || is.null(times@value)) {
+    stop(
+      "rep.int() only supports scalar integer arguments in indexing (x and times must not be NULL)",
+      call. = FALSE
+    )
+  }
+
+  if (x@value@mode == "double") {
+    x <- Fortran(
+      glue("int({x}, kind=c_int)"),
+      Variable("integer", x@value@dims)
+    )
+  }
+  if (times@value@mode == "double") {
+    times <- Fortran(
+      glue("int({times}, kind=c_int)"),
+      Variable("integer", times@value@dims)
+    )
+  }
+
+  if (x@value@mode != "integer" || !passes_as_scalar(x@value)) {
+    stop("rep.int() expects an integer scalar `x`", call. = FALSE)
+  }
+  if (times@value@mode != "integer" || !passes_as_scalar(times@value)) {
+    stop("rep.int() expects an integer scalar `times`", call. = FALSE)
+  }
+
+  len_expr <- r2size(times_arg, scope)
+  if (is.null(len_expr) || is_scalar_na(len_expr)) {
+    len_expr <- NA_integer_
+  }
+
+  i <- scope@get_unique_var("integer")
+  out_val <- Variable("integer", list(len_expr))
+  Fortran(glue("[({x}, {i}=1, int({times}, kind=c_int))]"), out_val)
+}
+
+
 register_r2f_handler(
   "logical",
   function(args, scope, ...) {
