@@ -23,9 +23,12 @@
         integer(c_int), intent(out) :: out_
       
         ! locals
-        real(c_double) :: x((n * 2))
-        real(c_double) :: y((n - 1))
+        real(c_double), allocatable :: x(:)
+        real(c_double), allocatable :: y(:)
         ! manifest end
+      
+        allocate(x((n * 2)))
+        allocate(y((n - 1)))
       
       
         x = 0
@@ -89,8 +92,10 @@
         integer(c_int), intent(out) :: out_
       
         ! locals
-        real(c_double) :: out((int(n) / int(2) + mod(int(n), int(2))))
+        real(c_double), allocatable :: out(:)
         ! manifest end
+      
+        allocate(out((int(n) / int(2) + mod(int(n), int(2)))))
       
       
         out = 0
@@ -153,8 +158,10 @@
         integer(c_int), intent(out) :: out_(2)
       
         ! locals
-        real(c_double) :: out((n + 1), (int(n) / int(2) + 1))
+        real(c_double), allocatable :: out(:, :)
         ! manifest end
+      
+        allocate(out((n + 1), (int(n) / int(2) + 1)))
       
       
         out = 1.0_c_double

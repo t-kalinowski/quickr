@@ -140,9 +140,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r          484.96ms 484.96ms      2.06     782KB     8.25
-#> 2 quickr       1.01ms   1.07ms    929.       782KB    17.7 
-#> 3 c            1.01ms   1.09ms    912.       782KB    16.9
+#> 1 r             493ms 496.46ms      2.01     782KB     2.01
+#> 2 quickr        934µs   1.07ms    930.       782KB    19.5 
+#> 3 c             956µs   1.08ms    924.       782KB    19.6
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -172,19 +172,21 @@ In the case of `convolve()`, `quick()` returns a function approximately
     #>  [21] <-           <<-          <=           =            ==          
     #>  [26] >            >=           |            ||           $           
     #>  [31] Arg          Conj         Fortran      Im           Mod         
-    #>  [36] Re           abs          acos         array        as.double   
-    #>  [41] asin         atan         backsolve    break        c           
-    #>  [46] cat          cbind        ceiling      character    chol        
-    #>  [51] chol2inv     cos          crossprod    declare      diag        
-    #>  [56] dim          double       drop         exp          floor       
-    #>  [61] for          forwardsolve if           ifelse       integer     
-    #>  [66] is.null      length       log          log10        logical     
-    #>  [71] matrix       max          min          ncol         next        
-    #>  [76] nrow         numeric      outer        print        prod        
-    #>  [81] qr.solve     raw          rbind        repeat       runif       
-    #>  [86] seq          seq_along    seq_len      sin          solve       
-    #>  [91] sqrt         stop         sum          svd          t           
-    #>  [96] tan          tcrossprod   which.max    which.min    while
+    #>  [36] Re           abs          acos         all          any         
+    #>  [41] array        as.double    as.integer   asin         atan        
+    #>  [46] backsolve    break        c            cat          cbind       
+    #>  [51] ceiling      character    chol         chol2inv     cos         
+    #>  [56] crossprod    declare      diag         dim          double      
+    #>  [61] drop         exp          floor        for          forwardsolve
+    #>  [66] if           ifelse       integer      is.null      length      
+    #>  [71] log          log10        logical      matrix       max         
+    #>  [76] min          ncol         next         nrow         numeric     
+    #>  [81] outer        print        prod         qr.solve     raw         
+    #>  [86] rbind        repeat       rev          runif        seq         
+    #>  [91] seq_along    seq_len      sin          solve        sqrt        
+    #>  [96] stop         sum          svd          t            tan         
+    #> [101] tanh         tcrossprod   trunc        which.max    which.min   
+    #> [106] while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -301,8 +303,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   68.35µs  73.23µs    12893.    1.59KB     29.6
-#> 2 quick_viterbi   1.93µs   2.05µs   476397.        0B      0
+#> 1 slow_viterbi   62.81µs   75.6µs    12852.    1.59KB     28.2
+#> 2 quick_viterbi   5.45µs   6.19µs   158835.        0B      0
 plot(timings)
 ```
 
@@ -393,8 +395,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        7.08   13.0       1       4893.      Inf
-#> 2 quick_diffuse_heat  1       1        11.6        1       NaN
+#> 1 diffuse_heat        6.84   11.6       1       4893.     28.8
+#> 2 quick_diffuse_heat  1       1        10.2        1       1
 plot(timings)
 ```
 
@@ -440,9 +442,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           70.05ms  88.14ms      9.07  124.24MB    18.1 
-#> 2 rcpp         5.94ms   6.27ms    158.      4.46MB     0   
-#> 3 quickr       2.31ms   2.49ms    390.    781.35KB     3.98
+#> 1 r           78.19ms  85.82ms      9.02  124.24MB    23.5 
+#> 2 rcpp         6.21ms    6.3ms    156.      4.46MB     0   
+#> 3 quickr       2.37ms   2.49ms    394.    781.35KB     3.98
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -556,10 +558,10 @@ timings
 #> # A tibble: 4 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 reference      12.14ms  12.58ms      79.0    29.6MB     84.0
-#> 2 RcppArmadillo   1.78ms   2.03ms     473.         0B      0  
-#> 3 plain R         1.65ms   2.02ms     487.     13.2MB    114. 
-#> 4 quickr        940.05µs   1.11ms     836.         0B      0
+#> 1 reference      12.26ms  12.85ms      78.2    29.6MB     73.8
+#> 2 RcppArmadillo   1.66ms   2.04ms     476.         0B      0  
+#> 3 plain R         1.59ms    1.9ms     516.     13.2MB    133. 
+#> 4 quickr        974.32µs   1.09ms     849.         0B      0
 plot(timings) + ggplot2::scale_y_discrete(limits = rev(c( 
   "reference", "RcppArmadillo", "plain R", "quickr"
 )))

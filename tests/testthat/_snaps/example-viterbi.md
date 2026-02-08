@@ -96,13 +96,18 @@
         ! locals
         integer(c_int) :: num_states
         integer(c_int) :: num_steps
-        real(c_double) :: trellis(states__len_, observations__len_)
-        integer(c_int) :: backpointer(states__len_, observations__len_)
+        real(c_double), allocatable :: trellis(:, :)
+        integer(c_int), allocatable :: backpointer(:, :)
         integer(c_int) :: step
         integer(c_int) :: current_state
-        real(c_double) :: probabilities(states__len_)
-        integer(c_int) :: path(observations__len_)
+        real(c_double), allocatable :: probabilities(:)
+        integer(c_int), allocatable :: path(:)
         ! manifest end
+      
+        allocate(trellis(states__len_, observations__len_))
+        allocate(backpointer(states__len_, observations__len_))
+        allocate(probabilities(states__len_))
+        allocate(path(observations__len_))
       
       
         num_states = size(states)
@@ -308,13 +313,18 @@
         integer(c_int), intent(out) :: out(observations__len_)
       
         ! locals
-        real(c_double) :: trellis(states__len_, observations__len_)
-        integer(c_int) :: backpointer(states__len_, observations__len_)
+        real(c_double), allocatable :: trellis(:, :)
+        integer(c_int), allocatable :: backpointer(:, :)
         integer(c_int) :: step
         integer(c_int) :: current_state
-        real(c_double) :: probabilities(states__len_)
-        integer(c_int) :: path(observations__len_)
+        real(c_double), allocatable :: probabilities(:)
+        integer(c_int), allocatable :: path(:)
         ! manifest end
+      
+        allocate(trellis(states__len_, observations__len_))
+        allocate(backpointer(states__len_, observations__len_))
+        allocate(probabilities(states__len_))
+        allocate(path(observations__len_))
       
       
         trellis = 0.0_c_double
