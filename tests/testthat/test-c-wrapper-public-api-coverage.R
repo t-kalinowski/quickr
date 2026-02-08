@@ -58,4 +58,6 @@ test_that("rank-0 arguments are rejected by the C bridge (public API)", {
     n
   }
   expect_error(quick(fn), "bad rank")
+  expect_error(quick(fn), "rank-0")
+  expect_error(quick(fn), "integer\\(1\\)")
 })

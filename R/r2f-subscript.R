@@ -28,7 +28,11 @@ r2f_handlers[["["]] <- function(
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", var@value@dims[[i]]))
     } else {
-      sub <- r2f(idx, scope, ...)
+      # Important: pass along the per-statement hoist context, otherwise
+      # subscript expressions that need temporaries (e.g. rev(seq_len(n)))
+      # will self-render as an inline `block ... end block` *expression*,
+      # which is invalid Fortran inside an array designator.
+      sub <- r2f(idx, scope, ..., hoist = hoist)
       if (sub@value@mode == "double") {
         # Fortran subscripts must be integers; coerce numeric expressions
         Fortran(

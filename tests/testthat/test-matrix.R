@@ -45,6 +45,33 @@ test_that("matrix", {
   # bench::mark(fn(2.3, 3, 4), matrix(2.3, 3, 4), qfn(2.3, 3, 4)) -> r; print(r); plot(r)
 })
 
+test_that("matrix() reshapes non-scalar data expressions", {
+  fn <- function(x) {
+    declare(type(x = double(2L, 3L)))
+    matrix(as.integer(x), nrow = 2L, ncol = 3L)
+  }
+
+  x <- matrix(as.double(1:6), nrow = 2L, ncol = 3L)
+  expect_quick_identical(fn, list(x))
+})
+
+test_that("matrix() does not evaluate data expressions twice", {
+  fn <- function() {
+    matrix(runif(4L), nrow = 2L, ncol = 2L)
+  }
+  qfn <- quick(fn)
+
+  set.seed(1234)
+  qfn()
+  q_next <- runif(1L)
+
+  set.seed(1234)
+  fn()
+  r_next <- runif(1L)
+
+  expect_equal(q_next, r_next)
+})
+
 test_that("reuse implicit size", {
   fn <- function(a1, a2) {
     declare(type(a1 = double(n)))

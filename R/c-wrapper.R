@@ -254,7 +254,12 @@ closure_arg_c_defs <- function(var, strict = TRUE) {
       glue("const int {size_name} = {var@name}__dim_[{axis-1}];")
     })
   } else {
-    stop("bad rank")
+    stop(
+      "bad rank for argument `",
+      var@r_name %||% var@name,
+      "`: quickr does not support rank-0 arguments. ",
+      "Declare scalars with an explicit length, e.g. `integer(1)` or `double(1)`."
+    )
   }
 
   as_glue(str_flatten_lines(c_code))

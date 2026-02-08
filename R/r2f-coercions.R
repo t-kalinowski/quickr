@@ -5,7 +5,28 @@
 
 r2f_handlers[["as.double"]] <- function(args, scope = NULL, ...) {
   stopifnot(length(args) == 1L)
-  maybe_cast_double(r2f(args[[1]], scope, ...))
+  x <- r2f(args[[1L]], scope, ...)
+  x <- maybe_cast_double(x)
+
+  # R drops dimensions for as.double(<array>): the result is a vector.
+  if (!passes_as_scalar(x@value) && x@value@rank > 1L) {
+    len_expr <- value_length_expr(x@value)
+    len_str <- if (is_scalar_na(len_expr)) {
+      glue("size({x})")
+    } else {
+      # dims2f() returns "" for a scalar "1", but we need a literal length.
+      out <- dims2f(list(len_expr), scope)
+      if (!nzchar(out)) "1" else out
+    }
+
+    out_val <- Variable(
+      "double",
+      list(if (is_scalar_na(len_expr)) NA else len_expr)
+    )
+    return(Fortran(glue("reshape({x}, [{len_str}])"), out_val))
+  }
+
+  x
 }
 
 r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
@@ -18,7 +39,7 @@ r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
   # - result is an integer vector
   out_val <- Variable("integer", arg@value@dims)
 
-  switch(
+  out <- switch(
     arg@value@mode,
     integer = arg,
     double = Fortran(glue("int({arg}, kind=c_int)"), out_val),
@@ -34,4 +55,22 @@ r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
     },
     stop("as.integer() only implemented for logical, integer, and double")
   )
+
+  # R drops dimensions for as.integer(<array>): the result is a vector.
+  if (!passes_as_scalar(out@value) && out@value@rank > 1L) {
+    len_expr <- value_length_expr(out@value)
+    len_str <- if (is_scalar_na(len_expr)) {
+      glue("size({out})")
+    } else {
+      out_len <- dims2f(list(len_expr), scope)
+      if (!nzchar(out_len)) "1" else out_len
+    }
+    out_val <- Variable(
+      "integer",
+      list(if (is_scalar_na(len_expr)) NA else len_expr)
+    )
+    return(Fortran(glue("reshape({out}, [{len_str}])"), out_val))
+  }
+
+  out
 }
