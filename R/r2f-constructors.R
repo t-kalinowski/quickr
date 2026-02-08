@@ -156,7 +156,8 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   }
   if (!passes_as_scalar(out@value)) {
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
-    # We implement this as `reshape()`; recycling is not supported here.
+    # We implement this as Fortran `reshape()`. Recycling (i.e. expanding a
+    # shorter SOURCE to a larger target shape) is not supported.
     dims_f <- dims2f(target_dims, scope)
     scalar_target <- !nzchar(dims_f) && length(target_dims) == 1L
     if (scalar_target) {
@@ -194,27 +195,76 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
             "numeric"
           )
 
-      source <- if (is_fill_constructor) {
-        axis_terms <- vapply(
-          target_dims,
+      axis_terms <- vapply(
+        target_dims,
+        function(d) {
+          axis <- dims2f(list(d), scope)
+          if (!nzchar(axis)) {
+            "1"
+          } else {
+            axis
+          }
+        },
+        character(1L)
+      )
+      n_expr <- if (length(axis_terms) == 1L) {
+        axis_terms[[1L]]
+      } else {
+        paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
+      }
+
+      known_prod <- function(dims) {
+        if (is.null(dims) || !length(dims)) {
+          return(1)
+        }
+        vals <- vapply(
+          dims,
           function(d) {
-            axis <- dims2f(list(d), scope)
-            if (!nzchar(axis)) {
-              "1"
+            if (
+              is.atomic(d) &&
+                length(d) == 1L &&
+                !is.na(d) &&
+                is_wholenumber(d)
+            ) {
+              as.double(d)
             } else {
-              axis
+              NA_real_
             }
           },
-          character(1L)
+          double(1L)
         )
-        n_expr <- if (length(axis_terms) == 1L) {
-          axis_terms[[1L]]
-        } else {
-          paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
+        if (anyNA(vals)) {
+          return(NA_real_)
         }
+        prod(vals)
+      }
+
+      source <- if (is_fill_constructor) {
         i <- scope@get_unique_var("integer")
         glue("[({out}, {i}=1, int({n_expr}))]")
       } else {
+        n_target <- known_prod(target_dims)
+        n_source <- known_prod(out@value@dims)
+        if (!is.na(n_target) && !is.na(n_source) && n_target > n_source) {
+          stop(
+            "array() reshape does not support recycling: prod(dim)=",
+            n_target,
+            " > length(data)=",
+            n_source,
+            call. = FALSE
+          )
+        }
+        if (!is.null(hoist)) {
+          mark_scope_uses_errors(scope)
+          err <- quickr_error_fortran_lines(
+            "array() reshape does not support recycling (data shorter than prod(dim))",
+            scope = scope
+          )
+          hoist$emit(glue("if (int({n_expr}) > size({out})) then"))
+          hoist$emit(paste0("  ", err))
+          hoist$emit("end if")
+        }
+
         # RESHAPE() requires `SOURCE` to be an array expression; array constructors
         # flatten array-valued expressions (which matches R's array() semantics).
         glue("[{out}]")

@@ -79,6 +79,16 @@ test_that("array() reshape accepts dim passed as a variable bound to a literal s
   expect_quick_identical(fn, list(x))
 })
 
+test_that("array() reshape fails early when recycling would be required", {
+  fn <- function() {
+    array(c(1L, 2L, 3L), dim = c(2L, 2L))
+  }
+
+  # Fortran `reshape()` errors when the source is too short; quickr should stop
+  # before generating uncompilable code.
+  expect_error(quick(fn), "does not support recycling")
+})
+
 test_that("array() fill reshape handles dim expressions that lower to comma-containing Fortran", {
   fn <- function(y, x) {
     declare(type(y = double(NA, NA)), type(x = double(nrow(y), ncol(y))))
