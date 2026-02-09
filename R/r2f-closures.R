@@ -129,12 +129,12 @@ compile_internal_subroutine <- function(
   used_names <- unique(all.vars(body(fun), functions = FALSE))
 
   formal_scope <- new_scope(closure = NULL, parent = parent_scope)
-  attr(formal_scope, "kind") <- "closure_formals"
+  scope_set(formal_scope, "kind", "closure_formals")
 
   proc_scope <- new_scope(fun, parent = formal_scope)
-  attr(proc_scope, "kind") <- "closure"
-  attr(proc_scope, "host_scope") <- scope_root(parent_scope)
-  attr(proc_scope, "forbid_superassign") <- forbid_superassign
+  scope_set(proc_scope, "kind", "closure")
+  scope_set(proc_scope, "host_scope", scope_root(parent_scope))
+  scope_set(proc_scope, "forbid_superassign", forbid_superassign)
 
   arg_names <- character()
   optional_locals <- list()
@@ -1000,7 +1000,8 @@ compile_closure_call_assignment <- function(
   optional_args <- call_info$optional_args
   args_present <- call_info$args_present
 
-  return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
+  return_names <- scope_get(scope, "return_names", default = character()) %||%
+    character()
   res_var <- if (target_exists) {
     out <- Variable(
       mode = target_var@mode,
@@ -1233,7 +1234,8 @@ compile_sapply_assignment <- function(
     }
     res_var <- inferred
 
-    return_names <- attr(scope, "return_names", exact = TRUE) %||% character()
+    return_names <- scope_get(scope, "return_names", default = character()) %||%
+      character()
     if (res_var@mode == "logical" && out_name %in% return_names) {
       res_var@logical_as_int <- TRUE
       proc <- compile_internal_subroutine(

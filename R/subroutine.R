@@ -20,9 +20,11 @@ new_fortran_subroutine <- function(
   # body <- rlang::zap_srcref(body)
 
   scope <- new_scope(closure, parent)
-  attr(scope, "return_names") <- unique(unname(closure_return_var_names(
-    closure
-  )))
+  scope_set(
+    scope,
+    "return_names",
+    unique(unname(closure_return_var_names(closure)))
+  )
 
   # inject symbols for var sizes in declare calls, so like:
   #   declare(type(foo = integer(nr, NA)),
@@ -65,7 +67,8 @@ new_fortran_subroutine <- function(
     character()
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
-  internal_procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
+  internal_procs <- scope_get(scope, "internal_procs", default = list()) %||%
+    list()
   contains_entries <- c(
     lapply(internal_procs, `[[`, "code") |>
       unlist(use.names = FALSE),

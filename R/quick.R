@@ -222,7 +222,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
   FLIBS <- FLIBS[nzchar(FLIBS)]
   link_flags <- c(LAPACK_LIBS, BLAS_LIBS, FLIBS)
 
-  use_openmp <- isTRUE(attr(fsub@scope, "uses_openmp", exact = TRUE))
+  use_openmp <- scope_uses_openmp_flag(fsub@scope)
   suppressWarnings({
     env <- quickr_fcompiler_env(
       build_dir = build_dir,

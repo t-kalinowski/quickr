@@ -5,15 +5,28 @@
 # custom `@.quickr_scope` method, which can be confused with S7 `@` property
 # access. These helpers make scope state access explicit and grep-able.
 
+scope_state <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  st <- attr(scope, "state", exact = TRUE)
+  if (!is.environment(st)) {
+    stop("internal error: quickr_scope is missing its state environment")
+  }
+  st
+}
+
 scope_get <- function(scope, name, default = NULL) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(name))
-  val <- attr(scope, name, exact = TRUE)
-  if (is.null(val)) default else val
+  st <- scope_state(scope)
+  if (!exists(name, envir = st, inherits = FALSE)) {
+    return(default)
+  }
+  get(name, envir = st, inherits = FALSE)
 }
 
 scope_set <- function(scope, name, value) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(name))
-  attr(scope, name) <- value
+  st <- scope_state(scope)
+  assign(name, value, envir = st)
   invisible(scope)
 }
 
