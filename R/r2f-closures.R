@@ -1375,13 +1375,15 @@ compile_subset_designator <- function(
   scope,
   ...,
   hoist = NULL,
-  drop = TRUE
+  drop = TRUE,
+  allow_logical_vector_subscripts = FALSE
 ) {
   stopifnot(
     inherits(base_var, Variable),
     is_string(base_name),
     inherits(scope, "quickr_scope"),
-    is_bool(drop)
+    is_bool(drop),
+    is_bool(allow_logical_vector_subscripts)
   )
 
   idxs <- whole_doubles_to_ints(idx_args)
@@ -1443,7 +1445,16 @@ compile_subset_designator <- function(
         Fortran(":", Variable("integer", base_var@dims[[i]]))
       },
       logical1 = {
-        stop("logical subscript vectors are not supported for assignment")
+        if (!allow_logical_vector_subscripts) {
+          stop("logical subscript vectors are not supported for assignment")
+        }
+
+        # Convert logical vectors to integer vector subscripts (R's `which()`).
+        # Fortran array designators do not accept logical vectors directly.
+        mask <- booleanize_logical_as_int(subscript)
+        it <- scope@get_unique_var("integer")
+        f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
+        Fortran(f, Variable("int", NA))
       },
       integer0 = {
         if (drop) {
@@ -1476,10 +1487,15 @@ compile_subscript_lhs <- function(
   target <- match.arg(target)
 
   if (target == "local") {
+    base <- subset_call[[2L]]
+    if (!is.symbol(base)) {
+      stop("assignment targets must be symbols, found: ", deparse1(base))
+    }
+    base_name <- as.character(base)
+
     pre <- NULL
 
-    if (scope_is_closure(scope) && is.symbol(base <- subset_call[[2L]])) {
-      base_name <- as.character(base)
+    if (scope_is_closure(scope)) {
       local_base <- get0(base_name, scope, inherits = FALSE)
       if (is.null(local_base) || !inherits(local_base, Variable)) {
         parent_base <- get0(base_name, scope)
@@ -1502,7 +1518,38 @@ compile_subscript_lhs <- function(
       }
     }
 
-    return(list(pre = pre, lhs = r2f(subset_call, scope, ..., hoist = hoist)))
+    base_var <- get0(base_name, scope)
+    if (!inherits(base_var, Variable)) {
+      stop("could not resolve symbol: ", base_name)
+    }
+
+    idx_args <- as.list(subset_call)[-1L]
+    idx_args <- idx_args[-1L]
+    drop <- idx_args$drop %||% TRUE
+    idx_args$drop <- NULL
+
+    # When compiling subscripts for assignment, force iterable indices like `i:i`
+    # to render as Fortran triplets (i:i) rather than value sequences.
+    dots <- list(...)
+    dots$calls <- c(dots$calls %||% character(), "[")
+
+    designator <- do.call(
+      compile_subset_designator,
+      c(
+        list(
+          base_var = base_var,
+          base_name = base_var@name,
+          idx_args = idx_args,
+          scope = scope,
+          hoist = hoist,
+          drop = drop,
+          allow_logical_vector_subscripts = TRUE
+        ),
+        dots
+      )
+    )
+
+    return(list(pre = pre, lhs = Fortran(designator)))
   }
 
   if (is.null(scope) || !identical(scope@kind, "closure")) {

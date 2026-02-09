@@ -76,8 +76,7 @@ var_storage_bytes <- function(var) {
     integer = 4,
     complex = 16,
     logical = 4,
-    raw = 1,
-    stop("unrecognized kind for stack sizing: ", format(var)) # nocov
+    raw = 1
   )
 }
 
@@ -87,15 +86,33 @@ subroutine_local_allocatable <- function(
   max_stack_bytes = subroutine_local_allocatable_threshold_bytes
 ) {
   stopifnot(inherits(var, Variable))
-  if (
-    !inherits(scope, "quickr_scope") || !identical(scope@kind, "subroutine")
-  ) {
-    return(FALSE)
-  }
   if (passes_as_scalar(var) || is.null(var@dims)) {
     return(FALSE)
   }
 
+  # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
+  # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
+  # explicit allocation, so treat these as implicitly-sized locals.
+  self_size_names <- vapply(
+    seq_along(var@dims),
+    function(i) get_size_name(var, axis = as.integer(i)),
+    character(1)
+  )
+  if (
+    any(vapply(
+      seq_along(var@dims),
+      function(i) {
+        d <- var@dims[[i]]
+        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
+      },
+      logical(1)
+    ))
+  ) {
+    return(FALSE)
+  }
+
+  # If any dimension is deferred-shape (":"), don't emit an explicit allocate().
+  # Those locals are expected to be allocated implicitly (e.g., on assignment).
   dims <- dims2f(var@dims, scope)
   if (!nzchar(dims) || grepl(":", dims, fixed = TRUE)) {
     return(FALSE)
@@ -359,6 +376,24 @@ r2f.scope <- function(scope, include_errors = FALSE) {
       NULL
     } else {
       dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
+    }
+
+    # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
+    # are emitted as deferred-shape allocatables and rely on implicit allocation.
+    if (
+      is.null(intent) &&
+        !is.null(dims) &&
+        any(vapply(
+          seq_along(var@dims),
+          function(i) {
+            d <- var@dims[[i]]
+            is.symbol(d) &&
+              identical(as.character(d), get_size_name(var, axis = i))
+          },
+          logical(1)
+        ))
+    ) {
+      dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
     }
 
     heap_local <- is.null(intent) && subroutine_local_allocatable(var, scope)

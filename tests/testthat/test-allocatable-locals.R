@@ -123,3 +123,49 @@ test_that("raw locals are sized as 1 byte for heap allocation decisions", {
   expect_match(code, "allocatable[^\\n]*:: a\\(")
   expect_match(code, "allocate\\(a\\(")
 })
+
+test_that("heap sizing accounts for complex and logical storage", {
+  # Use local declarations with fixed dims so var_element_count() is known and
+  # var_storage_bytes() is exercised.
+  f_complex <- function() {
+    declare(type(a = complex(10L, 10L)))
+    1
+  }
+  f_logical <- function() {
+    declare(type(a = logical(10L, 10L)))
+    1
+  }
+
+  # Codegen is enough; no need to run compiled code here.
+  expect_match(as.character(r2f(f_complex)), "complex\\(", perl = TRUE)
+  expect_match(as.character(r2f(f_logical)), "logical|! logical", perl = TRUE)
+})
+
+test_that("deferred-shape locals are allocatable without explicit allocate()", {
+  f <- function(x) {
+    declare(type(x = double(NA, NA)), type(a = double(NA, NA)))
+    a <- x
+    1
+  }
+
+  code <- as.character(r2f(f))
+  expect_match(code, "allocatable[^\\n]*:: a\\(")
+  expect_match(code, ":: a\\(:,\\s*:\\)")
+  expect_no_match(code, "allocate\\(a\\(")
+})
+
+test_that("deferred-shape locals (self-sized dims) snapshot", {
+  # For locals declared with unknown sizes like double(NA, NA), the declared
+  # sizes are rewritten to `a__dim_*` symbols. Those sizes are not available for
+  # explicit allocation, so we rely on implicit allocation and emit `a(:, :)`.
+  f <- function(x) {
+    declare(type(x = double(NA, NA)), type(a = double(NA, NA)))
+    a <- x
+    1
+  }
+
+  expect_snapshot(r2f(f))
+
+  x <- matrix(as.double(1:6), nrow = 2)
+  expect_quick_identical(f, x)
+})
