@@ -131,7 +131,8 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     loop_var@modified <- TRUE
     scope[[var]] <- loop_var
 
-    iterable_tmp <- scope_unique_var(scope,
+    iterable_tmp <- scope_unique_var(
+      scope,
       mode = iterable_var@mode,
       dims = iterable_var@dims,
       logical_as_int = logical_as_int(iterable_var)

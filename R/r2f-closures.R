@@ -1192,7 +1192,8 @@ compile_sapply_assignment <- function(
 
     iterable_len_expr <- value_length_expr(iterable_value)
 
-    iterable_tmp <- scope_unique_var(scope,
+    iterable_tmp <- scope_unique_var(
+      scope,
       mode = iterable_value@mode,
       dims = iterable_value@dims
     )
@@ -1564,7 +1565,8 @@ compile_subscript_lhs <- function(
   }
   name <- as.character(base)
 
-  host_scope <- scope_host_scope(scope) %||% stop("internal error: missing host scope")
+  host_scope <- scope_host_scope(scope) %||%
+    stop("internal error: missing host scope")
   host_var <- get0(name, host_scope)
   if (!inherits(host_var, Variable)) {
     stop(

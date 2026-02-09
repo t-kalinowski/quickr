@@ -425,7 +425,10 @@ R2FHandler := new_class(
     dest_infer_name = prop_string(default = NULL, allow_null = TRUE),
     # When NULL, r2f will resolve the callable by name and use match.call().
     # When FALSE, r2f will not attempt match.call().
-    match_fun = new_property(NULL | class_function | class_logical, default = NULL)
+    match_fun = new_property(
+      NULL | class_function | class_logical,
+      default = NULL
+    )
   ),
   validator = function(self) {
     mf <- self@match_fun

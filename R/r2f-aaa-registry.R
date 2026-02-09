@@ -34,7 +34,9 @@ register_r2f_handler <- function(
 
   if (isTRUE(match_fun)) {
     handler@match_fun <- NULL
-  } else if (is.null(match_fun) || isFALSE(match_fun) || is.function(match_fun)) {
+  } else if (
+    is.null(match_fun) || isFALSE(match_fun) || is.function(match_fun)
+  ) {
     handler@match_fun <- match_fun
   } else {
     stop("match_fun must be TRUE, FALSE, NULL, or a function")

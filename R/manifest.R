@@ -133,7 +133,9 @@ block_tmp_allocatable <- function(
   max_stack_elements = block_tmp_allocatable_threshold
 ) {
   stopifnot(inherits(var, Variable))
-  if (!inherits(scope, "quickr_scope") || !identical(scope_kind(scope), "block")) {
+  if (
+    !inherits(scope, "quickr_scope") || !identical(scope_kind(scope), "block")
+  ) {
     return(FALSE)
   }
   if (passes_as_scalar(var) || is.null(var@dims)) {

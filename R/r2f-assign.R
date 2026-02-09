@@ -337,7 +337,7 @@ register_r2f_handler(
       stop("closure must not superassign to its output variable: ", name)
     }
 
-    host_scope <- scope_host_scope(scope) %||% 
+    host_scope <- scope_host_scope(scope) %||%
       stop("internal error: missing host scope")
     host_var <- get0(name, host_scope)
     if (!inherits(host_var, Variable)) {
