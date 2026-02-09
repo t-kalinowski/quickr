@@ -181,22 +181,14 @@ scope_return_var_names <- function(scope) {
 #' @export
 `@.quickr_scope` <- function(x, name) {
   name <- as.character(name)
-  st <- attr(x, "state", exact = TRUE)
-  if (is.environment(st) && exists(name, envir = st, inherits = FALSE)) {
-    return(get(name, envir = st, inherits = FALSE))
-  }
-  attr(x, name, exact = TRUE)
+  scope_get(x, name)
 }
 
 #' @export
 `@<-.quickr_scope` <- function(x, name, value) {
   name <- as.character(name)
-  st <- attr(x, "state", exact = TRUE)
-  if (is.environment(st)) {
-    assign(name, value, envir = st)
-    return(x)
-  }
-  `attr<-`(x, name, value = value)
+  scope_set(x, name, value)
+  x
 }
 
 #' @importFrom utils .AtNames findMatches

@@ -42,7 +42,7 @@ maybe_lower_local_closure_call <- function(
   }
 
   if (is_function_call(callable_unwrapped)) {
-    proc_name <- scope_root(scope)@get_unique_proc(prefix = "closure")
+    proc_name <- scope_unique_proc(scope_root(scope), prefix = "closure")
     host_closure <- scope_root(scope)@closure
     closure_obj <- as_local_closure(
       callable_unwrapped,
@@ -1149,7 +1149,7 @@ compile_sapply_assignment <- function(
     }
     proc_name <- fun_name
   } else if (is_function_call(fun_expr)) {
-    proc_name <- scope_root(scope)@get_unique_proc(prefix = "closure")
+    proc_name <- scope_unique_proc(scope_root(scope), prefix = "closure")
     closure_obj <- as_local_closure(fun_expr, env, name = proc_name)
   } else {
     stop("unsupported FUN in sapply(); use a local closure or function(i) ...")

@@ -27,7 +27,7 @@ take_pending_parallel <- function(scope) {
 mark_openmp_used <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
   root <- scope_root(scope)
-  scope_set(root, "uses_openmp", TRUE)
+  scope_mark_uses_openmp_flag(root)
   invisible(root)
 }
 

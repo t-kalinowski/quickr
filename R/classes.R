@@ -429,13 +429,7 @@ R2FHandler := new_class(
       NULL | class_function | class_logical,
       default = NULL
     )
-  ),
-  validator = function(self) {
-    mf <- self@match_fun
-    if (is.logical(mf) && length(mf) != 1L) {
-      "`match_fun` must be a scalar logical, a function, or NULL"
-    }
-  }
+  )
 )
 
 try_prop <- function(object, name) S7::prop(object, name) %error% NULL

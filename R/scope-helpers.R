@@ -8,9 +8,7 @@
 scope_state <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
   st <- attr(scope, "state", exact = TRUE)
-  if (!is.environment(st)) {
-    stop("internal error: quickr_scope is missing its state environment")
-  }
+  stopifnot(is.environment(st))
   st
 }
 
