@@ -127,12 +127,12 @@ new_scope <- function(closure, parent = emptyenv()) {
 
 scope_return_var_names <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
-  return_var_names <- closure_return_var_names(scope@closure)
+  return_var_names <- closure_return_var_names(scope_closure(scope))
   if (!length(return_var_names)) {
     return(return_var_names)
   }
 
-  is_list_return <- is_call(last(body(scope@closure)), quote(list))
+  is_list_return <- is_call(last(body(scope_closure(scope))), quote(list))
   values <- unname(return_var_names)
   names_in <- names(return_var_names)
   if (is.null(names_in)) {

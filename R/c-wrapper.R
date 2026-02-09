@@ -3,8 +3,8 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
 
   closure <- fsub@closure
   scope <- fsub@scope
-  uses_rng <- isTRUE(attr(scope, "uses_rng", TRUE))
-  uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
+  uses_rng <- scope_uses_rng(scope)
+  uses_errors <- scope_uses_errors_flag(scope)
 
   fsub_arg_names <- fsub@signature # arg names
   closure_arg_names <- names(formals(closure)) %||% character()

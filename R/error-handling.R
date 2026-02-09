@@ -17,7 +17,7 @@ scope_root_for_errors <- function(scope) {
     return(scope)
   }
   while (
-    !identical(attr(scope, "kind", exact = TRUE), "subroutine") &&
+    !identical(scope_kind(scope), "subroutine") &&
       inherits(parent.env(scope), "quickr_scope")
   ) {
     scope <- parent.env(scope)
@@ -28,14 +28,17 @@ scope_root_for_errors <- function(scope) {
 mark_scope_uses_errors <- function(scope) {
   root <- scope_root_for_errors(scope)
   if (inherits(root, "quickr_scope")) {
-    attr(root, "uses_errors") <- TRUE
+    scope_mark_uses_errors_flag(root)
   }
   invisible(TRUE)
 }
 
 scope_uses_errors <- function(scope) {
   root <- scope_root_for_errors(scope)
-  isTRUE(attr(root, "uses_errors", TRUE))
+  if (!inherits(root, "quickr_scope")) {
+    return(FALSE)
+  }
+  scope_uses_errors_flag(root)
 }
 
 fortran_string_literal <- function(x) {

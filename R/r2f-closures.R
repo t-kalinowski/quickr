@@ -85,7 +85,7 @@ as_local_closure <- function(fun_expr, env, name = NULL) {
 scope_root <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
   while (
-    !identical(scope@kind, "subroutine") &&
+    !identical(scope_kind(scope), "subroutine") &&
       inherits(parent.env(scope), "quickr_scope")
   ) {
     scope <- parent.env(scope)
@@ -845,7 +845,7 @@ compile_local_closure_proc <- function(
     forbid_superassign = forbid_superassign,
     optional_args = optional_args
   )
-  scope_root(scope)@add_internal_proc(proc)
+  scope_add_internal_proc(scope_root(scope), proc)
   proc
 }
 
@@ -1056,7 +1056,7 @@ compile_closure_call_assignment <- function(
     }
     scope[[target_name]] <- target_var
   }
-  scope_root(scope)@add_internal_proc(proc)
+  scope_add_internal_proc(scope_root(scope), proc)
 
   arg_reads_target <- any(map_lgl(args_expr, function(e) {
     any(all.vars(e, functions = FALSE) == target_name)
@@ -1139,7 +1139,7 @@ compile_sapply_assignment <- function(
     }
   }
 
-  env <- environment(scope@closure)
+  env <- environment(scope_closure(scope))
   if (is.symbol(fun_expr)) {
     fun_name <- as.character(fun_expr)
     closure_obj <- scope[[fun_name]]
@@ -1191,7 +1191,7 @@ compile_sapply_assignment <- function(
 
     iterable_len_expr <- value_length_expr(iterable_value)
 
-    iterable_tmp <- scope@get_unique_var(
+    iterable_tmp <- scope_unique_var(scope,
       mode = iterable_value@mode,
       dims = iterable_value@dims
     )
@@ -1266,7 +1266,7 @@ compile_sapply_assignment <- function(
     scope[[out_name]] <- out_var
   }
 
-  scope_root(scope)@add_internal_proc(proc)
+  scope_add_internal_proc(scope_root(scope), proc)
 
   out_target <- out_name
   post_stmts <- character()
@@ -1280,7 +1280,7 @@ compile_sapply_assignment <- function(
     post_stmts <- glue("{out_name} = {out_target}")
   }
 
-  idx <- scope@get_unique_var("integer")
+  idx <- scope_unique_var(scope, "integer")
   last_i <- if (index_iterable) {
     if (is.null(iterable_len_expr) || is_scalar_na(iterable_len_expr)) {
       NULL
@@ -1452,7 +1452,7 @@ compile_subset_designator <- function(
         # Convert logical vectors to integer vector subscripts (R's `which()`).
         # Fortran array designators do not accept logical vectors directly.
         mask <- booleanize_logical_as_int(subscript)
-        it <- scope@get_unique_var("integer")
+        it <- scope_unique_var(scope, "integer")
         f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
         Fortran(f, Variable("int", NA))
       },
@@ -1552,7 +1552,7 @@ compile_subscript_lhs <- function(
     return(list(pre = pre, lhs = Fortran(designator)))
   }
 
-  if (is.null(scope) || !identical(scope@kind, "closure")) {
+  if (is.null(scope) || !identical(scope_kind(scope), "closure")) {
     stop("host-target subset compilation is only valid inside local closures")
   }
 
@@ -1562,7 +1562,7 @@ compile_subscript_lhs <- function(
   }
   name <- as.character(base)
 
-  host_scope <- scope@host_scope %||% stop("internal error: missing host scope")
+  host_scope <- scope_host_scope(scope) %||% stop("internal error: missing host scope")
   host_var <- get0(name, host_scope)
   if (!inherits(host_var, Variable)) {
     stop(

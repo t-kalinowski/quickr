@@ -58,8 +58,8 @@ new_fortran_subroutine <- function(
     }
   }
 
-  uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
-  uses_openmp <- isTRUE(attr(scope, "uses_openmp", TRUE))
+  uses_errors <- scope_uses_errors_flag(scope)
+  uses_openmp <- scope_uses_openmp_flag(scope)
   manifest <- r2f.scope(scope, include_errors = uses_errors)
   local_allocs <- attr(manifest, "local_allocations", exact = TRUE) %||%
     character()
@@ -92,7 +92,7 @@ new_fortran_subroutine <- function(
     body_section <- str_flatten_lines(body_section, "", contains_block_indented)
   }
 
-  uses_rng <- isTRUE(attr(scope, 'uses_rng', TRUE))
+  uses_rng <- scope_uses_rng(scope)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = scope_vars(scope),
     body_code = body,

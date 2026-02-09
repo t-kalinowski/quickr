@@ -95,7 +95,7 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
     len_expr <- NA_integer_
   }
 
-  i <- scope@get_unique_var("integer")
+  i <- scope_unique_var(scope, "integer")
   out_val <- Variable("integer", list(len_expr))
   Fortran(glue("[({x}, {i}=1, int({times}, kind=c_int))]"), out_val)
 }
@@ -348,7 +348,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       }
 
       source <- if (is_fill_constructor) {
-        i <- scope@get_unique_var("integer")
+        i <- scope_unique_var(scope, "integer")
         glue("[({out}, {i}=1, int({n_expr}))]")
       } else {
         n_target <- known_prod(target_dims)

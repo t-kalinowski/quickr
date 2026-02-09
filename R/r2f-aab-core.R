@@ -22,7 +22,7 @@ new_hoist <- function(scope) {
 
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
-      block_scope <<- scope@new_child("block")
+      block_scope <<- scope_new_child(scope, "block")
     }
     block_scope
   }
@@ -81,7 +81,7 @@ logical_as_int_symbol <- function(var) {
 }
 
 scope_is_closure <- function(scope) {
-  inherits(scope, "quickr_scope") && identical(scope@kind, "closure")
+  inherits(scope, "quickr_scope") && identical(scope_kind(scope), "closure")
 }
 
 scope_fortran_names <- function(scope) {
@@ -232,7 +232,7 @@ lang2fortran <- r2f <- function(
         val <- NULL
       }
       if (is.null(val) && inherits(scope, "quickr_scope")) {
-        closure <- scope@closure
+        closure <- scope_closure(scope)
         arg_names <- if (is.null(closure)) NULL else names(formals(closure))
         if (!is.null(arg_names) && r_name %in% arg_names) {
           stop(
