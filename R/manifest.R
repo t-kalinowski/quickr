@@ -76,7 +76,8 @@ var_storage_bytes <- function(var) {
     integer = 4,
     complex = 16,
     logical = 4,
-    raw = 1
+    raw = 1,
+    stop("var_storage_bytes() does not support mode: ", var@mode)
   )
 }
 

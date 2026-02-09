@@ -1586,7 +1586,8 @@ compile_subscript_lhs <- function(
     scope = scope,
     ...,
     hoist = hoist,
-    drop = drop
+    drop = drop,
+    allow_logical_vector_subscripts = TRUE
   )
 
   list(pre = NULL, lhs = Fortran(designator))
