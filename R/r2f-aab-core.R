@@ -154,7 +154,11 @@ lang2fortran <- r2f <- function(
           {
             handler <- get_r2f_handler(callable_unwrapped)
 
-            match.fun <- attr(handler, "match.fun", TRUE)
+            match.fun <- if (inherits(handler, R2FHandler)) {
+              handler@match_fun
+            } else {
+              attr(handler, "match.fun", TRUE)
+            }
             if (is.null(match.fun)) {
               match.fun <- get0(
                 callable_unwrapped,
@@ -375,7 +379,11 @@ dest_supported_for_call <- function(call) {
     return(FALSE)
   }
   handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
-  isTRUE(attr(handler, "dest_supported", exact = TRUE))
+  if (inherits(handler, R2FHandler)) {
+    isTRUE(handler@dest_supported)
+  } else {
+    isTRUE(attr(handler, "dest_supported", exact = TRUE))
+  }
 }
 
 dest_infer_for_call <- function(call, scope) {
@@ -390,8 +398,16 @@ dest_infer_for_call <- function(call, scope) {
     return(NULL)
   }
   handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
-  infer <- attr(handler, "dest_infer", exact = TRUE)
-  infer_name <- attr(handler, "dest_infer_name", exact = TRUE)
+  infer <- if (inherits(handler, R2FHandler)) {
+    handler@dest_infer
+  } else {
+    attr(handler, "dest_infer", exact = TRUE)
+  }
+  infer_name <- if (inherits(handler, R2FHandler)) {
+    handler@dest_infer_name
+  } else {
+    attr(handler, "dest_infer_name", exact = TRUE)
+  }
 
   infer_fun <- NULL
   if (is_string(infer_name)) {

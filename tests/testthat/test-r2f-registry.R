@@ -7,10 +7,11 @@ test_that("register_r2f_handler sets dest_supported attribute", {
     handler,
     dest_supported = TRUE
   )
-  expect_identical(attr(result, "dest_supported"), TRUE)
+  expect_true(inherits(result, quickr:::R2FHandler))
+  expect_identical(result@dest_supported, TRUE)
 })
 
-test_that("register_r2f_handler sets dest_infer attribute", {
+test_that("register_r2f_handler stores dest_infer metadata", {
   handler <- function(e, scope, ...) NULL
   infer_fn <- function(args, scope) NULL
   result <- quickr:::register_r2f_handler(
@@ -18,8 +19,9 @@ test_that("register_r2f_handler sets dest_infer attribute", {
     handler,
     dest_infer = infer_fn
   )
-  expect_identical(attr(result, "dest_infer"), infer_fn)
-  expect_identical(attr(result, "dest_infer_name"), "infer_fn")
+  expect_true(inherits(result, quickr:::R2FHandler))
+  expect_identical(result@dest_infer, infer_fn)
+  expect_identical(result@dest_infer_name, "infer_fn")
 })
 
 test_that("register_r2f_handler keeps anonymous dest_infer without a name", {
@@ -30,8 +32,9 @@ test_that("register_r2f_handler keeps anonymous dest_infer without a name", {
     handler,
     dest_infer = (function(args, scope) infer_fn(args, scope))
   )
-  expect_true(is.function(attr(result, "dest_infer")))
-  expect_null(attr(result, "dest_infer_name"))
+  expect_true(inherits(result, quickr:::R2FHandler))
+  expect_true(is.function(result@dest_infer))
+  expect_null(result@dest_infer_name)
 })
 
 test_that("register_r2f_handler sets match.fun attribute when not TRUE", {
@@ -42,7 +45,8 @@ test_that("register_r2f_handler sets match.fun attribute when not TRUE", {
     handler,
     match_fun = match_fn
   )
-  expect_identical(attr(result, "match.fun"), match_fn)
+  expect_true(inherits(result, quickr:::R2FHandler))
+  expect_identical(result@match_fun, match_fn)
 })
 
 test_that("register_r2f_handler does not set match.fun when TRUE", {
@@ -52,7 +56,8 @@ test_that("register_r2f_handler does not set match.fun when TRUE", {
     handler,
     match_fun = TRUE
   )
-  expect_null(attr(result, "match.fun"))
+  expect_true(inherits(result, quickr:::R2FHandler))
+  expect_null(result@match_fun)
 })
 
 test_that("register_r2f_handler registers multiple names", {
