@@ -10,7 +10,11 @@ new_ordered_env <- function(parent = emptyenv()) {
   # Allow scopes to pre-declare which symbols are "return" variables (external
   # outputs). When logical, quickr represents these using integer storage.
   if (inherits(value, Variable)) {
-    return_names <- attr(x, "return_names", exact = TRUE)
+    return_names <- if (inherits(x, "quickr_scope")) {
+      scope_get(x, "return_names")
+    } else {
+      attr(x, "return_names", exact = TRUE)
+    }
     if (!is.null(return_names) && as.character(name) %in% return_names) {
       value@is_return <- TRUE
       if (identical(value@mode, "logical")) {
@@ -68,16 +72,19 @@ check_assignment_compatible <- function(target, value) {
 new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
   class(scope) <- unique(c("quickr_scope", class(scope)))
-  attr(scope, "closure") <- closure
-  attr(scope, "kind") <- if (is.null(closure)) "block" else "subroutine"
-  attr(scope, "return_names") <- character()
-  attr(scope, "internal_procs") <- list()
+  state <- new.env(parent = emptyenv())
+  attr(scope, "state") <- state
 
-  attr(scope, "get_unique_var") <- local({
+  state$closure <- closure
+  state$kind <- if (is.null(closure)) "block" else "subroutine"
+  state$return_names <- character()
+  state$internal_procs <- list()
+
+  state$get_unique_var <- local({
     i <- 0L
     function(...) {
       prefix <- switch(
-        attr(scope, "kind", exact = TRUE) %||% "subroutine",
+        state$kind %||% "subroutine",
         block = "btmp",
         closure = "ctmp",
         subroutine = "tmp",
@@ -88,7 +95,7 @@ new_scope <- function(closure, parent = emptyenv()) {
     }
   })
 
-  attr(scope, "get_unique_proc") <- local({
+  state$get_unique_proc <- local({
     i <- 0L
     function(prefix = "closure") {
       stopifnot(is_string(prefix))
@@ -96,14 +103,14 @@ new_scope <- function(closure, parent = emptyenv()) {
     }
   })
 
-  attr(scope, "new_child") <- function(kind = c("block", "closure")) {
+  state$new_child <- function(kind = c("block", "closure")) {
     kind <- match.arg(kind)
     child <- new_scope(closure = NULL, parent = scope)
-    attr(child, "kind") <- kind
+    scope_set(child, "kind", kind)
     child
   }
 
-  attr(scope, "assign") <- function(name, value) {
+  state$assign <- function(name, value) {
     stopifnot(inherits(value, Variable), is.symbol(name) || is_string(name))
     name <- as.character(name)
     existing <- get0(name, scope)
@@ -114,11 +121,11 @@ new_scope <- function(closure, parent = emptyenv()) {
     assign(name, value, scope)
   }
 
-  attr(scope, "add_internal_proc") <- function(proc) {
+  state$add_internal_proc <- function(proc) {
     stopifnot(is.list(proc), is_string(proc$name), is_string(proc$code))
-    procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
+    procs <- state$internal_procs %||% list()
     procs[[proc$name]] <- proc
-    attr(scope, "internal_procs") <- procs
+    state$internal_procs <- procs
     invisible(proc)
   }
 
@@ -127,12 +134,12 @@ new_scope <- function(closure, parent = emptyenv()) {
 
 scope_return_var_names <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
-  return_var_names <- closure_return_var_names(scope@closure)
+  return_var_names <- closure_return_var_names(scope_closure(scope))
   if (!length(return_var_names)) {
     return(return_var_names)
   }
 
-  is_list_return <- is_call(last(body(scope@closure)), quote(list))
+  is_list_return <- is_call(last(body(scope_closure(scope))), quote(list))
   values <- unname(return_var_names)
   names_in <- names(return_var_names)
   if (is.null(names_in)) {
@@ -172,13 +179,25 @@ scope_return_var_names <- function(scope) {
 
 
 #' @export
-`@.quickr_scope` <- function(x, name) attr(x, name, exact = TRUE)
+`@.quickr_scope` <- function(x, name) {
+  name <- as.character(name)
+  scope_get(x, name)
+}
 
 #' @export
-`@<-.quickr_scope` <- function(x, name, value) `attr<-`(x, name, value = value)
+`@<-.quickr_scope` <- function(x, name, value) {
+  name <- as.character(name)
+  scope_set(x, name, value)
+  x
+}
 
 #' @importFrom utils .AtNames findMatches
 #' @export
 .AtNames.quickr_scope <- function(x, pattern = "") {
-  findMatches(pattern, names(attributes(x)))
+  nms <- names(attributes(x)) %||% character()
+  st <- attr(x, "state", exact = TRUE)
+  if (is.environment(st)) {
+    nms <- unique(c(nms, ls(envir = st, all.names = TRUE)))
+  }
+  findMatches(pattern, nms)
 }

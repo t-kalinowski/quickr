@@ -16,12 +16,12 @@ booleanize_logical_as_int <- function(x) {
     return(x)
   }
 
-  if (isTRUE(attr(x, "logical_booleanized", exact = TRUE))) {
+  if (isTRUE(x@logical_booleanized)) {
     return(x)
   }
 
   out <- Fortran(glue("({x} /= 0)"), Variable("logical", x@value@dims))
-  attr(out, "logical_booleanized") <- TRUE
+  out@logical_booleanized <- TRUE
   out
 }
 

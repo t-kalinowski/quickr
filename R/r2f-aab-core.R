@@ -22,7 +22,7 @@ new_hoist <- function(scope) {
 
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
-      block_scope <<- scope@new_child("block")
+      block_scope <<- scope_new_child(scope, "block")
     }
     block_scope
   }
@@ -81,7 +81,7 @@ logical_as_int_symbol <- function(var) {
 }
 
 scope_is_closure <- function(scope) {
-  inherits(scope, "quickr_scope") && identical(scope@kind, "closure")
+  inherits(scope, "quickr_scope") && identical(scope_kind(scope), "closure")
 }
 
 scope_fortran_names <- function(scope) {
@@ -154,7 +154,11 @@ lang2fortran <- r2f <- function(
           {
             handler <- get_r2f_handler(callable_unwrapped)
 
-            match.fun <- attr(handler, "match.fun", TRUE)
+            match.fun <- if (inherits(handler, R2FHandler)) {
+              handler@match_fun
+            } else {
+              attr(handler, "match.fun", TRUE)
+            }
             if (is.null(match.fun)) {
               match.fun <- get0(
                 callable_unwrapped,
@@ -232,7 +236,7 @@ lang2fortran <- r2f <- function(
         val <- NULL
       }
       if (is.null(val) && inherits(scope, "quickr_scope")) {
-        closure <- scope@closure
+        closure <- scope_closure(scope)
         arg_names <- if (is.null(closure)) NULL else names(formals(closure))
         if (!is.null(arg_names) && r_name %in% arg_names) {
           stop(
@@ -255,7 +259,7 @@ lang2fortran <- r2f <- function(
         # and must be "booleanized" for Fortran logical operations.
         s <- paste0("(", s, "/=0)")
         out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
-        attr(out, "logical_booleanized") <- TRUE
+        out@logical_booleanized <- TRUE
         out
       } else {
         Fortran(s, value = if (inherits(val, Variable)) val else NULL)
@@ -375,7 +379,11 @@ dest_supported_for_call <- function(call) {
     return(FALSE)
   }
   handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
-  isTRUE(attr(handler, "dest_supported", exact = TRUE))
+  if (inherits(handler, R2FHandler)) {
+    isTRUE(handler@dest_supported)
+  } else {
+    isTRUE(attr(handler, "dest_supported", exact = TRUE))
+  }
 }
 
 dest_infer_for_call <- function(call, scope) {
@@ -390,8 +398,16 @@ dest_infer_for_call <- function(call, scope) {
     return(NULL)
   }
   handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
-  infer <- attr(handler, "dest_infer", exact = TRUE)
-  infer_name <- attr(handler, "dest_infer_name", exact = TRUE)
+  infer <- if (inherits(handler, R2FHandler)) {
+    handler@dest_infer
+  } else {
+    attr(handler, "dest_infer", exact = TRUE)
+  }
+  infer_name <- if (inherits(handler, R2FHandler)) {
+    handler@dest_infer_name
+  } else {
+    attr(handler, "dest_infer_name", exact = TRUE)
+  }
 
   infer_fun <- NULL
   if (is_string(infer_name)) {

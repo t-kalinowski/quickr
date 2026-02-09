@@ -121,7 +121,7 @@ r2f_handlers[["["]] <- function(
       },
       logical1 = {
         # we convert to a temp integer vector, doing the equivalent of R's which()
-        i <- scope@get_unique_var("integer")
+        i <- scope_unique_var(scope, "integer")
         f <- glue("pack([({i}, {i}=1, size({subscript}))], {subscript})")
         return(Fortran(f, Variable("int", NA)))
       },

@@ -20,9 +20,11 @@ new_fortran_subroutine <- function(
   # body <- rlang::zap_srcref(body)
 
   scope <- new_scope(closure, parent)
-  attr(scope, "return_names") <- unique(unname(closure_return_var_names(
-    closure
-  )))
+  scope_set(
+    scope,
+    "return_names",
+    unique(unname(closure_return_var_names(closure)))
+  )
 
   # inject symbols for var sizes in declare calls, so like:
   #   declare(type(foo = integer(nr, NA)),
@@ -58,14 +60,15 @@ new_fortran_subroutine <- function(
     }
   }
 
-  uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
-  uses_openmp <- isTRUE(attr(scope, "uses_openmp", TRUE))
+  uses_errors <- scope_uses_errors_flag(scope)
+  uses_openmp <- scope_uses_openmp_flag(scope)
   manifest <- r2f.scope(scope, include_errors = uses_errors)
   local_allocs <- attr(manifest, "local_allocations", exact = TRUE) %||%
     character()
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
-  internal_procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
+  internal_procs <- scope_get(scope, "internal_procs", default = list()) %||%
+    list()
   contains_entries <- c(
     lapply(internal_procs, `[[`, "code") |>
       unlist(use.names = FALSE),
@@ -92,7 +95,7 @@ new_fortran_subroutine <- function(
     body_section <- str_flatten_lines(body_section, "", contains_block_indented)
   }
 
-  uses_rng <- isTRUE(attr(scope, 'uses_rng', TRUE))
+  uses_rng <- scope_uses_rng(scope)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = scope_vars(scope),
     body_code = body,

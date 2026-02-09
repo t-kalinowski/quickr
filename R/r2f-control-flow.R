@@ -131,14 +131,15 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
     loop_var@modified <- TRUE
     scope[[var]] <- loop_var
 
-    iterable_tmp <- scope@get_unique_var(
+    iterable_tmp <- scope_unique_var(
+      scope,
       mode = iterable_var@mode,
       dims = iterable_var@dims,
       logical_as_int = logical_as_int(iterable_var)
     )
     iterable_tmp_assign <- glue("{iterable_tmp@name} = {iterable_var@name}")
 
-    idx <- scope@get_unique_var("integer")
+    idx <- scope_unique_var(scope, "integer")
     end <- if (passes_as_scalar(iterable_var)) {
       "1_c_int"
     } else {

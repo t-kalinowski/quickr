@@ -4,14 +4,14 @@ get_pending_parallel <- function(scope) {
   if (is.null(scope) || !inherits(scope, "quickr_scope")) {
     return(NULL)
   }
-  scope@pending_parallel
+  scope_get(scope, "pending_parallel")
 }
 
 has_pending_parallel <- function(scope) !is.null(get_pending_parallel(scope))
 
 set_pending_parallel <- function(scope, decl) {
   stopifnot(inherits(scope, "quickr_scope"), is.list(decl))
-  scope@pending_parallel <- decl
+  scope_set(scope, "pending_parallel", decl)
   invisible(scope)
 }
 
@@ -19,15 +19,15 @@ take_pending_parallel <- function(scope) {
   if (is.null(scope) || !inherits(scope, "quickr_scope")) {
     return(NULL)
   }
-  decl <- scope@pending_parallel
-  scope@pending_parallel <- NULL
+  decl <- scope_get(scope, "pending_parallel")
+  scope_set(scope, "pending_parallel", NULL)
   decl
 }
 
 mark_openmp_used <- function(scope) {
   stopifnot(inherits(scope, "quickr_scope"))
   root <- scope_root(scope)
-  attr(root, "uses_openmp") <- TRUE
+  scope_mark_uses_openmp_flag(root)
   invisible(root)
 }
 
@@ -35,7 +35,7 @@ scope_openmp_depth <- function(scope) {
   if (!inherits(scope, "quickr_scope")) {
     return(0L)
   }
-  depth <- attr(scope, "openmp_depth", exact = TRUE)
+  depth <- scope_get(scope, "openmp_depth")
   if (is.null(depth)) {
     0L
   } else {
@@ -51,9 +51,9 @@ enter_openmp_scope <- function(scope) {
   if (!inherits(scope, "quickr_scope")) {
     return(NULL)
   }
-  previous_depth <- attr(scope, "openmp_depth", exact = TRUE)
+  previous_depth <- scope_get(scope, "openmp_depth")
   depth <- scope_openmp_depth(scope)
-  attr(scope, "openmp_depth") <- depth + 1L
+  scope_set(scope, "openmp_depth", depth + 1L)
   previous_depth
 }
 
@@ -62,9 +62,9 @@ exit_openmp_scope <- function(scope, previous_depth) {
     return(invisible(NULL))
   }
   if (is.null(previous_depth)) {
-    attr(scope, "openmp_depth") <- NULL
+    scope_set(scope, "openmp_depth", NULL)
   } else {
-    attr(scope, "openmp_depth") <- as.integer(previous_depth)
+    scope_set(scope, "openmp_depth", as.integer(previous_depth))
   }
   invisible(TRUE)
 }

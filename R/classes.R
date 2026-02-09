@@ -362,6 +362,12 @@ Fortran := new_class(
   properties = list(
     value = NULL | Variable,
 
+    # Metadata flags used during compilation/lowering. Keep these as explicit
+    # properties rather than ad-hoc attributes so they are discoverable and
+    # consistently propagated with the Fortran object.
+    logical_booleanized = prop_bool(default = FALSE),
+    writes_to_dest = prop_bool(default = FALSE),
+
     r = new_property(
       # custom setter only to workaround https://github.com/RConsortium/S7/issues/511
       NULL | class_language | class_atomic,
@@ -407,6 +413,21 @@ FortranSubroutine := new_class(
       getter = function(self) {
         make_c_bridge(self) %error% NULL
       }
+    )
+  )
+)
+
+R2FHandler := new_class(
+  class_function,
+  properties = list(
+    dest_supported = prop_bool(default = FALSE),
+    dest_infer = new_property(NULL | class_function),
+    dest_infer_name = prop_string(default = NULL, allow_null = TRUE),
+    # When NULL, r2f will resolve the callable by name and use match.call().
+    # When FALSE, r2f will not attempt match.call().
+    match_fun = new_property(
+      NULL | class_function | class_logical,
+      default = NULL
     )
   )
 )

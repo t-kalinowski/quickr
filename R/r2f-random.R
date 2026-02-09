@@ -4,7 +4,7 @@
 # --- Handlers ---
 
 r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
-  attr(scope, "uses_rng") <- TRUE
+  scope_mark_uses_rng(scope)
 
   dims <- r2dims(args$n, scope)
   var <- Variable("double", dims)
@@ -28,7 +28,7 @@ r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
   if (passes_as_scalar(var)) {
     fortran <- get1rand
   } else {
-    tmp_i <- scope@get_unique_var("integer") ## would be better as uint64...
+    tmp_i <- scope_unique_var(scope, "integer") ## would be better as uint64...
     fortran <- glue("[({get1rand}, {tmp_i}=1, {dims[[1L]]})]")
   }
 

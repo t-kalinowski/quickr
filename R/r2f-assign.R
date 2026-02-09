@@ -102,7 +102,7 @@ register_r2f_handler(
     if (is_function_call(rhs)) {
       scope[[name]] <- as_local_closure(
         rhs,
-        environment(scope@closure),
+        environment(scope_closure(scope)),
         name = name
       )
       return(Fortran(""))
@@ -184,7 +184,7 @@ register_r2f_handler(
           inherits(value@value, Variable) &&
           identical(value@value@mode, "logical") &&
           logical_as_int(value@value) &&
-          !isTRUE(attr(value, "logical_booleanized", exact = TRUE))
+          !isTRUE(value@logical_booleanized)
       ) {
         # Keep bind(c) logicals as integer storage when the RHS is an
         # integer-backed expression (e.g. rev(x) for external logicals).
@@ -223,7 +223,7 @@ register_r2f_handler(
     }
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
-    if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
+    if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
       Fortran("")
     } else {
       Fortran(glue("{var@name} = {value}"))
@@ -258,7 +258,7 @@ register_r2f_handler(
 register_r2f_handler(
   "<<-",
   function(args, scope, ..., hoist = NULL) {
-    if (is.null(scope) || !identical(scope@kind, "closure")) {
+    if (is.null(scope) || !identical(scope_kind(scope), "closure")) {
       stop("<<- is only supported inside local closures")
     }
 
@@ -281,18 +281,17 @@ register_r2f_handler(
     stopifnot(is.symbol(target))
     name <- as.character(target)
 
-    formal_names <- names(formals(scope@closure)) %||% character()
+    formal_names <- names(formals(scope_closure(scope))) %||% character()
     if (name %in% formal_names) {
       stop("<<- targets must not shadow closure formals: ", name)
     }
 
-    forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||%
-      character()
+    forbidden <- scope_forbid_superassign(scope)
     if (name %in% forbidden) {
       stop("closure must not superassign to its output variable: ", name)
     }
 
-    host_scope <- scope@host_scope %||%
+    host_scope <- scope_host_scope(scope) %||%
       stop("internal error: missing host scope")
     host_var <- get0(name, host_scope)
     if (!inherits(host_var, Variable)) {
@@ -315,7 +314,7 @@ register_r2f_handler(
 register_r2f_handler(
   "[<<-",
   function(args, scope, ..., hoist = NULL) {
-    if (is.null(scope) || !identical(scope@kind, "closure")) {
+    if (is.null(scope) || !identical(scope_kind(scope), "closure")) {
       stop("<<- is only supported inside local closures")
     }
 
@@ -328,18 +327,17 @@ register_r2f_handler(
     }
     name <- as.character(base)
 
-    formal_names <- names(formals(scope@closure)) %||% character()
+    formal_names <- names(formals(scope_closure(scope))) %||% character()
     if (name %in% formal_names) {
       stop("<<- targets must not shadow closure formals: ", name)
     }
 
-    forbidden <- attr(scope, "forbid_superassign", exact = TRUE) %||%
-      character()
+    forbidden <- scope_forbid_superassign(scope)
     if (name %in% forbidden) {
       stop("closure must not superassign to its output variable: ", name)
     }
 
-    host_scope <- scope@host_scope %||%
+    host_scope <- scope_host_scope(scope) %||%
       stop("internal error: missing host scope")
     host_var <- get0(name, host_scope)
     if (!inherits(host_var, Variable)) {

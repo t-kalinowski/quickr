@@ -1001,9 +1001,9 @@ svd_output_vars_scope <- function(scope, dims) {
     all(c("m", "n", "mn") %in% names(dims))
   )
   list(
-    d = scope@get_unique_var(mode = "double", dims = list(dims$mn)),
-    u = scope@get_unique_var(mode = "double", dims = list(dims$m, dims$mn)),
-    v = scope@get_unique_var(mode = "double", dims = list(dims$n, dims$mn))
+    d = scope_unique_var(scope, mode = "double", dims = list(dims$mn)),
+    u = scope_unique_var(scope, mode = "double", dims = list(dims$m, dims$mn)),
+    v = scope_unique_var(scope, mode = "double", dims = list(dims$n, dims$mn))
   )
 }
 

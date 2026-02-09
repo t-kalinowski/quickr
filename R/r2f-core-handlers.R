@@ -16,7 +16,7 @@ r2f_handlers[["declare"]] <- function(args, scope, ...) {
     } else if (is_type_call(a)) {
       var <- type_call_to_var(a)
       r_name <- var@r_name %||% var@name
-      var@is_arg <- r_name %in% names(formals(scope@closure))
+      var@is_arg <- r_name %in% names(formals(scope_closure(scope)))
       if (identical(var@mode, "logical") && isTRUE(var@is_arg)) {
         var@logical_as_int <- TRUE
       }

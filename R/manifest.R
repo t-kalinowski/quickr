@@ -133,7 +133,9 @@ block_tmp_allocatable <- function(
   max_stack_elements = block_tmp_allocatable_threshold
 ) {
   stopifnot(inherits(var, Variable))
-  if (!inherits(scope, "quickr_scope") || !identical(scope@kind, "block")) {
+  if (
+    !inherits(scope, "quickr_scope") || !identical(scope_kind(scope), "block")
+  ) {
     return(FALSE)
   }
   if (passes_as_scalar(var) || is.null(var@dims)) {
@@ -347,7 +349,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
   local_allocs <- character()
   vars <- lapply(vars, function(var) {
     r_name <- var@r_name %||% var@name
-    intent_in <- r_name %in% names(formals(scope@closure))
+    intent_in <- r_name %in% names(formals(scope_closure(scope)))
     intent_out <-
       (r_name %in% return_var_names) ||
       (intent_in && var@modified)
@@ -428,7 +430,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
 
   # vars that will be visible in the C bridge, either as an input or output
   non_local_var_names <- unique(c(
-    names(formals(scope@closure)),
+    names(formals(scope_closure(scope))),
     return_var_names
   ))
 
@@ -437,9 +439,9 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     var <- scope[[name]]
     lapply(var@dims, all.names, functions = FALSE, unique = TRUE)
   }))) |>
-    setdiff(names(formals(scope@closure)))
-  if (length(names(formals(scope@closure)))) {
-    formal_vars <- mget(names(formals(scope@closure)), scope)
+    setdiff(names(formals(scope_closure(scope))))
+  if (length(names(formals(scope_closure(scope))))) {
+    formal_vars <- mget(names(formals(scope_closure(scope))), scope)
     formal_fortran_names <- unique(map_chr(formal_vars, \(var) {
       var@name %||% ""
     }))
