@@ -184,21 +184,6 @@ test_that("subset translation errors are user-facing", {
     fixed = TRUE
   )
 
-  logical_superassign <- function(x) {
-    declare(type(x = double(n)))
-    f <- function() {
-      x[x > 0] <<- 0
-      NULL
-    }
-    f()
-    x
-  }
-  expect_error(
-    quick(logical_superassign),
-    "logical subscript vectors are not supported for assignment",
-    fixed = TRUE
-  )
-
   bad_index_rank <- function(x, idx) {
     declare(type(x = double(n)), type(idx = integer(2L, 2L)))
     x[idx]

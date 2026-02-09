@@ -226,6 +226,11 @@ lang2fortran <- r2f <- function(
           call. = FALSE
         )
       }
+      # `scope` inherits from the R closure environment. Ignore non-compiler
+      # bindings (like captured R objects) so they can't mask undeclared args.
+      if (!inherits(val, Variable) && !inherits(val, SvdResult)) {
+        val <- NULL
+      }
       if (is.null(val) && inherits(scope, "quickr_scope")) {
         closure <- scope@closure
         arg_names <- if (is.null(closure)) NULL else names(formals(closure))

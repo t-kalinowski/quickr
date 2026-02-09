@@ -2010,8 +2010,10 @@
         integer(c_int), intent(out) :: out(x__len_)
       
         ! locals
-        logical :: y(x__len_) ! logical
+        logical, allocatable :: y(:) ! logical
         ! manifest end
+      
+        allocate(y(x__len_))
       
       
         y = (.not. (x/=0))

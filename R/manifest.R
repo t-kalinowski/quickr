@@ -41,7 +41,9 @@ logical_as_int <- function(var) {
 
 block_tmp_allocatable_threshold <- 16L
 
-block_tmp_element_count <- function(var) {
+subroutine_local_allocatable_threshold_bytes <- 256L * 1024L
+
+var_element_count <- function(var) {
   stopifnot(inherits(var, Variable))
   dims <- var@dims
   stopifnot(is.list(dims), length(dims) > 0L)
@@ -60,6 +62,69 @@ block_tmp_element_count <- function(var) {
     return(NA_integer_)
   }
   prod(as.numeric(sizes))
+}
+
+block_tmp_element_count <- function(var) {
+  var_element_count(var)
+}
+
+var_storage_bytes <- function(var) {
+  stopifnot(inherits(var, Variable))
+  switch(
+    var@mode,
+    double = 8,
+    integer = 4,
+    complex = 16,
+    logical = 4,
+    raw = 1,
+    stop("var_storage_bytes() does not support mode: ", var@mode)
+  )
+}
+
+subroutine_local_allocatable <- function(
+  var,
+  scope,
+  max_stack_bytes = subroutine_local_allocatable_threshold_bytes
+) {
+  stopifnot(inherits(var, Variable))
+  if (passes_as_scalar(var) || is.null(var@dims)) {
+    return(FALSE)
+  }
+
+  # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
+  # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
+  # explicit allocation, so treat these as implicitly-sized locals.
+  self_size_names <- vapply(
+    seq_along(var@dims),
+    function(i) get_size_name(var, axis = as.integer(i)),
+    character(1)
+  )
+  if (
+    any(vapply(
+      seq_along(var@dims),
+      function(i) {
+        d <- var@dims[[i]]
+        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
+      },
+      logical(1)
+    ))
+  ) {
+    return(FALSE)
+  }
+
+  # If any dimension is deferred-shape (":"), don't emit an explicit allocate().
+  # Those locals are expected to be allocated implicitly (e.g., on assignment).
+  dims <- dims2f(var@dims, scope)
+  if (!nzchar(dims) || grepl(":", dims, fixed = TRUE)) {
+    return(FALSE)
+  }
+
+  n_elements <- var_element_count(var)
+  if (is.na(n_elements)) {
+    return(TRUE)
+  }
+
+  as.numeric(n_elements) * var_storage_bytes(var) > max_stack_bytes
 }
 
 block_tmp_allocatable <- function(
@@ -278,6 +343,8 @@ emit_block <- function(decls, stmts) {
 r2f.scope <- function(scope, include_errors = FALSE) {
   return_var_names <- unname(scope_return_var_names(scope))
   vars <- scope_vars(scope)
+
+  local_allocs <- character()
   vars <- lapply(vars, function(var) {
     r_name <- var@r_name %||% var@name
     intent_in <- r_name %in% names(formals(scope@closure))
@@ -312,7 +379,37 @@ r2f.scope <- function(scope, include_errors = FALSE) {
       dims2f(var@dims, scope) |> str_flatten_commas() |> sprintf(fmt = "(%s)")
     }
 
-    allocatable <- if (!is.null(dims) && grepl(":", dims, fixed = TRUE)) {
+    # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
+    # are emitted as deferred-shape allocatables and rely on implicit allocation.
+    if (
+      is.null(intent) &&
+        !is.null(dims) &&
+        any(vapply(
+          seq_along(var@dims),
+          function(i) {
+            d <- var@dims[[i]]
+            is.symbol(d) &&
+              identical(as.character(d), get_size_name(var, axis = i))
+          },
+          logical(1)
+        ))
+    ) {
+      dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
+    }
+
+    heap_local <- is.null(intent) && subroutine_local_allocatable(var, scope)
+    if (isTRUE(heap_local)) {
+      # Deferred-shape allocatable avoids large stack allocations (notably flang).
+      dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
+      local_allocs <<- c(
+        local_allocs,
+        glue("allocate({var@name}({dims2f(var@dims, scope)}))")
+      )
+    }
+
+    allocatable <- if (isTRUE(heap_local)) {
+      "allocatable"
+    } else if (!is.null(dims) && grepl(":", dims, fixed = TRUE)) {
       "allocatable"
     }
 
@@ -371,6 +468,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     str_flatten("\n\n")
 
   manifest <- str_flatten_lines("! manifest start", manifest, "! manifest end")
+  attr(manifest, "local_allocations") <- local_allocs
 
   # symbols that must come in as args to the subroutine
   # # method="radix" for locale-independent stable order.

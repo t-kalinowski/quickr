@@ -61,6 +61,8 @@ new_fortran_subroutine <- function(
   uses_errors <- isTRUE(attr(scope, "uses_errors", TRUE))
   uses_openmp <- isTRUE(attr(scope, "uses_openmp", TRUE))
   manifest <- r2f.scope(scope, include_errors = uses_errors)
+  local_allocs <- attr(manifest, "local_allocations", exact = TRUE) %||%
+    character()
   fsub_arg_names <- attr(manifest, "signature", TRUE)
 
   internal_procs <- attr(scope, "internal_procs", exact = TRUE) %||% list()
@@ -80,7 +82,12 @@ new_fortran_subroutine <- function(
   } else {
     indent(contains_block)
   }
-  body_section <- indent(body)
+  body_code <- if (length(local_allocs)) {
+    str_flatten_lines(local_allocs, "", body)
+  } else {
+    body
+  }
+  body_section <- indent(body_code)
   if (!is.null(contains_block_indented)) {
     body_section <- str_flatten_lines(body_section, "", contains_block_indented)
   }
