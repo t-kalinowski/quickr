@@ -362,6 +362,12 @@ Fortran := new_class(
   properties = list(
     value = NULL | Variable,
 
+    # Metadata flags used during compilation/lowering. Keep these as explicit
+    # properties rather than ad-hoc attributes so they are discoverable and
+    # consistently propagated with the Fortran object.
+    logical_booleanized = prop_bool(default = FALSE),
+    writes_to_dest = prop_bool(default = FALSE),
+
     r = new_property(
       # custom setter only to workaround https://github.com/RConsortium/S7/issues/511
       NULL | class_language | class_atomic,

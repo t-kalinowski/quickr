@@ -346,7 +346,7 @@ gemm <- function(
       "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {dest@name}, {blas_int(ldc_expr)})"
     ))
     out <- Fortran(dest@name, dest)
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
     return(out)
   }
 
@@ -391,7 +391,7 @@ gemv <- function(
       "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {dest@name}, 1_c_int)"
     ))
     out <- Fortran(dest@name, dest)
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
     return(out)
   }
   # Else assign to a temporary variable
@@ -505,7 +505,7 @@ syrk <- function(
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -547,7 +547,7 @@ outer_mul <- function(
       "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {dest@name}, {blas_int(m)})"
     ))
     out <- Fortran(dest@name, dest)
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
     return(out)
   }
 
@@ -651,7 +651,7 @@ triangular_solve <- function(
 
   out <- Fortran(B_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -757,7 +757,7 @@ lapack_solve <- function(
 
     out <- Fortran(out_name, out_var)
     if (writes_to_dest) {
-      attr(out, "writes_to_dest") <- TRUE
+      out@writes_to_dest <- TRUE
     }
     return(out)
   }
@@ -872,7 +872,7 @@ end do"
 
     out <- Fortran(out_name, out_var)
     if (writes_to_dest) {
-      attr(out, "writes_to_dest") <- TRUE
+      out@writes_to_dest <- TRUE
     }
     return(out)
   }
@@ -988,7 +988,7 @@ end do"
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -1062,7 +1062,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -1119,7 +1119,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -1182,7 +1182,7 @@ lapack_chol2inv <- function(
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -1225,7 +1225,7 @@ end do"
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }
@@ -1288,7 +1288,7 @@ end do"
 
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
-    attr(out, "writes_to_dest") <- TRUE
+    out@writes_to_dest <- TRUE
   }
   out
 }

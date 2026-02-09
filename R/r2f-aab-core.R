@@ -255,7 +255,7 @@ lang2fortran <- r2f <- function(
         # and must be "booleanized" for Fortran logical operations.
         s <- paste0("(", s, "/=0)")
         out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
-        attr(out, "logical_booleanized") <- TRUE
+        out@logical_booleanized <- TRUE
         out
       } else {
         Fortran(s, value = if (inherits(val, Variable)) val else NULL)

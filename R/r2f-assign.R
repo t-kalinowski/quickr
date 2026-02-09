@@ -184,7 +184,7 @@ register_r2f_handler(
           inherits(value@value, Variable) &&
           identical(value@value@mode, "logical") &&
           logical_as_int(value@value) &&
-          !isTRUE(attr(value, "logical_booleanized", exact = TRUE))
+          !isTRUE(value@logical_booleanized)
       ) {
         # Keep bind(c) logicals as integer storage when the RHS is an
         # integer-backed expression (e.g. rev(x) for external logicals).
@@ -223,7 +223,7 @@ register_r2f_handler(
     }
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
-    if (isTRUE(attr(value, "writes_to_dest", TRUE))) {
+    if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
       Fortran("")
     } else {
       Fortran(glue("{var@name} = {value}"))
