@@ -53,6 +53,16 @@ test_that("declare() size expressions validate nrow()/ncol() arity", {
   expect_error(quick(bad_ncol), "unused argument", fixed = TRUE)
 })
 
+test_that("declare() size expressions reject ncol() beyond variable rank", {
+  bad <- function(x) {
+    declare(type(x = double(NA)))
+    out <- double(ncol(x))
+    out
+  }
+
+  expect_error(quick(bad), "insufficient rank", fixed = TRUE)
+})
+
 test_that("declare() size expressions reject unsupported calls", {
   bad <- function(n) {
     declare(type(n = integer(1)), type(out = double(sum(n))))

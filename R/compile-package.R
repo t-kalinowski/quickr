@@ -95,10 +95,27 @@ dump_collected <- function() {
     )
   }
 
-  sources <- zip_lists(imap(quick_funcs, function(func, name) {
+  compiled_quick_funcs <- imap(quick_funcs, function(func, name) {
     fsub <- new_fortran_subroutine(name, func)
-    cbridge <- make_c_bridge(fsub, headers = name == names(quick_funcs)[1])
-    list(f90 = fsub, c = cbridge)
+    cbridge <- make_c_bridge(fsub, headers = FALSE)
+    list(
+      name = name,
+      f90 = fsub,
+      c = cbridge
+    )
+  })
+
+  if (length(compiled_quick_funcs)) {
+    compiled_quick_funcs[[1L]]$c <- make_c_bridge(
+      compiled_quick_funcs[[1L]]$f90,
+      headers = TRUE,
+      force_rng_header = TRUE,
+      force_rmath_header = TRUE
+    )
+  }
+
+  sources <- zip_lists(lapply(compiled_quick_funcs, function(x) {
+    list(f90 = x$f90, c = x$c)
   })) |>
     lapply(\(x) x |> unlist() |> interleave("\n"))
 

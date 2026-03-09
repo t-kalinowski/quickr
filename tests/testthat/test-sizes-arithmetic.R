@@ -28,6 +28,19 @@ test_that("constant arithmetic in declared dims is evaluated", {
   expect_identical(qfn_pow(as.double(1:8)), 36)
 })
 
+test_that("dynamic exponentiation works in declared dims", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    out <- double(n^2L)
+    for (i in seq_len(length(out))) {
+      out[i] <- as.double(i)
+    }
+    out
+  }
+
+  expect_quick_identical(fn, list(3L), list(4L))
+})
+
 test_that("dim/length/nrow/ncol are supported in allocation sizes", {
   vec <- function(x) {
     declare(type(x = double(NA)))
