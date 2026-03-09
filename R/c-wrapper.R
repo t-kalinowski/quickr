@@ -156,6 +156,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   }
 
   c_args <- paste("SEXP", names(formals(closure)), collapse = ", ")
+  needs_rmath <- any(grepl("\\bR_pow\\(", c_body))
   c_body <- as_glue(str_flatten_lines(c_body))
 
   c_func_def <- glue("SEXP {fsub@name}_(SEXP _args) {c_block(c_body)}")
@@ -166,6 +167,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     "#define R_NO_REMAP",
     "#include <R.h>",
     "#include <Rinternals.h>",
+    if (needs_rmath) "#include <Rmath.h>",
     if (uses_rng) "#include <R_ext/Random.h>",
     "",
     ""
@@ -600,7 +602,7 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
       `/` = glue("((double)({e1}) / (double)({e2}))"),
       `%/%` = glue("((R_xlen_t){e1} / (R_xlen_t){e2})"),
       `%%` = glue("((R_xlen_t){e1} % (R_xlen_t){e2})"),
-      `^` = glue("({e1}**{e2})")
+      `^` = glue("R_pow((double)({e1}), (double)({e2}))")
     ))
   }
 

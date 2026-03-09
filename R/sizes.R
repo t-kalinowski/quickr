@@ -139,6 +139,17 @@ r2size <- function(r, scope) {
     dim
   }
 
+  resolve_var_dim <- function(var_expr, axis, expr = var_expr) {
+    var <- get0(as.character(var_expr), scope)
+    if (!inherits(var, Variable)) {
+      stop("could not resolve size: ", deparse1(expr))
+    }
+    if (axis > var@rank) {
+      stop("insufficient rank of variable in ", deparse1(expr))
+    }
+    sanitize_dim(var@dims[[axis]])
+  }
+
   typeof(r) |>
     switch(
       integer = r,
@@ -207,36 +218,17 @@ r2size <- function(r, scope) {
             if (!is_call(r[[2L]], quote(dim))) {
               return(NA_integer_)
             }
-            var <- get0(as.character(r[[2L]][[2L]]), scope)
-            if (!inherits(var, Variable)) {
-              stop("could not resolve size: ", deparse1(r))
-            }
             axis <- r[[3]]
             if (!is_wholenumber(axis)) {
               return(NA_integer_)
             }
-            if (axis > var@rank) {
-              stop("insufficient rank of variable in ", deparse1(r))
-            }
-            sanitize_dim(var@dims[[axis]])
+            resolve_var_dim(r[[2L]][[2L]], axis, r)
           },
           # dim = {
           #
           # },
-          nrow = {
-            var <- get0(as.character(r[[2L]]), scope)
-            if (!inherits(var, Variable)) {
-              stop("could not resolve size: ", deparse1(r))
-            }
-            sanitize_dim(var@dims[[1]])
-          },
-          ncol = {
-            var <- get0(as.character(r[[2L]]), scope)
-            if (!inherits(var, Variable)) {
-              stop("could not resolve size: ", deparse1(r))
-            }
-            sanitize_dim(var@dims[[2]])
-          },
+          nrow = resolve_var_dim(r[[2L]], 1L, r),
+          ncol = resolve_var_dim(r[[2L]], 2L, r),
           NA_integer_
         )
       },
