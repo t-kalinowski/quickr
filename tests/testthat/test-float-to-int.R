@@ -37,3 +37,17 @@ test_that("trunc() returns double and truncates toward zero", {
   expect_quick_equal(fn_i, xi)
   expect_identical(typeof(fn_i(xi)), "double")
 })
+
+test_that("as.integer(integer division) truncates toward zero", {
+  fn <- function(a, b) {
+    declare(type(a = integer(n)), type(b = integer(n)))
+    out <- as.integer(a / b)
+    out
+  }
+
+  expect_translation_snapshots(fn)
+
+  a <- as.integer(c(7, -7, 7, -7, 3, -3))
+  b <- as.integer(c(2, 2, -2, -2, 2, 2))
+  expect_quick_identical(fn, list(a, b))
+})
