@@ -118,6 +118,35 @@ test_that("compile_package runs pkgload::load_all and writes src outputs", {
   expect_true(any(grepl("add_ab_", readLines(entrypoints), fixed = TRUE)))
 })
 
+test_that("pkgload::load_all includes package-level headers needed by later entrypoints", {
+  skip_on_cran()
+  skip_if_not_installed("pkgload")
+
+  pkgpath <- create_test_package(named_quick = TRUE, use_dynlib = TRUE)
+  entrypoints <- file.path(pkgpath, "src", "quickr_entrypoints.c")
+
+  writeLines(
+    c(
+      "",
+      "pow_len <- quickr::quick(\"pow_len\", function(n) {",
+      "  declare(type(n = integer(1)))",
+      "  out <- double(n^2L)",
+      "  out",
+      "})"
+    ),
+    file.path(pkgpath, "R", "power.R")
+  )
+
+  expect_no_error(withr::with_dir(pkgpath, {
+    pkgload::load_all(".", quiet = TRUE)
+  }))
+
+  entrypoint_lines <- readLines(entrypoints)
+  expect_true(any(grepl("#include <Rmath.h>", entrypoint_lines, fixed = TRUE)))
+  expect_true(any(grepl("pow_len_", entrypoint_lines, fixed = TRUE)))
+  expect_true(any(grepl("R_pow(", entrypoint_lines, fixed = TRUE)))
+})
+
 test_that("compile_package reports pkgload::load_all failures", {
   skip_on_cran()
   skip_if_not_installed("pkgload")

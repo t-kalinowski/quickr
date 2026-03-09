@@ -1,4 +1,10 @@
-make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
+make_c_bridge <- function(
+  fsub,
+  strict = TRUE,
+  headers = TRUE,
+  force_rmath_header = FALSE,
+  force_rng_header = FALSE
+) {
   stopifnot(inherits(fsub, FortranSubroutine))
 
   closure <- fsub@closure
@@ -156,7 +162,7 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
   }
 
   c_args <- paste("SEXP", names(formals(closure)), collapse = ", ")
-  needs_rmath <- any(grepl("\\bR_pow\\(", c_body))
+  needs_rmath <- any(grepl("R_pow(", c_body, fixed = TRUE))
   c_body <- as_glue(str_flatten_lines(c_body))
 
   c_func_def <- glue("SEXP {fsub@name}_(SEXP _args) {c_block(c_body)}")
@@ -167,8 +173,8 @@ make_c_bridge <- function(fsub, strict = TRUE, headers = TRUE) {
     "#define R_NO_REMAP",
     "#include <R.h>",
     "#include <Rinternals.h>",
-    if (needs_rmath) "#include <Rmath.h>",
-    if (uses_rng) "#include <R_ext/Random.h>",
+    if (needs_rmath || isTRUE(force_rmath_header)) "#include <Rmath.h>",
+    if (uses_rng || isTRUE(force_rng_header)) "#include <R_ext/Random.h>",
     "",
     ""
   )
