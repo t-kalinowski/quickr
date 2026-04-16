@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("matrix ops infer destination sizes for assignments", {
   matmul_infer <- function(A, B) {
     declare(type(A = double(2, 3)), type(B = double(3, 2)))

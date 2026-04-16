@@ -34,6 +34,11 @@ expect_translation_snapshots <- function(
 }
 
 expect_quick_identical <- function(fn, ...) {
+  dll_paths_before <- loaded_dll_paths()
+  on.exit(
+    cleanup_new_quick_dlls(dll_paths_before),
+    add = TRUE
+  )
   qfn := quick(fn)
   args_list <- rlang::list2(...)
   args_list <- lapply(args_list, function(x) if (!is.list(x)) list(x) else x)
@@ -47,6 +52,11 @@ expect_quick_identical <- function(fn, ...) {
 
 
 expect_quick_equal <- function(fn, ...) {
+  dll_paths_before <- loaded_dll_paths()
+  on.exit(
+    cleanup_new_quick_dlls(dll_paths_before),
+    add = TRUE
+  )
   qfn := quick(fn)
   args_list <- rlang::list2(...)
   args_list <- lapply(args_list, function(x) if (!is.list(x)) list(x) else x)
@@ -67,6 +77,31 @@ assign_in_global <- function(...) {
 set_seed_and_call <- function(fun, ...) {
   set.seed(1234)
   fun(...)
+}
+
+loaded_dll_paths <- function() {
+  unname(vapply(getLoadedDLLs(), function(dll) dll[["path"]], character(1)))
+}
+
+cleanup_new_quick_dlls <- function(before) {
+  temp_root <- normalizePath(tempdir(), winslash = "/", mustWork = TRUE)
+  after <- loaded_dll_paths()
+  new_paths <- setdiff(after, before)
+  new_paths <- new_paths[
+    nzchar(new_paths) &
+      startsWith(new_paths, temp_root) &
+      grepl("-build-", new_paths, fixed = TRUE)
+  ]
+
+  for (path in rev(new_paths)) {
+    tryCatch(dyn.unload(path), error = function(...) NULL)
+    tryCatch(
+      unlink(dirname(path), recursive = TRUE, force = TRUE),
+      error = function(...) NULL
+    )
+  }
+
+  invisible(NULL)
 }
 
 skip_if_no_openmp <- local({

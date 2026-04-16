@@ -1,5 +1,7 @@
 # Unit tests for `for (... in <iterable>)` lowering
 
+skip_on_cran()
+
 test_that("for() supports parenthesized iterables", {
   sum_i <- function(n) {
     declare(type(n = integer(1)))

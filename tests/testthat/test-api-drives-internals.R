@@ -1,6 +1,8 @@
 # Public-API tests that exercise internal inference/hoisting code paths.
 # These replace several direct `quickr:::` unit tests while keeping coverage.
 
+skip_on_cran()
+
 test_that("matrix destination inference gracefully declines non-symbol inputs", {
   matmul_expr_arg <- function(A, B) {
     declare(type(A = double(2, 3)), type(B = double(3, 2)))
