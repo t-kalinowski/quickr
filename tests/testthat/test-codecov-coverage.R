@@ -1,5 +1,7 @@
 # Coverage-oriented public API tests (exercise compiled calls via quick()).
 
+skip_on_cran()
+
 test_that("C bridge size checks handle scalar size args (including dotted args)", {
   fn <- function(n, x) {
     declare(type(n = integer(1)), type(x = double(n)))

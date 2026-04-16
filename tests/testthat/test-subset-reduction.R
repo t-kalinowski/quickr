@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("[ handles scalar, missing, and logical subscripts", {
   m <- matrix(1:6, nrow = 2L, ncol = 3L, byrow = TRUE)
 

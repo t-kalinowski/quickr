@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("direct-call statement closure can host-mutate with x <<- expr", {
   fn <- function(x) {
     declare(type(x = double(NA)))

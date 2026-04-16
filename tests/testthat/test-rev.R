@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("rev() reverses vectors", {
   fn_dbl <- function(x) {
     declare(type(x = double(NA)))
