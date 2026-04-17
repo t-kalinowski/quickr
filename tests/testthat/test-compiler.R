@@ -81,6 +81,35 @@ test_that("quickr_prefer_flang respects quickr.fortran_compiler", {
   expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin"))
 })
 
+test_that("quickr_default_fortran_makevars_lines relaxes gfortran cost model", {
+  expect_equal(
+    quickr:::quickr_default_fortran_makevars_lines(
+      config_value = function(name) {
+        if (identical(name, "FC")) "gfortran -m64" else ""
+      }
+    ),
+    "PKG_FFLAGS += -fvect-cost-model=cheap"
+  )
+
+  expect_equal(
+    quickr:::quickr_default_fortran_makevars_lines(
+      config_value = function(name) {
+        if (identical(name, "FC")) "/usr/bin/gfortran-13" else ""
+      }
+    ),
+    "PKG_FFLAGS += -fvect-cost-model=cheap"
+  )
+
+  expect_identical(
+    quickr:::quickr_default_fortran_makevars_lines(
+      config_value = function(name) {
+        if (identical(name, "FC")) "flang-new" else ""
+      }
+    ),
+    character()
+  )
+})
+
 test_that("quickr_fortran_compiler_option validates values", {
   withr::local_options(quickr.fortran_compiler = "auto")
   expect_null(quickr:::quickr_fortran_compiler_option())
@@ -128,6 +157,28 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   )
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
   expect_true(file.exists(sub("R_MAKEVARS_USER=", "", env, fixed = TRUE)))
+})
+
+test_that("quickr_fcompiler_env writes Makevars for default gfortran flags", {
+  build_dir <- withr::local_tempdir()
+
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  env <- quickr:::quickr_fcompiler_env(
+    build_dir = build_dir,
+    which = function(cmd) "",
+    system2 = function(...) "",
+    sysname = "Linux",
+    config_value = function(name) {
+      if (identical(name, "FC")) "gfortran -m64" else ""
+    }
+  )
+
+  expect_true(startsWith(env, "R_MAKEVARS_USER="))
+  makevars_path <- sub("^R_MAKEVARS_USER=", "", env)
+  expect_equal(
+    readLines(makevars_path),
+    "PKG_FFLAGS += -fvect-cost-model=cheap"
+  )
 })
 
 test_that("quickr_fcompiler_env errors when flang is explicitly requested but unavailable", {
@@ -286,7 +337,8 @@ test_that("quickr_fcompiler_env handles flang unavailable for non-explicit reque
     build_dir = build_dir,
     which = function(x) "",
     system2 = function(...) "",
-    sysname = "Darwin"
+    sysname = "Darwin",
+    config_value = function(name) if (identical(name, "FC")) "clang" else ""
   )
   expect_identical(result, character())
 })
@@ -341,7 +393,8 @@ test_that("quickr_fcompiler_env falls back when flang runtime not found non-expl
     build_dir = build_dir,
     which = function(x) if (x == "flang-new") flang else "",
     system2 = function(...) "",
-    sysname = "Darwin"
+    sysname = "Darwin",
+    config_value = function(name) if (identical(name, "FC")) "clang" else ""
   )
   # Should fall back to character() since runtime not found and not explicit
   expect_identical(result, character())

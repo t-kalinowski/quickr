@@ -171,6 +171,27 @@ quickr_prefer_flang <- function(
   FALSE
 }
 
+quickr_default_fortran_makevars_lines <- function(
+  config_value = quickr_r_cmd_config_value
+) {
+  fc <- trimws(config_value("FC"))
+  if (!nzchar(fc)) {
+    return(character())
+  }
+
+  compiler <- strsplit(fc, "\\s+")[[1L]][[1L]]
+  compiler <- basename(compiler)
+  if (!grepl("^gfortran(?:-[0-9]+)?(?:\\.exe)?$", compiler)) {
+    return(character())
+  }
+
+  # GCC 12+ uses a very-cheap vectorizer cost model at -O2. That keeps the
+  # default build conservative for loops like quickr's generated array kernels.
+  # Relaxing the cost model restores the vectorized code path without changing
+  # the compiler or generated Fortran source.
+  "PKG_FFLAGS += -fvect-cost-model=cheap"
+}
+
 quickr_fcompiler_env <- function(
   build_dir,
   which = Sys.which,
@@ -178,7 +199,8 @@ quickr_fcompiler_env <- function(
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
-  link_flags = character()
+  link_flags = character(),
+  config_value = quickr_r_cmd_config_value
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
@@ -234,7 +256,13 @@ quickr_fcompiler_env <- function(
     }
   }
 
-  if (!use_flang && !use_openmp) {
+  default_makevars_lines <- if (use_flang) {
+    character()
+  } else {
+    quickr_default_fortran_makevars_lines(config_value = config_value)
+  }
+
+  if (!use_flang && !use_openmp && !length(default_makevars_lines)) {
     return(character())
   }
 
@@ -249,6 +277,7 @@ quickr_fcompiler_env <- function(
         }
       )
     },
+    default_makevars_lines,
     if (use_openmp) openmp_makevars_lines(),
     if (length(link_flags)) {
       paste("PKG_LIBS +=", paste(link_flags, collapse = " "))

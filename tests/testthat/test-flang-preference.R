@@ -63,7 +63,8 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which
+      which = which,
+      config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
   )
@@ -72,7 +73,8 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which
+      which = which,
+      config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
   )
