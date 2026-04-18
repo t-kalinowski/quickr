@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("<<- mutates host locals in statement local closures", {
   fn <- function(nx, ny) {
     declare(

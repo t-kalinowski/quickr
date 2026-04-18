@@ -1,5 +1,7 @@
 # Unit tests for C bridge hoisting of size expressions
 
+skip_on_cran()
+
 test_that("size check blocks redeclare hoisted size temps", {
   fn <- function(n, m, a, b) {
     declare(

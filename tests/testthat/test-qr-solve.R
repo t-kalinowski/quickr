@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("qr.solve translation uses linpack path", {
   qr_solve_vec <- function(a, b) {
     declare(

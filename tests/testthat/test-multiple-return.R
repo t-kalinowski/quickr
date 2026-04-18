@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("multiple return values", {
   fn <- function(x) {
     declare(type(x = integer(n)))

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("translation snapshots: hoist+block inside contains (sapply closure)", {
   fn <- function(x) {
     declare(type(x = double(NA)))

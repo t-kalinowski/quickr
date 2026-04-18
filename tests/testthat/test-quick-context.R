@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quick requires explicit names inside packages", {
   pkg_call <- function() {
     quick(function(x) {

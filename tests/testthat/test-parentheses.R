@@ -1,5 +1,7 @@
 # Unit tests for parentheses preservation
 
+skip_on_cran()
+
 test_that("parentheses preserve arithmetic precedence for scalars", {
   fn <- function(a, b, c, d) {
     declare(

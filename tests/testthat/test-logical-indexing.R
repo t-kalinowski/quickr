@@ -1,6 +1,8 @@
 # Unit tests for indexing external logical arrays (passed from R as logical,
 # represented as 0/1 integer storage inside the generated Fortran interface).
 
+skip_on_cran()
+
 test_that("scalar logical indexing works in ifelse()", {
   fn <- function(pred) {
     declare(type(pred = logical(3, 4)))

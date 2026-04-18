@@ -1,5 +1,7 @@
 # Example: Viterbi algorithm
 
+skip_on_cran()
+
 test_that("viterbi", {
   viterbi <- function(
     observations,

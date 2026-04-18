@@ -1,5 +1,7 @@
 # Coverage-focused tests for matrix parsing helpers.
 
+skip_on_cran()
+
 test_that("transpose parsing handles scalars and rejects rank > 2", {
   scalar_left <- function(B) {
     declare(type(B = double(2, 2)))

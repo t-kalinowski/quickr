@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quickr_windows_add_dll_paths is a no-op off Windows", {
   withr::local_envvar(PATH = "path-entry")
 

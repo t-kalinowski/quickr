@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("rep.int works in subset indexing", {
   f <- function(x) {
     declare(type(x = double(10)))

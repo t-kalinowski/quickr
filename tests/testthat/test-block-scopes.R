@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("array-expression subscripting hoists into a block-scoped temp", {
   fn <- function(x) {
     declare(type(x = double(3, 4)))

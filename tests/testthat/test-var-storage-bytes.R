@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("var_storage_bytes() fails fast for unsupported Variable@mode", {
   v <- Variable(mode = "character", dims = list(10L))
 

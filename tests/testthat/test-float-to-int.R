@@ -1,5 +1,7 @@
 # Float-to-int conversion semantics (truncation vs floor/ceiling).
 
+skip_on_cran()
+
 test_that("as.integer(double) truncates toward zero", {
   fn <- function(x) {
     declare(type(x = double(NA)))

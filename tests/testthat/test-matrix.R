@@ -1,5 +1,7 @@
 # Unit tests for matrix creation and implicit size reuse
 
+skip_on_cran()
+
 test_that("matrix", {
   fn <- function(a, b) {
     declare(type(a = integer(1)))

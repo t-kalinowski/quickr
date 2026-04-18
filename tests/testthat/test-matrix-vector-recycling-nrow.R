@@ -1,5 +1,7 @@
 # Public API tests for vector/matrix elementwise recycling rules
 
+skip_on_cran()
+
 test_that("vector-matrix elementwise ops only recycle by nrow", {
   ok <- function(mat, vec) {
     declare(type(mat = double(2, 3)), type(vec = double(2)))

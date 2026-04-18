@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("arg-not-declared error is stable under parent-env name collisions", {
   local({
     # A same-named object exists in the function's enclosure.

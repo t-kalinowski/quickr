@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("<<- supports whole-vector superassignment via x[] across lengths", {
   fn <- function(x) {
     declare(type(x = double(NA)))

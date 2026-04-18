@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("as.double casts integer and logical values", {
   fn_int <- function(x) {
     declare(type(x = integer(n)))

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("stop propagates errors from quickr functions", {
   stop_fn <- function(x) {
     declare(type(x = double(1)))

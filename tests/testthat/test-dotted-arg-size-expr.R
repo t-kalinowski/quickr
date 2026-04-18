@@ -1,5 +1,7 @@
 # Public API regression tests for dotted argument names in size expressions
 
+skip_on_cran()
+
 test_that("dotted argument names work in size expressions", {
   fn <- function(foo.bar) {
     declare(type(foo.bar = integer(1)))

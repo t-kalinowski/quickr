@@ -1,5 +1,7 @@
 # Public API tests for drop()
 
+skip_on_cran()
+
 test_that("drop() translation snapshots", {
   drop_row <- function(A) {
     declare(type(A = double(1L, 3L)))

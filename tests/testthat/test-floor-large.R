@@ -4,6 +4,8 @@
 # including for values that exceed the range of Fortran default integers on some
 # compilers (a potential overflow hazard if we lower via FLOOR()/CEILING()).
 
+skip_on_cran()
+
 test_that("floor() and ceiling() match R for large magnitude doubles", {
   fn_floor <- function(x) {
     declare(type(x = double(NA)))

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("array() supports reshaping non-scalar data", {
   fn <- function(x) {
     declare(type(x = integer(2L, 3L, 4L)))

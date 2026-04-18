@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("local closures support if/else control flow in sapply()", {
   fn <- function(x, thresh) {
     declare(type(x = double(NA)), type(thresh = double(1)))

@@ -1,5 +1,7 @@
 # Public API tests for abs() support in declared size expressions
 
+skip_on_cran()
+
 test_that("declare() size expressions support abs()", {
   fn <- function(start, end) {
     declare(

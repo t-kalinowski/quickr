@@ -1,5 +1,7 @@
 # Unit tests for compiler selection helpers
 
+skip_on_cran()
+
 test_that("quickr_r_cmd_config_value captures only stdout", {
   expect_identical(
     deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),

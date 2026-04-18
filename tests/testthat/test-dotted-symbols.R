@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quick() supports dotted argument names", {
   expect_quick_identical(
     function(foo.bar) {

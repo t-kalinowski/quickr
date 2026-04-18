@@ -1,5 +1,7 @@
 # Example: Heat diffusion simulation
 
+skip_on_cran()
+
 test_that("heat diffusion", {
   # Heat Diffusion Simulation in R
   # 2D grid, explicit time-stepping, fixed boundaries

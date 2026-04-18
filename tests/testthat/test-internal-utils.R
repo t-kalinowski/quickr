@@ -1,5 +1,7 @@
 # Unit tests for internal helper utilities
 
+skip_on_cran()
+
 test_that("zzz .onLoad can be invoked", {
   expect_error(quickr:::.onLoad(), NA)
 })
