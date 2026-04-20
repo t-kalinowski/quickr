@@ -1,5 +1,7 @@
 # Unit tests for r2f handler registry
 
+skip_on_cran()
+
 test_that("register_r2f_handler sets dest_supported attribute", {
   handler <- function(e, scope, ...) NULL
   result <- quickr:::register_r2f_handler(

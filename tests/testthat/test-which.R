@@ -1,5 +1,7 @@
 # Unit tests for which.max and related functions
 
+skip_on_cran()
+
 test_that("which.max", {
   fn <- function(a) {
     declare(type(a = double(NA)))

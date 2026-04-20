@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("openmp_makevars_lines uses explicit env flags", {
   withr::local_envvar(c(
     QUICKR_OPENMP_FFLAGS = "-fopenmp",

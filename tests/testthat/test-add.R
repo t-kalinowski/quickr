@@ -1,5 +1,7 @@
 # Unit tests for simple addition
 
+skip_on_cran()
+
 test_that("add1", {
   slow_add1 <- function(x) {
     declare(type(x = double(NA)))

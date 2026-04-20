@@ -1,5 +1,7 @@
 # Example: rolling mean computation
 
+skip_on_cran()
+
 test_that("roll_mean", {
   slow_roll_mean <- function(x, weights, normalize = TRUE) {
     declare(

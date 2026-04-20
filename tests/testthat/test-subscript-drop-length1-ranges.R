@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("subscript drop=TRUE drops length-1 ranges like 1:1", {
   fn <- function(x) {
     declare(type(x = double(1, 1, 2, 3, 4)))

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("package compilation: local closures don't collide across quick functions", {
   pkgdir <- withr::local_tempdir(pattern = "quickr-contains-pkg-")
   pkgpath <- file.path(pkgdir, "quickr.contains.pkg")

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("r2f() attaches `r` metadata for bind(c) logical symbols", {
   # Regression test: r2f() must attach attr(,"r") even for the symbol-lowering
   # path used by bind(c) logical arguments. Missing `r` can break downstream

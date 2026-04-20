@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quick() supports mixed-case compiled names", {
   qSim <- quick(
     name = "qSim",

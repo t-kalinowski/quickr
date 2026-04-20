@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("declare dims support nested length() (vector)", {
   fn <- function(x) {
     declare(type(x = double(NA)), type(out = double(length(x) + 1)))

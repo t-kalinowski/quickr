@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quick() supports svd(x)$d", {
   fn <- function(x) {
     declare(type(x = double(3, 2)))

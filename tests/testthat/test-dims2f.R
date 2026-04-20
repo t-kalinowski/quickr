@@ -1,5 +1,7 @@
 # Tests for dynamic dimension expressions evaluated in Fortran environment
 
+skip_on_cran()
+
 test_that("arithmetic expressions in dimensions compile", {
   fn <- function(n) {
     declare(type(n = integer(1)))

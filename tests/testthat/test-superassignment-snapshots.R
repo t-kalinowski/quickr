@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("translation snapshots: statement closure with host-associated <<-", {
   fn <- function(nx, ny) {
     declare(type(nx = integer(1)), type(ny = integer(1)))

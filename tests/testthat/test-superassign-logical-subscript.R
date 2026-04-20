@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("logical-vector subscripts work for [<<- LHS", {
   logical_superassign <- function(x) {
     declare(type(x = double(n)))

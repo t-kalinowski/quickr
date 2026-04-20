@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("openmp error handling snapshots include cancellation", {
   single_parallel <- function(x) {
     declare(type(x = double(1)))

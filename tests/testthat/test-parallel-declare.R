@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   skip_if_no_openmp()
 

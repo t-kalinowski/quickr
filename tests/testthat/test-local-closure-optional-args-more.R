@@ -1,5 +1,7 @@
 # Public API tests for optional NULL defaults in local closures
 
+skip_on_cran()
+
 test_that("optional NULL default treats explicit NULL as missing", {
   fn <- function(x) {
     declare(type(x = double(1)))

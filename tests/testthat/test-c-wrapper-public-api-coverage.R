@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("operator normalization handles symbol-free calls (public API)", {
   fn <- function(x) {
     declare(type(x = integer(1)))

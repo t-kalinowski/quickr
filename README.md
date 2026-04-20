@@ -4,7 +4,6 @@
 # quickr <img src="man/figures/logo.png" align="right" height="138"/>
 
 <!-- ![](https://i.giphy.com/media/v1.Y2lkPTc5MGI3NjExMjBhNWt1Z3Q4ZW56cG00c2hncmtwbGJycm53M3JxYWdscjRkaDJobCZlcD12MV9pbnRlcm5hbF9naWZfYnlfaWQmY3Q9Zw/12haGO61oFZ28w/giphy.gif){alt="An animated GIF showing two characters in a spaceship cockpit rapidly accelerating into hyperspace, with stars stretching into bright streaks, creating a sensation of rapid acceleration and motion."} -->
-
 <!-- badges: start -->
 
 [![R-CMD-check](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml/badge.svg)](https://github.com/t-kalinowski/quickr/actions/workflows/R-CMD-check.yaml)
@@ -23,49 +22,27 @@ trade back some of that flexibility for some speed, for the context of a
 single function.
 
 <!-- Programming language design requires some hard decisions and trade-ofs. -->
-
 <!-- When you want to have it all, you typically end up have two (or more!) languages. -->
-
 <!-- An interpreted, dynamic language full of conveniences, and a staticly-typed, explicit, high-performance language. -->
-
 <!-- This is sometimes called the "Two Language Problem". -->
-
 <!-- Like [Numba](https://numba.pydata.org) in Python, or the [Julia](https://julialang.org) language, quickr is a solution to the [two-language problem](https://juliadatascience.io/julia_accomplish). -->
-
 <!-- Unlike those tools however, quickr does not bundle most of LLVM, keeping dependencies lightweight. -->
-
 <!-- Quickr works by translating the R code to Fortran. -->
-
 <!-- Fortran might seem like a surprising choice, but it has many compelling properties: -->
-
 <!-- -   Superb performance. -->
-
 <!--     As a stalwart of the numerical computing community, Fortran has accrued the benefit of countless person-hours from top-tier computer scientists and compiler engineers. -->
-
 <!--     There is a reason that over 20% of R itself, (and numpy, and ...) are still in Fortran, and it's not merely because of legacy. -->
-
 <!--     And this trend of compiler engineers focusing on Fortran is not stopping. -->
-
 <!-- -   Large overlap with R semantics and syntax for numerical computing. -->
-
 <!--     Fortran and R have very similar syntax for operating on arrays. -->
-
 <!--     Like R, Fortran has builtin-in support for nd-arrays, provides vectorized operators on arrays, convenient array slicing semantics that match many capabilities of R's `[` , 1-based indexing, and a well-populated collection of operators for working on those arrays like `min`, `max`, `any` `all`, etc. -->
-
 <!--     This means that it's relatively straightforward to translate R to Fortran, often just a 1:1 mapping of semantics, with some changes to syntax. -->
-
 <!--     This is also why Fortran has such superb performance, and why it attracts compiler engineers to work on it. -->
-
 <!--     Because the language spec guarantees things like, static shapes for nd-arrays, views of those arrays, etc, it provides many opportunities for compiler engineers to do things like generate SIMD instructions, or automatically parallelize code. -->
-
 <!-- -   Excellent support in R. -->
-
 <!--     One of the original motivations for R was to serve as a front-end for Fortran. -->
-
 <!--     Since its inception, R has supported Fortran extensions, and supported them well. -->
-
 <!--     It also means that any computing environment where R build tools are available, Fortran is supported. -->
-
 <!--     The barrier to entry and thorny questions, that, for example, using Rust in CRAN might raise, is non-existent for Fortran. -->
 
 The main exported function is `quick()`. Here is how you use it:
@@ -140,9 +117,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r             493ms 496.46ms      2.01     782KB     2.01
-#> 2 quickr        934µs   1.07ms    930.       782KB    19.5 
-#> 3 c             956µs   1.08ms    924.       782KB    19.6
+#> 1 r             1.43s    1.43s     0.702     782KB    0.702
+#> 2 quickr       2.63ms    2.7ms   355.        782KB    6.77 
+#> 3 c            4.92ms   5.22ms   189.        782KB    3.61
 plot(timings) + bench::scale_x_bench_time(base = NULL)
 ```
 
@@ -182,11 +159,11 @@ In the case of `convolve()`, `quick()` returns a function approximately
     #>  [71] log          log10        logical      matrix       max         
     #>  [76] min          ncol         next         nrow         numeric     
     #>  [81] outer        print        prod         qr.solve     raw         
-    #>  [86] rbind        repeat       rev          runif        seq         
-    #>  [91] seq_along    seq_len      sin          solve        sqrt        
-    #>  [96] stop         sum          svd          t            tan         
-    #> [101] tanh         tcrossprod   trunc        which.max    which.min   
-    #> [106] while
+    #>  [86] rbind        rep.int      repeat       rev          runif       
+    #>  [91] seq          seq_along    seq_len      sin          solve       
+    #>  [96] sqrt         stop         sum          svd          t           
+    #> [101] tan          tanh         tcrossprod   trunc        which.max   
+    #> [106] which.min    while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
@@ -303,8 +280,8 @@ timings
 #> # A tibble: 2 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 slow_viterbi   62.81µs   75.6µs    12852.    1.59KB     28.2
-#> 2 quick_viterbi   5.45µs   6.19µs   158835.        0B      0
+#> 1 slow_viterbi  170.18µs 186.23µs     5011.    1.59KB     12.4
+#> 2 quick_viterbi   2.44µs   2.72µs   349107.        0B      0
 plot(timings)
 ```
 
@@ -395,8 +372,8 @@ summary(timings, relative = TRUE)
 #> # A tibble: 2 × 6
 #>   expression           min median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>         <dbl>  <dbl>     <dbl>     <dbl>    <dbl>
-#> 1 diffuse_heat        6.84   11.6       1       4893.     28.8
-#> 2 quick_diffuse_heat  1       1        10.2        1       1
+#> 1 diffuse_heat        13.6   16.8       1       4893.      Inf
+#> 2 quick_diffuse_heat   1      1        16.7        1       NaN
 plot(timings)
 ```
 
@@ -442,9 +419,9 @@ timings
 #> # A tibble: 3 × 6
 #>   expression      min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr> <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 r           78.19ms  85.82ms      9.02  124.24MB    23.5 
-#> 2 rcpp         6.21ms    6.3ms    156.      4.46MB     0   
-#> 3 quickr       2.37ms   2.49ms    394.    781.35KB     3.98
+#> 1 r           187.9ms  292.3ms      3.42  124.24MB    10.3 
+#> 2 rcpp        20.12ms   20.4ms     48.9     4.46MB     0   
+#> 3 quickr       6.82ms    7.2ms    133.    781.35KB     1.99
 
 timings$expression <- factor(names(timings$expression), rev(names(timings$expression)))
 plot(timings) + bench::scale_x_bench_time(base = NULL)
@@ -558,10 +535,10 @@ timings
 #> # A tibble: 4 × 6
 #>   expression         min   median `itr/sec` mem_alloc `gc/sec`
 #>   <bch:expr>    <bch:tm> <bch:tm>     <dbl> <bch:byt>    <dbl>
-#> 1 reference      12.26ms  12.85ms      78.2    29.6MB     73.8
-#> 2 RcppArmadillo   1.66ms   2.04ms     476.         0B      0  
-#> 3 plain R         1.59ms    1.9ms     516.     13.2MB    133. 
-#> 4 quickr        974.32µs   1.09ms     849.         0B      0
+#> 1 reference      65.18ms  65.41ms      13.9    29.6MB     13.9
+#> 2 RcppArmadillo   5.56ms   7.86ms     110.         0B      0  
+#> 3 plain R          5.1ms   8.82ms      66.7    13.2MB     16.0
+#> 4 quickr          2.22ms   2.66ms     256.         0B      0
 plot(timings) + ggplot2::scale_y_discrete(limits = rev(c( 
   "reference", "RcppArmadillo", "plain R", "quickr"
 )))

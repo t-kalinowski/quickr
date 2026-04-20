@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("division casts integers", {
   div_int <- function(a, b) {
     declare(type(a = integer(n)), type(b = integer(n)))

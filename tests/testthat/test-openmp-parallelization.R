@@ -1,3 +1,5 @@
+skip_on_cran()
+
 benchmark_timings <- function(serial_fn, parallel_fn, args, reps = 5L) {
   reps <- as.integer(reps)
   if (reps < 1L) {

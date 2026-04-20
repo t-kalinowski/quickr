@@ -1,5 +1,7 @@
 # Unit tests for declare(type()) variants
 
+skip_on_cran()
+
 test_that("declare(type()) variants", {
   # exprs in {
   quick_seq <- (function(start, end) {

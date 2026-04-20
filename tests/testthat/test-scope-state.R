@@ -1,5 +1,7 @@
 # Exercise quickr_scope state accessors to keep refactors covered by covr.
 
+skip_on_cran()
+
 test_that("quickr_scope @ access reads and writes state", {
   scope <- quickr:::new_scope(function(x) x, parent = emptyenv())
 

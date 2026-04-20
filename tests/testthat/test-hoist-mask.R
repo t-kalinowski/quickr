@@ -1,5 +1,7 @@
 # Unit test for mask hoisting
 
+skip_on_cran()
+
 test_that("hoist mask", {
   # no mask to hoist
   fn <- function(x) {

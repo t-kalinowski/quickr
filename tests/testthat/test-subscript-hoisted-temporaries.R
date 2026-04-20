@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("subscripts can use rev(seq_len()) on multi-d arrays", {
   fn <- function(x1) {
     declare(type(x1 = integer(2L, 3L)))

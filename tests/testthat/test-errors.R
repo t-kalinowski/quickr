@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("case-sensitive variable name clashes", {
   expect_snapshot(
     quick(function(j) {

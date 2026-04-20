@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quickr_fcompiler_env prefers flang-new when requested", {
   which <- function(cmd) {
     if (identical(cmd, "flang-new")) {

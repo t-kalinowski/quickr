@@ -1,5 +1,7 @@
 # Unit tests for size expression lowering/evaluation
 
+skip_on_cran()
+
 test_that("constant arithmetic in declared dims is evaluated", {
   fn <- function(x) {
     declare(type(x = double(2L + 3L)))

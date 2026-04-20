@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("large local arrays are emitted as allocatable + allocate()", {
   f <- function(x) {
     declare(type(x = double(16, 64, 64, 16)))

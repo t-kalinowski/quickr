@@ -1,5 +1,7 @@
 # Example: convolution
 
+skip_on_cran()
+
 test_that("convolve", {
   # options("quickr.r2f.debug" = TRUE)
   slow_convolve <- function(a, b) {

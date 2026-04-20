@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("fall-through assignment is supported", {
   expect_quick_identical(
     function(x) {

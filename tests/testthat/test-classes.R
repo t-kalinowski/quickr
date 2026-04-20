@@ -1,5 +1,7 @@
 # Unit tests for internal S7 helpers/classes
 
+skip_on_cran()
+
 test_that("prop helpers implement coercion, validation and set-once behavior", {
   Test <- S7::new_class(
     name = "Test",

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("assignment is not skipped when RHS does not write to dest", {
   fn <- function(x) {
     declare(type(x = double(1)))

@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("dimension mismatch errors show axis", {
   fn <- function(x) {
     declare(type(x = double(2, 3)))

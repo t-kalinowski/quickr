@@ -1,5 +1,7 @@
 # Unit test for seq translation
 
+skip_on_cran()
+
 test_that("seq", {
   fn <- function(a, b) {
     declare(

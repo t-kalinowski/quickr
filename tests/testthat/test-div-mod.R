@@ -1,5 +1,7 @@
 # Unit tests for modulus and integer division
 
+skip_on_cran()
+
 test_that("%% and %/%", {
   x <- -7:7
   x <- expand.grid(a = x, b = x)

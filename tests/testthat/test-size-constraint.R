@@ -1,5 +1,7 @@
 # Unit tests for size constraints
 
+skip_on_cran()
+
 test_that("size constraint", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(n + 1)))

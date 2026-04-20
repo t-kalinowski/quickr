@@ -1,5 +1,7 @@
 # Integration tests for compile_package() and the pkgload::load_all() hook
 
+skip_on_cran()
+
 create_test_package <- function(
   .local_envir = parent.frame(),
   use_dynlib = TRUE,

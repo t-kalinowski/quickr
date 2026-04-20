@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("quick() supports .Machine$double.eps", {
   fn <- function(x) {
     declare(type(x = double(1)))

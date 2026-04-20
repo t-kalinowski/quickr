@@ -1,5 +1,7 @@
 # Public API tests for nrow()/ncol()/dim() size expression lowering in the C bridge
 
+skip_on_cran()
+
 test_that("declare() size expressions support nrow() and ncol()", {
   fn <- function(x) {
     declare(
