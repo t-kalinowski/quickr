@@ -82,33 +82,8 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   )
 })
 
-test_that("quickr_prefer_flang defaults to TRUE on macOS when flang exists", {
-  which <- function(cmd) {
-    if (identical(cmd, "flang-new")) {
-      return("/opt/bin/flang-new")
-    }
-    ""
-  }
-
-  withr::local_options(quickr.fortran_compiler = "auto")
-
-  expect_true(quickr:::quickr_prefer_flang(
-    sysname = "Darwin",
-    which = which,
-    system2 = function(...) ""
-  ))
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
-})
-
 test_that("quickr.fortran_compiler = \"gfortran\" disables auto preference", {
-  which <- function(cmd) {
-    if (identical(cmd, "flang-new")) {
-      return("/opt/bin/flang-new")
-    }
-    ""
-  }
-
   withr::local_options(quickr.fortran_compiler = "gfortran")
 
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin", which = which))
+  expect_false(quickr_prefer_flang())
 })

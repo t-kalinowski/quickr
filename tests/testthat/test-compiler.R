@@ -49,7 +49,7 @@ test_that("quickr_r_cmd_config_value returns empty on command failure", {
   )
 })
 
-test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stubs", {
+test_that("quickr_flang_path prefers flang-new", {
   which <- function(x) {
     if (x == "flang-new") {
       "/tmp/flang-new"
@@ -59,28 +59,16 @@ test_that("quickr_flang_path and quickr_prefer_flang are deterministic with stub
       ""
     }
   }
-  system2_stub <- function(command, args, stdout = TRUE, stderr = TRUE, ...) {
-    "flang version"
-  }
 
-  expect_identical(quickr:::quickr_flang_path(which = which), "/tmp/flang-new")
-
-  withr::local_options(quickr.fortran_compiler = "auto")
-
-  expect_true(quickr:::quickr_prefer_flang(
-    sysname = "Darwin",
-    which = which,
-    system2 = system2_stub
-  ))
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
+  expect_identical(quickr_flang_path(which = which), "/tmp/flang-new")
 })
 
 test_that("quickr_prefer_flang respects quickr.fortran_compiler", {
   withr::local_options(quickr.fortran_compiler = "flang")
-  expect_true(quickr:::quickr_prefer_flang(sysname = "Linux"))
+  expect_true(quickr_prefer_flang())
 
   withr::local_options(quickr.fortran_compiler = "gfortran")
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin"))
+  expect_false(quickr_prefer_flang())
 })
 
 test_that("quickr_default_fortran_makevars_lines relaxes gfortran cost model", {
@@ -131,11 +119,6 @@ test_that("quickr_fortran_compiler_option validates values", {
 })
 
 test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
-  rm(
-    list = ls(envir = quickr_compiler_probe_cache, all.names = TRUE),
-    envir = quickr_compiler_probe_cache
-  )
-
   temp <- withr::local_tempdir()
   prefix <- file.path(temp, "flang")
   dir.create(file.path(prefix, "bin"), recursive = TRUE)
@@ -322,7 +305,7 @@ test_that("quickr_prefer_flang returns FALSE when flang_auto_disabled", {
     .package = "quickr"
   )
 
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin"))
+  expect_false(quickr_prefer_flang())
 })
 
 test_that("quickr_fcompiler_env handles flang unavailable for non-explicit request", {

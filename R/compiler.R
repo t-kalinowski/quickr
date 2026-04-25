@@ -185,11 +185,7 @@ quickr_fortran_compiler_option <- function(
   )
 }
 
-quickr_prefer_flang <- function(
-  sysname = Sys.info()[["sysname"]],
-  which = Sys.which,
-  system2 = base::system2
-) {
+quickr_prefer_flang <- function() {
   compiler_opt <- quickr_fortran_compiler_option()
   if (identical(compiler_opt, "flang")) {
     return(TRUE)
@@ -202,8 +198,8 @@ quickr_prefer_flang <- function(
   }
 
   # Best-effort: on macOS, prefer flang if it is available.
-  if (sysname == "Darwin") {
-    info <- quickr_cached_flang_available(which = which, system2 = system2)
+  if (Sys.info()[["sysname"]] == "Darwin") {
+    info <- quickr_cached_flang_available()
     return(isTRUE(info$available))
   }
 
@@ -243,6 +239,7 @@ quickr_fcompiler_env <- function(
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
+  default_probes <- missing(which) && missing(system2)
   use_openmp <- isTRUE(use_openmp)
   link_flags <- link_flags[nzchar(link_flags)]
   compiler_opt <- quickr_fortran_compiler_option()
@@ -250,16 +247,23 @@ quickr_fcompiler_env <- function(
 
   flang <- ""
   flang_runtime <- character()
-  use_flang <- isTRUE(quickr_prefer_flang(
-    sysname = sysname,
-    which = which,
-    system2 = system2
-  ))
+  flang_info <- NULL
+  use_flang <- quickr_prefer_flang()
+  if (!default_probes && !explicit_request && is.null(compiler_opt)) {
+    use_flang <- sysname == "Darwin" && !quickr_flang_auto_disabled()
+    if (use_flang) {
+      flang_info <- quickr_flang_available(which = which, system2 = system2)
+      use_flang <- isTRUE(flang_info$available)
+    }
+  }
   if (use_flang) {
-    flang_info <- quickr_cached_flang_available(
-      which = which,
-      system2 = system2
-    )
+    if (is.null(flang_info)) {
+      flang_info <- if (default_probes) {
+        quickr_cached_flang_available()
+      } else {
+        quickr_flang_available(which = which, system2 = system2)
+      }
+    }
     flang <- flang_info$path
     if (!isTRUE(flang_info$available)) {
       if (isTRUE(explicit_request)) {
