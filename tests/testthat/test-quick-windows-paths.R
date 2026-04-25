@@ -32,7 +32,7 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
     RTOOLS_HOME = ""
   ))
 
-  res <- quickr:::quickr_windows_add_dll_paths(
+  res <- quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
     os_type = "windows",
     config_value = function(...) "",
@@ -65,6 +65,10 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
     mustWork = FALSE
   ))
 
+  expect_identical(
+    tolower(normalizePath(res[[1L]], winslash = "\\", mustWork = FALSE)),
+    lib_dir_norm
+  )
   expect_true(lib_dir_norm %in% path_norm)
   expect_true(
     bin_sibling_norm %in% path_norm || bin_dir_norm %in% path_norm
@@ -382,7 +386,7 @@ test_that("quickr_windows_add_dll_paths leaves PATH unchanged when complete", {
     RTOOLS_HOME = ""
   ))
 
-  res <- quickr:::quickr_windows_add_dll_paths(
+  res <- quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
     os_type = "windows",
     config_value = function(...) "",
