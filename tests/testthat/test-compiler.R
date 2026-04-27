@@ -131,6 +131,11 @@ test_that("quickr_fortran_compiler_option validates values", {
 })
 
 test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
+  rm(
+    list = ls(envir = quickr_compiler_probe_cache, all.names = TRUE),
+    envir = quickr_compiler_probe_cache
+  )
+
   temp <- withr::local_tempdir()
   prefix <- file.path(temp, "flang")
   dir.create(file.path(prefix, "bin"), recursive = TRUE)

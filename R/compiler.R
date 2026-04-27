@@ -15,6 +15,15 @@ quickr_flang_available <- function(
   system2 = base::system2
 ) {
   flang <- quickr_flang_path(which = which)
+  quickr_flang_available_at_path(flang, system2 = system2)
+}
+
+quickr_flang_available_at_path <- function(
+  flang,
+  system2 = base::system2
+) {
+  stopifnot(is_string(flang), is.function(system2))
+
   if (!nzchar(flang)) {
     return(list(path = "", available = FALSE))
   }
@@ -26,6 +35,36 @@ quickr_flang_available <- function(
     return(list(path = flang, available = FALSE))
   }
   list(path = flang, available = TRUE)
+}
+
+quickr_cached_flang_available <- function(
+  which = Sys.which,
+  system2 = base::system2,
+  cache = quickr_compiler_probe_cache
+) {
+  stopifnot(is.function(which), is.function(system2), is.environment(cache))
+
+  flang <- quickr_flang_path(which = which)
+  if (!identical(system2, base::system2)) {
+    return(quickr_flang_available_at_path(flang, system2 = system2))
+  }
+
+  cache_key <- paste("flang_available", flang, sep = "\r")
+  cached <- get0(cache_key, envir = cache, inherits = FALSE, ifnotfound = NULL)
+  if (!is.null(cached)) {
+    fresh <- quickr_flang_available_at_path(flang)
+    if (!isTRUE(fresh$available)) {
+      rm(list = cache_key, envir = cache)
+    }
+    return(fresh)
+  }
+
+  cached <- quickr_flang_available_at_path(flang)
+  if (isTRUE(cached$available)) {
+    assign(cache_key, cached, envir = cache)
+  }
+
+  cached
 }
 
 quickr_flang_state <- local({
@@ -164,7 +203,7 @@ quickr_prefer_flang <- function(
 
   # Best-effort: on macOS, prefer flang if it is available.
   if (sysname == "Darwin") {
-    info <- quickr_flang_available(which = which, system2 = system2)
+    info <- quickr_cached_flang_available(which = which, system2 = system2)
     return(isTRUE(info$available))
   }
 
@@ -172,7 +211,7 @@ quickr_prefer_flang <- function(
 }
 
 quickr_default_fortran_makevars_lines <- function(
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   fc <- trimws(config_value("FC"))
   if (!nzchar(fc)) {
@@ -200,7 +239,7 @@ quickr_fcompiler_env <- function(
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
   link_flags = character(),
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
@@ -217,7 +256,10 @@ quickr_fcompiler_env <- function(
     system2 = system2
   ))
   if (use_flang) {
-    flang_info <- quickr_flang_available(which = which, system2 = system2)
+    flang_info <- quickr_cached_flang_available(
+      which = which,
+      system2 = system2
+    )
     flang <- flang_info$path
     if (!isTRUE(flang_info$available)) {
       if (isTRUE(explicit_request)) {

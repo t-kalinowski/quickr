@@ -54,11 +54,45 @@ quickr_r_cmd <- function(
   r_cmd
 }
 
+quickr_compiler_probe_cache <- new.env(parent = emptyenv())
+
+quickr_cached_r_cmd_config_value <- function(
+  name,
+  cache = quickr_compiler_probe_cache
+) {
+  stopifnot(is_string(name), is.environment(cache))
+
+  cached <- get0(name, envir = cache, inherits = FALSE, ifnotfound = NULL)
+  if (is.null(cached)) {
+    probe <- quickr_r_cmd_config_probe(name)
+    cached <- probe$value
+    if (isTRUE(probe$ok)) {
+      assign(name, cached, envir = cache)
+    }
+  }
+
+  cached
+}
+
 quickr_r_cmd_config_value <- function(
   name,
   r_cmd = quickr_r_cmd(),
   system2 = base::system2
 ) {
+  quickr_r_cmd_config_probe(
+    name = name,
+    r_cmd = r_cmd,
+    system2 = system2
+  )$value
+}
+
+quickr_r_cmd_config_probe <- function(
+  name,
+  r_cmd = quickr_r_cmd(),
+  system2 = base::system2
+) {
+  stopifnot(is_string(name), is_string(r_cmd), is.function(system2))
+
   out <- tryCatch(
     suppressWarnings(system2(
       r_cmd,
@@ -66,17 +100,21 @@ quickr_r_cmd_config_value <- function(
       stdout = TRUE,
       stderr = FALSE
     )),
-    error = function(e) character()
+    error = function(e) structure(character(), status = 1L)
   )
   status <- attr(out, "status")
   if (!is.null(status)) {
-    return("")
+    return(list(value = "", ok = FALSE))
   }
   value <- trimws(paste(out, collapse = " "))
-  if (!nzchar(value) || grepl("^ERROR:", value)) {
-    return("")
+  if (!nzchar(value)) {
+    return(list(value = "", ok = TRUE))
   }
-  value
+  if (grepl("^ERROR:", value)) {
+    return(list(value = "", ok = FALSE))
+  }
+
+  list(value = value, ok = TRUE)
 }
 
 
