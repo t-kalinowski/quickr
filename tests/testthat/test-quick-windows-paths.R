@@ -3,11 +3,12 @@ skip_on_cran()
 test_that("quickr_windows_add_dll_paths is a no-op off Windows", {
   withr::local_envvar(PATH = "path-entry")
 
-  expect_false(
-    isTRUE(quickr:::quickr_windows_add_dll_paths(
+  expect_length(
+    quickr:::quickr_windows_add_dll_paths(
       flags = character(),
       os_type = "unix"
-    ))
+    ),
+    0
   )
   expect_identical(Sys.getenv("PATH"), "path-entry")
 })
@@ -38,7 +39,7 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
     which = function(cmds) setNames(file.path(compiler_dir, cmds), cmds)
   )
 
-  expect_true(isTRUE(res))
+  expect_type(res, "character")
   path <- Sys.getenv("PATH")
   path_entries <- strsplit(path, ";", fixed = TRUE)[[1L]]
   path_entries <- path_entries[nzchar(path_entries)]
@@ -67,6 +68,14 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
   expect_true(lib_dir_norm %in% path_norm)
   expect_true(
     bin_sibling_norm %in% path_norm || bin_dir_norm %in% path_norm
+  )
+  expect_true(
+    lib_dir_norm %in%
+      tolower(normalizePath(
+        res,
+        winslash = "\\",
+        mustWork = FALSE
+      ))
   )
   compiler_dir_norm <- tolower(normalizePath(
     compiler_dir,
@@ -106,6 +115,42 @@ test_that("quickr_windows_add_dll_paths leaves PATH unchanged when complete", {
     which = function(cmds) setNames(file.path(compiler_dir, cmds), cmds)
   )
 
-  expect_false(isTRUE(res))
+  expect_type(res, "character")
   expect_identical(Sys.getenv("PATH"), base_path)
+})
+
+test_that("quickr_windows_load_dll_dependencies preloads known runtime DLLs", {
+  temp <- withr::local_tempdir()
+  lib_dir <- file.path(temp, "lib")
+  bin_dir <- file.path(temp, "bin")
+  dir.create(lib_dir)
+  dir.create(bin_dir)
+  file.create(
+    file.path(lib_dir, "libgfortran-5.dll"),
+    file.path(bin_dir, "libgfortran-5.dll"),
+    file.path(bin_dir, "libquadmath-0.dll"),
+    file.path(lib_dir, "Rlapack.dll")
+  )
+
+  loaded <- character()
+  res <- quickr_windows_load_dll_dependencies(
+    c(lib_dir, bin_dir),
+    os_type = "windows",
+    dyn_load = function(path) {
+      loaded <<- c(loaded, path)
+      structure(list(), class = "DLLInfo")
+    }
+  )
+
+  expected <- normalizePath(
+    c(
+      file.path(bin_dir, "libquadmath-0.dll"),
+      file.path(lib_dir, "libgfortran-5.dll"),
+      file.path(lib_dir, "Rlapack.dll")
+    ),
+    winslash = "\\",
+    mustWork = FALSE
+  )
+  expect_identical(res, expected)
+  expect_identical(loaded, expected)
 })
