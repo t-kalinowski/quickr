@@ -604,7 +604,7 @@ quickr_makevars_has_uncached_functions <- function() {
 quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
   any(grepl(
-    "\\$\\((shell|wildcard)[[:space:]]|\\$\\{(shell|wildcard)[[:space:]]",
+    "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]",
     lines,
     perl = TRUE
   ))
@@ -675,6 +675,26 @@ quickr_makeconf_signature <- function() {
   quickr_file_signature(quickr_makeconf_path())
 }
 
+quickr_makefiles_paths <- function() {
+  makefiles <- Sys.getenv("MAKEFILES", unset = "")
+  if (!nzchar(makefiles)) {
+    return(character())
+  }
+
+  paths <- strsplit(makefiles, "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  normalizePath(path.expand(paths), winslash = "/", mustWork = FALSE)
+}
+
+quickr_makefiles_signature <- function() {
+  paths <- quickr_makefiles_paths()
+  if (!length(paths)) {
+    return("")
+  }
+
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
 quickr_toolchain_env_signature <- function() {
   vars <- c(
     "PATH",
@@ -694,6 +714,7 @@ quickr_toolchain_env_signature <- function() {
     "LDFLAGS",
     "LIBS",
     "MAKE",
+    "MAKEFILES",
     "R_MAKEVARS_SITE",
     "R_MAKEVARS_USER"
   )
@@ -703,6 +724,7 @@ quickr_toolchain_env_signature <- function() {
       paste(names(env), env, sep = "="),
       paste("MAKEVARS", quickr_makevars_signature(), sep = "="),
       paste("MAKEVARS_ENV", quickr_makevars_env_signature(), sep = "="),
+      paste("MAKEFILES_FILES", quickr_makefiles_signature(), sep = "="),
       paste("MAKECONF", quickr_makeconf_signature(), sep = "=")
     ),
     collapse = "\r"
