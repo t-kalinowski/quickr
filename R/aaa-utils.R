@@ -90,12 +90,17 @@ quickr_makevars_paths <- function() {
   user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
     user_makevars
   } else {
-    user_root <- Sys.getenv("R_USER", unset = "")
-    if (!nzchar(user_root)) {
-      user_root <- Sys.getenv("HOME", unset = "")
-    }
-    if (nzchar(user_root)) {
-      file.path(user_root, ".R", quickr_default_makevars_names())
+    user_roots <- unique(c(
+      Sys.getenv("HOME", unset = ""),
+      Sys.getenv("R_USER", unset = "")
+    ))
+    user_roots <- user_roots[nzchar(user_roots)]
+    if (length(user_roots)) {
+      as.vector(outer(
+        user_roots,
+        file.path(".R", quickr_default_makevars_names()),
+        file.path
+      ))
     } else {
       character()
     }
