@@ -126,7 +126,7 @@ quickr_makevars_paths <- function() {
     quickr_default_site_makevars_path()
   }
 
-  unique(c(user_paths, site_paths))
+  unique(c(site_paths, user_paths))
 }
 
 quickr_file_signature <- function(path) {
@@ -451,11 +451,6 @@ quickr_toolchain_env_signature <- function() {
   paste(
     c(
       paste(names(env), env, sep = "="),
-      paste(
-        "WD",
-        normalizePath(getwd(), winslash = "/", mustWork = TRUE),
-        sep = "="
-      ),
       paste("MAKEVARS", quickr_makevars_signature(), sep = "="),
       paste("MAKEVARS_ENV", quickr_makevars_env_signature(), sep = "="),
       paste("MAKECONF", quickr_makeconf_signature(), sep = "=")
