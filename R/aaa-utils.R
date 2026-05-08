@@ -591,20 +591,20 @@ quickr_makevars_env_signature <- function() {
   paste(paste(names(values), values, sep = "="), collapse = "\r")
 }
 
-quickr_makevars_has_shell_functions <- function() {
+quickr_makevars_has_uncached_functions <- function() {
   paths <- quickr_active_makevars_all_paths()
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
     return(FALSE)
   }
 
-  any(vapply(paths, quickr_file_has_makevars_shell_function, logical(1)))
+  any(vapply(paths, quickr_file_has_makevars_uncached_function, logical(1)))
 }
 
-quickr_file_has_makevars_shell_function <- function(path) {
+quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
   any(grepl(
-    "\\$\\(shell[[:space:]]|\\$\\{shell[[:space:]]",
+    "\\$\\((shell|wildcard)[[:space:]]|\\$\\{(shell|wildcard)[[:space:]]",
     lines,
     perl = TRUE
   ))
@@ -614,7 +614,32 @@ quickr_makevars_variable_refs <- function(path) {
   lines <- readLines(path, warn = FALSE)
   lines <- quickr_join_makevars_continuations(lines)
   lines <- vapply(lines, quickr_strip_make_comment, character(1))
-  quickr_makevars_text_variable_refs(paste(lines, collapse = "\n"))
+  unique(c(
+    quickr_makevars_text_variable_refs(paste(lines, collapse = "\n")),
+    quickr_makevars_conditional_variable_refs(lines)
+  ))
+}
+
+quickr_makevars_conditional_variable_refs <- function(lines) {
+  lines <- trimws(lines)
+  refs <- unlist(
+    lapply(lines, \(line) {
+      match <- regexec(
+        "^(?:else[[:space:]]+)?(?:ifdef|ifndef)[[:space:]]+([A-Za-z_][A-Za-z0-9_.-]*)$",
+        line,
+        perl = TRUE
+      )
+      parts <- regmatches(line, match)[[1]]
+      if (length(parts) == 2L) {
+        parts[[2]]
+      } else {
+        character()
+      }
+    }),
+    use.names = FALSE
+  )
+
+  unique(refs)
 }
 
 quickr_makevars_text_variable_refs <- function(text) {
@@ -694,7 +719,7 @@ quickr_cached_r_cmd_config_value <- function(
 ) {
   stopifnot(is_string(name), is.environment(cache))
 
-  if (quickr_makevars_has_shell_functions()) {
+  if (quickr_makevars_has_uncached_functions()) {
     return(quickr_r_cmd_config_probe(name)$value)
   }
 

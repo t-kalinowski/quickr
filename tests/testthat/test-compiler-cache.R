@@ -800,6 +800,78 @@ test_that("quickr_cached_r_cmd_config_value parses prefixed Makevars assignments
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on ifdef Makevars variables", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "ifdef USE_A",
+      "FC=gfortran",
+      "else",
+      "FC=flang",
+      "endif"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(USE_A = NA)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with wildcard assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_dir <- file.path(root, "compiler")
+  dir.create(compiler_dir)
+  writeLines(
+    paste0("FC = $(wildcard ", file.path(compiler_dir, "gfortran"), ")"),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  file.create(file.path(compiler_dir, "gfortran"))
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
   cache <- new.env(parent = emptyenv())
   home_a <- withr::local_tempdir()
