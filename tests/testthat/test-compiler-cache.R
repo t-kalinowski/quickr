@@ -954,6 +954,49 @@ test_that("quickr_cached_r_cmd_config_value keys on nested MAKEFILES content", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with Makeconf", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "toolchain.mk")
+  writeLines("FC=gfortran", makeconf)
+  writeLines(
+    c(
+      "ifeq ($(FC),gfortran)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FLIBS=-lgfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    FC = NA,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FLIBS", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FLIBS=-lflang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FLIBS", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
   cache <- new.env(parent = emptyenv())
   home_a <- withr::local_tempdir()

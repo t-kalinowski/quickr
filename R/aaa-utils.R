@@ -171,10 +171,24 @@ quickr_file_signature <- function(path) {
   paste(path, info$size, info$mtime, hash, sep = "=")
 }
 
+quickr_makeconf_variables <- function() {
+  path <- quickr_makeconf_path()
+  if (!quickr_regular_file_exists(path)) {
+    return(character())
+  }
+
+  scan <- quickr_makevars_scan_include_paths(
+    normalizePath(path, winslash = "/", mustWork = FALSE),
+    variables = character(),
+    visited = character()
+  )
+  scan$variables
+}
+
 quickr_makevars_include_paths <- function(paths) {
   scan <- quickr_makevars_scan_include_paths(
     normalizePath(paths, winslash = "/", mustWork = FALSE),
-    variables = character(),
+    variables = quickr_makeconf_variables(),
     visited = character()
   )
   scan$paths
