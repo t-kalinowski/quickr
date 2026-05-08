@@ -1,12 +1,17 @@
 skip_on_cran()
 
 test_that("quickr_fcompiler_env prefers flang-new when requested", {
-  which <- function(cmd) {
+  which_stub <- function(cmd) {
     if (identical(cmd, "flang-new")) {
       return("/opt/bin/flang-new")
     }
     ""
   }
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   withr::local_options(quickr.fortran_compiler = "flang")
 
@@ -14,8 +19,6 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
   dir.create(build_dir)
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
-    system2 = function(...) "",
-    which = which,
     sysname = "Linux"
   )
 
@@ -29,12 +32,17 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
 })
 
 test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
-  which <- function(cmd) {
+  which_stub <- function(cmd) {
     if (identical(cmd, "flang")) {
       return("/opt/bin/flang")
     }
     ""
   }
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   withr::local_options(quickr.fortran_compiler = "flang")
 
@@ -42,8 +50,6 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
   dir.create(build_dir)
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
-    system2 = function(...) "",
-    which = which,
     sysname = "Linux"
   )
 
@@ -57,15 +63,17 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
 })
 
 test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
-  which <- function(cmd) ""
   build_dir <- tempfile("quickr-build-")
   dir.create(build_dir)
+  local_mocked_bindings(
+    quickr_prefer_flang = function(...) FALSE,
+    .package = "quickr"
+  )
 
   withr::local_options(quickr.fortran_compiler = "gfortran")
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which,
       config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
@@ -75,40 +83,73 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which,
       config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
   )
 })
 
-test_that("quickr_prefer_flang defaults to TRUE on macOS when flang exists", {
-  which <- function(cmd) {
-    if (identical(cmd, "flang-new")) {
-      return("/opt/bin/flang-new")
-    }
-    ""
-  }
+test_that("quickr_fcompiler_env uses caller-provided sysname for flang auto preference", {
+  temp <- withr::local_tempdir()
+  prefix <- file.path(temp, "flang")
+  dir.create(file.path(prefix, "bin"), recursive = TRUE)
+  dir.create(file.path(prefix, "lib"), recursive = TRUE)
+  flang <- file.path(prefix, "bin", "flang-new")
+  file.create(flang)
+  file.create(file.path(prefix, "lib", "libflang_rt.runtime.dylib"))
+
+  cache_env <- environment(quickr:::quickr_flang_runtime_flags)
+  old_cache <- cache_env$cache
+  cache_env$cache <- NULL
+  on.exit(cache_env$cache <- old_cache, add = TRUE)
+
+  local_mocked_bindings(
+    Sys.which = function(cmd) {
+      if (identical(cmd, "flang-new")) {
+        return(flang)
+      }
+      ""
+    },
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   withr::local_options(quickr.fortran_compiler = "auto")
 
-  expect_true(quickr:::quickr_prefer_flang(
-    sysname = "Darwin",
-    which = which,
-    system2 = function(...) ""
-  ))
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Linux", which = which))
+  build_dir <- tempfile("quickr-build-")
+  dir.create(build_dir)
+  env <- quickr:::quickr_fcompiler_env(
+    build_dir,
+    sysname = "Darwin"
+  )
+
+  expect_true(startsWith(env, "R_MAKEVARS_USER="))
+  makevars_path <- sub("^R_MAKEVARS_USER=", "", env)
+  expect_true(file.exists(makevars_path))
+  flang_lib <- file.path(
+    dirname(dirname(normalizePath(
+      flang,
+      winslash = "/",
+      mustWork = FALSE
+    ))),
+    "lib"
+  )
+  expect_equal(
+    readLines(makevars_path),
+    c(
+      sprintf("FC=%s", flang),
+      sprintf("F77=%s", flang),
+      paste(
+        "FLIBS +=",
+        sprintf("-L%s", flang_lib),
+        "-lflang_rt.runtime"
+      )
+    )
+  )
 })
 
 test_that("quickr.fortran_compiler = \"gfortran\" disables auto preference", {
-  which <- function(cmd) {
-    if (identical(cmd, "flang-new")) {
-      return("/opt/bin/flang-new")
-    }
-    ""
-  }
-
   withr::local_options(quickr.fortran_compiler = "gfortran")
 
-  expect_false(quickr:::quickr_prefer_flang(sysname = "Darwin", which = which))
+  expect_false(quickr_prefer_flang())
 })

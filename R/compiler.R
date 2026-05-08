@@ -1,20 +1,17 @@
-quickr_flang_path <- function(which = Sys.which) {
-  flang_new <- which("flang-new")
+quickr_flang_path <- function() {
+  flang_new <- Sys.which("flang-new")
   if (nzchar(flang_new)) {
     return(flang_new)
   }
-  flang <- which("flang")
+  flang <- Sys.which("flang")
   if (nzchar(flang)) {
     return(flang)
   }
   ""
 }
 
-quickr_flang_available <- function(
-  which = Sys.which,
-  system2 = base::system2
-) {
-  flang <- quickr_flang_path(which = which)
+quickr_flang_available <- function() {
+  flang <- quickr_flang_path()
   if (!nzchar(flang)) {
     return(list(path = "", available = FALSE))
   }
@@ -146,11 +143,7 @@ quickr_fortran_compiler_option <- function(
   )
 }
 
-quickr_prefer_flang <- function(
-  sysname = Sys.info()[["sysname"]],
-  which = Sys.which,
-  system2 = base::system2
-) {
+quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
   compiler_opt <- quickr_fortran_compiler_option()
   if (identical(compiler_opt, "flang")) {
     return(TRUE)
@@ -164,7 +157,7 @@ quickr_prefer_flang <- function(
 
   # Best-effort: on macOS, prefer flang if it is available.
   if (sysname == "Darwin") {
-    info <- quickr_flang_available(which = which, system2 = system2)
+    info <- quickr_flang_available()
     return(isTRUE(info$available))
   }
 
@@ -194,8 +187,6 @@ quickr_default_fortran_makevars_lines <- function(
 
 quickr_fcompiler_env <- function(
   build_dir,
-  which = Sys.which,
-  system2 = base::system2,
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
@@ -211,13 +202,9 @@ quickr_fcompiler_env <- function(
 
   flang <- ""
   flang_runtime <- character()
-  use_flang <- isTRUE(quickr_prefer_flang(
-    sysname = sysname,
-    which = which,
-    system2 = system2
-  ))
+  use_flang <- quickr_prefer_flang(sysname = sysname)
   if (use_flang) {
-    flang_info <- quickr_flang_available(which = which, system2 = system2)
+    flang_info <- quickr_flang_available()
     flang <- flang_info$path
     if (!isTRUE(flang_info$available)) {
       if (isTRUE(explicit_request)) {
