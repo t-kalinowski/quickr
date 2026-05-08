@@ -466,12 +466,19 @@ quickr_makevars_assignment <- function(line) {
 quickr_makevars_apply_assignment <- function(variables, assignment) {
   name <- assignment$name
   value <- assignment$value
+  command_line_variables <- attr(
+    variables,
+    "quickr_command_line_variables",
+    exact = TRUE
+  )
+  simple_variables <- attr(
+    variables,
+    "quickr_simple_variables",
+    exact = TRUE
+  ) %||%
+    character()
 
-  if (
-    name %in%
-      attr(variables, "quickr_command_line_variables", exact = TRUE) &&
-      !isTRUE(assignment$override)
-  ) {
+  if (name %in% command_line_variables && !isTRUE(assignment$override)) {
     return(variables)
   }
 
@@ -486,9 +493,15 @@ quickr_makevars_apply_assignment <- function(variables, assignment) {
 
   if (identical(assignment$operator, ":=")) {
     value <- quickr_expand_makevars_variables(value, variables)
+    simple_variables <- union(simple_variables, name)
+  } else if (!identical(assignment$operator, "+=")) {
+    simple_variables <- setdiff(simple_variables, name)
   }
 
   if (identical(assignment$operator, "+=")) {
+    if (name %in% simple_variables) {
+      value <- quickr_expand_makevars_variables(value, variables)
+    }
     old_value <- quickr_makevars_variable_value(name, variables)
     if (nzchar(old_value)) {
       value <- paste(old_value, value)
@@ -496,6 +509,8 @@ quickr_makevars_apply_assignment <- function(variables, assignment) {
   }
 
   variables[[name]] <- value
+  attr(variables, "quickr_command_line_variables") <- command_line_variables
+  attr(variables, "quickr_simple_variables") <- simple_variables
   variables
 }
 

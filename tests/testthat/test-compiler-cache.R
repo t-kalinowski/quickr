@@ -639,6 +639,56 @@ test_that("quickr_cached_r_cmd_config_value honors immediate Makevars assignment
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value expands appends to immediate variables", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  first_root <- file.path(root, "first")
+  append_root <- file.path(root, "append")
+  late_root <- file.path(root, "late")
+  dir.create(first_root)
+  dir.create(append_root)
+  dir.create(late_root)
+  makevars <- file.path(root, "Makevars")
+  first_toolchain <- file.path(first_root, "first.mk")
+  append_toolchain <- file.path(append_root, "second.mk")
+  late_toolchain <- file.path(late_root, "second.mk")
+  writeLines(
+    c(
+      paste("ROOT =", first_root),
+      "INCLUDES := $(ROOT)/first.mk",
+      paste("ROOT =", append_root),
+      "INCLUDES += $(ROOT)/second.mk",
+      paste("ROOT =", late_root),
+      "include $(INCLUDES)"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", first_toolchain)
+  writeLines("FLIBS=-lappend", append_toolchain)
+  writeLines("FLIBS=-llate", late_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FLIBS=-lflang", append_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on wildcard Makevars includes", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
