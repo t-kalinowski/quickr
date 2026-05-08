@@ -512,6 +512,41 @@ test_that("quickr_cached_r_cmd_config_value honors immediate Makevars assignment
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on wildcard Makevars includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  snippets <- file.path(root, "snippets")
+  dir.create(snippets)
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(snippets, "toolchain.mk")
+  writeLines(
+    paste0("include $(wildcard ", file.path(snippets, "*.mk"), ")"),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on R_PLATFORM Makevars", {
   cache <- new.env(parent = emptyenv())
   home <- withr::local_tempdir()

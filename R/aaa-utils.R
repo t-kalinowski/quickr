@@ -282,6 +282,7 @@ quickr_makevars_include_paths_from_line <- function(
   }
 
   spec <- quickr_expand_makevars_variables(parts[[3]], variables)
+  spec <- quickr_expand_makevars_wildcard_functions(spec)
   paths <- strsplit(trimws(spec), "[[:space:]]+")[[1]]
   paths <- paths[nzchar(paths)]
   paths <- unlist(
@@ -314,6 +315,52 @@ quickr_expand_makevars_variables <- function(text, variables) {
   }
 
   text
+}
+
+quickr_expand_makevars_wildcard_functions <- function(text) {
+  for (i in seq_len(20L)) {
+    match <- regexpr(
+      "\\$\\(wildcard[[:space:]]+([^()]*)\\)|\\$\\{wildcard[[:space:]]+([^{}]*)\\}",
+      text,
+      perl = TRUE
+    )
+    if (match[[1]] == -1L) {
+      break
+    }
+
+    token <- regmatches(text, match)
+    spec <- sub(
+      "^\\$\\(wildcard[[:space:]]+([^()]*)\\)$",
+      "\\1",
+      token,
+      perl = TRUE
+    )
+    if (identical(spec, token)) {
+      spec <- sub(
+        "^\\$\\{wildcard[[:space:]]+([^{}]*)\\}$",
+        "\\1",
+        token,
+        perl = TRUE
+      )
+    }
+    regmatches(text, match) <- quickr_makevars_wildcard_value(spec)
+  }
+
+  text
+}
+
+quickr_makevars_wildcard_value <- function(spec) {
+  paths <- strsplit(trimws(spec), "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  matches <- unlist(lapply(paths, Sys.glob), use.names = FALSE)
+  if (!length(matches)) {
+    return("")
+  }
+
+  paste(
+    normalizePath(matches, winslash = "/", mustWork = FALSE),
+    collapse = " "
+  )
 }
 
 quickr_makevars_variable_value <- function(name, variables) {
