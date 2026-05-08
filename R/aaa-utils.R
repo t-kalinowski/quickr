@@ -57,7 +57,7 @@ quickr_r_cmd <- function(
 quickr_compiler_probe_cache <- new.env(parent = emptyenv())
 
 quickr_default_makevars_names <- function(
-  platform = R.version$platform
+  platform = Sys.getenv("R_PLATFORM", unset = R.version$platform)
 ) {
   unique(c(
     paste0("Makevars-", platform),
@@ -245,7 +245,12 @@ quickr_makevars_apply_assignment <- function(variables, assignment) {
   name <- assignment$name
   value <- assignment$value
 
-  if (identical(assignment$operator, "?=") && name %in% names(variables)) {
+  if (
+    identical(assignment$operator, "?=") &&
+      (name %in%
+        names(variables) ||
+        !is.na(Sys.getenv(name, unset = NA_character_)))
+  ) {
     return(variables)
   }
 
@@ -433,6 +438,7 @@ quickr_toolchain_env_signature <- function() {
     "HOME",
     "R_USER",
     "R_ARCH",
+    "R_PLATFORM",
     "CC",
     "CXX",
     "FC",
