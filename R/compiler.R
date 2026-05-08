@@ -143,7 +143,7 @@ quickr_fortran_compiler_option <- function(
   )
 }
 
-quickr_prefer_flang <- function() {
+quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
   compiler_opt <- quickr_fortran_compiler_option()
   if (identical(compiler_opt, "flang")) {
     return(TRUE)
@@ -156,7 +156,7 @@ quickr_prefer_flang <- function() {
   }
 
   # Best-effort: on macOS, prefer flang if it is available.
-  if (Sys.info()[["sysname"]] == "Darwin") {
+  if (sysname == "Darwin") {
     info <- quickr_flang_available()
     return(isTRUE(info$available))
   }
@@ -202,7 +202,7 @@ quickr_fcompiler_env <- function(
 
   flang <- ""
   flang_runtime <- character()
-  use_flang <- quickr_prefer_flang()
+  use_flang <- quickr_prefer_flang(sysname = sysname)
   if (use_flang) {
     flang_info <- quickr_flang_available()
     flang <- flang_info$path
