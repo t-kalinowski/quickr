@@ -375,7 +375,7 @@ quickr_join_makevars_continuations <- function(lines) {
 
 quickr_makevars_assignment <- function(line) {
   match <- regexec(
-    "^([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*([:?+]?=)[[:space:]]*(.*)$",
+    "^(?:(?:export|override|private)[[:space:]]+)*([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*([:?+]?=)[[:space:]]*(.*)$",
     line,
     perl = TRUE
   )
@@ -591,6 +591,25 @@ quickr_makevars_env_signature <- function() {
   paste(paste(names(values), values, sep = "="), collapse = "\r")
 }
 
+quickr_makevars_has_shell_functions <- function() {
+  paths <- quickr_active_makevars_all_paths()
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return(FALSE)
+  }
+
+  any(vapply(paths, quickr_file_has_makevars_shell_function, logical(1)))
+}
+
+quickr_file_has_makevars_shell_function <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  any(grepl(
+    "\\$\\(shell[[:space:]]|\\$\\{shell[[:space:]]",
+    lines,
+    perl = TRUE
+  ))
+}
+
 quickr_makevars_variable_refs <- function(path) {
   lines <- readLines(path, warn = FALSE)
   lines <- quickr_join_makevars_continuations(lines)
@@ -674,6 +693,10 @@ quickr_cached_r_cmd_config_value <- function(
   cache = quickr_compiler_probe_cache
 ) {
   stopifnot(is_string(name), is.environment(cache))
+
+  if (quickr_makevars_has_shell_functions()) {
+    return(quickr_r_cmd_config_probe(name)$value)
+  }
 
   cache_key <- quickr_r_cmd_config_cache_key(name)
   cached <- get0(cache_key, envir = cache, inherits = FALSE, ifnotfound = NULL)

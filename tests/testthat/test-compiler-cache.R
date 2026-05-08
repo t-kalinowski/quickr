@@ -732,6 +732,74 @@ test_that("quickr_cached_r_cmd_config_value respects quoted Makevars conditional
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value retries Makevars with shell functions", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC = $(shell cat", compiler_file, ")"), makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value parses prefixed Makevars assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  dir.create(active_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("export ROOT =", active_root),
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
   cache <- new.env(parent = emptyenv())
   home_a <- withr::local_tempdir()
