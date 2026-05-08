@@ -56,10 +56,57 @@ quickr_r_cmd <- function(
 
 quickr_compiler_probe_cache <- new.env(parent = emptyenv())
 
+quickr_makevars_paths <- function() {
+  user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
+  user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
+    user_makevars
+  } else {
+    user_root <- Sys.getenv("R_USER", unset = "")
+    if (!nzchar(user_root)) {
+      user_root <- Sys.getenv("HOME", unset = "")
+    }
+    if (nzchar(user_root)) {
+      file.path(user_root, ".R", c("Makevars", "Makevars.win"))
+    } else {
+      character()
+    }
+  }
+
+  site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
+  site_paths <- if (!is.na(site_makevars) && nzchar(site_makevars)) {
+    site_makevars
+  } else {
+    character()
+  }
+
+  unique(c(user_paths, site_paths))
+}
+
+quickr_file_signature <- function(path) {
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (!file.exists(path)) {
+    return(paste(path, "<missing>", sep = "="))
+  }
+
+  info <- file.info(path)
+  hash <- unname(tools::md5sum(path))
+  paste(path, info$size, info$mtime, hash, sep = "=")
+}
+
+quickr_makevars_signature <- function() {
+  paths <- quickr_makevars_paths()
+  if (!length(paths)) {
+    return("")
+  }
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
 quickr_toolchain_env_signature <- function() {
   vars <- c(
     "PATH",
     "BINPREF",
+    "HOME",
+    "R_USER",
     "CC",
     "CXX",
     "FC",
@@ -75,7 +122,13 @@ quickr_toolchain_env_signature <- function() {
     "R_MAKEVARS_USER"
   )
   env <- Sys.getenv(vars, unset = NA_character_)
-  paste(names(env), env, sep = "=", collapse = "\r")
+  paste(
+    c(
+      paste(names(env), env, sep = "="),
+      paste("MAKEVARS", quickr_makevars_signature(), sep = "=")
+    ),
+    collapse = "\r"
+  )
 }
 
 quickr_r_cmd_config_cache_key <- function(name) {

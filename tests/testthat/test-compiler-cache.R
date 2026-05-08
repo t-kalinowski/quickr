@@ -84,6 +84,72 @@ test_that("quickr_cached_r_cmd_config_value keys on toolchain env", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on explicit Makevars content", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
+  cache <- new.env(parent = emptyenv())
+  home_a <- withr::local_tempdir()
+  home_b <- withr::local_tempdir()
+  dir.create(file.path(home_a, ".R"))
+  dir.create(file.path(home_b, ".R"))
+  writeLines("FC=gfortran", file.path(home_a, ".R", "Makevars"))
+  writeLines("FC=flang", file.path(home_b, ".R", "Makevars"))
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home_a,
+    R_USER = NA,
+    R_MAKEVARS_USER = NA
+  ))
+
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(HOME = home_b)
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_flang_available reuses successful probes", {
   cache <- new.env(parent = emptyenv())
   calls <- 0L
