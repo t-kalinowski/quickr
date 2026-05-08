@@ -57,16 +57,19 @@ quickr_r_cmd <- function(
 quickr_compiler_probe_cache <- new.env(parent = emptyenv())
 
 quickr_default_makevars_names <- function(
-  platform = Sys.getenv("R_PLATFORM", unset = R.version$platform)
+  platform = Sys.getenv("R_PLATFORM", unset = R.version$platform),
+  os_type = Sys.getenv("R_OSTYPE", unset = .Platform$OS.type)
 ) {
-  unique(c(
-    paste0("Makevars-", platform),
-    "Makevars.ucrt",
-    "Makevars.win64",
-    "Makevars.win32",
-    "Makevars.win",
-    "Makevars"
-  ))
+  if (identical(os_type, "windows")) {
+    return(c(
+      "Makevars.ucrt",
+      "Makevars.win64",
+      "Makevars.win",
+      "Makevars"
+    ))
+  }
+
+  c(paste0("Makevars-", platform), "Makevars")
 }
 
 quickr_r_etc_path <- function(
@@ -91,20 +94,12 @@ quickr_regular_file_exists <- function(path) {
 }
 
 quickr_default_user_makevars_paths <- function() {
-  user_roots <- unique(c(
-    Sys.getenv("HOME", unset = ""),
-    Sys.getenv("R_USER", unset = "")
-  ))
-  user_roots <- user_roots[nzchar(user_roots)]
-  if (!length(user_roots)) {
+  home <- Sys.getenv("HOME", unset = "")
+  if (!nzchar(home)) {
     return(character())
   }
 
-  as.vector(outer(
-    user_roots,
-    file.path(".R", quickr_default_makevars_names()),
-    file.path
-  ))
+  file.path(home, ".R", quickr_default_makevars_names())
 }
 
 quickr_makevars_paths <- function() {
@@ -127,6 +122,42 @@ quickr_makevars_paths <- function() {
   }
 
   unique(c(site_paths, user_paths))
+}
+
+quickr_first_existing_file <- function(paths) {
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return(character())
+  }
+
+  paths[[1]]
+}
+
+quickr_active_makevars_paths <- function() {
+  site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
+  site_path <- if (!is.na(site_makevars) && nzchar(site_makevars)) {
+    site_makevars
+  } else {
+    quickr_default_site_makevars_path()
+  }
+  site_path <- if (quickr_regular_file_exists(site_path)) {
+    site_path
+  } else {
+    character()
+  }
+
+  user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
+  user_path <- if (
+    !is.na(user_makevars) &&
+      nzchar(user_makevars) &&
+      quickr_regular_file_exists(user_makevars)
+  ) {
+    user_makevars
+  } else {
+    quickr_first_existing_file(quickr_default_user_makevars_paths())
+  }
+
+  unique(c(site_path, user_path))
 }
 
 quickr_file_signature <- function(path) {
@@ -401,6 +432,16 @@ quickr_expand_makevars_include_globs <- function(paths) {
 
 quickr_makevars_all_paths <- function() {
   paths <- quickr_makevars_paths()
+  active_paths <- quickr_active_makevars_paths()
+  if (!length(paths) && !length(active_paths)) {
+    return(character())
+  }
+
+  unique(c(paths, quickr_makevars_include_paths(active_paths)))
+}
+
+quickr_active_makevars_all_paths <- function() {
+  paths <- quickr_active_makevars_paths()
   if (!length(paths)) {
     return(character())
   }
@@ -417,7 +458,7 @@ quickr_makevars_signature <- function() {
 }
 
 quickr_makevars_env_signature <- function() {
-  paths <- quickr_makevars_all_paths()
+  paths <- quickr_active_makevars_all_paths()
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
     return("")
