@@ -323,6 +323,55 @@ test_that("quickr_cached_r_cmd_config_value applies site variables before user i
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value treats empty site Makevars as suppressed", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  ignored_root <- file.path(root, "ignored")
+  dir.create(active_root)
+  dir.create(ignored_root)
+  site_makevars <- file.path(root, "Makevars.site")
+  user_makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(paste("DIR =", ignored_root), site_makevars)
+  writeLines("include $(DIR)/toolchain.mk", user_makevars)
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_default_site_makevars_path = function() site_makevars,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    DIR = active_root,
+    R_MAKEVARS_SITE = "",
+    R_MAKEVARS_USER = user_makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=still-ignored", ignored_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value respects env-defined conditional Makevars variables", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
@@ -1456,6 +1505,45 @@ test_that("quickr_cached_r_cmd_config_value preserves command-line VAR", {
     "value-2"
   )
   expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value preserves command-line R_HOME", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  ignored_root <- file.path(root, "ignored-r-home")
+  ignored_etc <- file.path(ignored_root, "etc")
+  dir.create(ignored_etc, recursive = TRUE)
+  makevars <- file.path(root, "Makevars")
+  ignored_toolchain <- file.path(ignored_etc, "toolchain.mk")
+  writeLines(
+    c(
+      paste("R_HOME =", ignored_root),
+      "include $(R_HOME)/etc/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=still-ignored", ignored_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_equal(calls, 1L)
 })
 
 test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with MAKEFILES", {

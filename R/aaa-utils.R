@@ -115,10 +115,12 @@ quickr_makevars_paths <- function() {
   }
 
   site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
-  site_paths <- if (!is.na(site_makevars) && nzchar(site_makevars)) {
+  site_paths <- if (is.na(site_makevars)) {
+    quickr_default_site_makevars_path()
+  } else if (nzchar(site_makevars)) {
     site_makevars
   } else {
-    quickr_default_site_makevars_path()
+    character()
   }
 
   unique(c(site_paths, user_paths))
@@ -135,12 +137,14 @@ quickr_first_existing_file <- function(paths) {
 
 quickr_active_makevars_paths <- function() {
   site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
-  site_path <- if (!is.na(site_makevars) && nzchar(site_makevars)) {
+  site_path <- if (is.na(site_makevars)) {
+    quickr_default_site_makevars_path()
+  } else if (nzchar(site_makevars)) {
     site_makevars
   } else {
-    quickr_default_site_makevars_path()
+    character()
   }
-  site_path <- if (quickr_regular_file_exists(site_path)) {
+  site_path <- if (length(site_path) && quickr_regular_file_exists(site_path)) {
     site_path
   } else {
     character()
@@ -172,12 +176,14 @@ quickr_file_signature <- function(path) {
 }
 
 quickr_makevars_seed_variables <- function(config_name = "") {
-  if (!nzchar(config_name)) {
-    return(character())
+  variables <- c(R_HOME = R.home())
+  command_line_variables <- "R_HOME"
+  if (nzchar(config_name)) {
+    variables <- c(variables, VAR = config_name)
+    command_line_variables <- c(command_line_variables, "VAR")
   }
 
-  variables <- c(VAR = config_name)
-  attr(variables, "quickr_command_line_variables") <- "VAR"
+  attr(variables, "quickr_command_line_variables") <- command_line_variables
   variables
 }
 
