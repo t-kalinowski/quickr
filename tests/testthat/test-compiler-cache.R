@@ -1057,6 +1057,73 @@ test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with Makeconf", 
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with requested VAR", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "fc.mk")
+  writeLines(
+    c(
+      "ifeq ($(VAR),FC)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makeconf includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  nested <- file.path(root, "toolchain.mk")
+  writeLines(paste("include", nested), makeconf)
+  writeLines("FC=gfortran", nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with MAKEFILES", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()

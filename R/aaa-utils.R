@@ -171,8 +171,16 @@ quickr_file_signature <- function(path) {
   paste(path, info$size, info$mtime, hash, sep = "=")
 }
 
-quickr_makeconf_variables <- function() {
-  variables <- character()
+quickr_makevars_seed_variables <- function(config_name = "") {
+  if (!nzchar(config_name)) {
+    return(character())
+  }
+
+  c(VAR = config_name)
+}
+
+quickr_makeconf_variables <- function(config_name = "") {
+  variables <- quickr_makevars_seed_variables(config_name)
   makefiles <- quickr_makefiles_paths()
   if (length(makefiles)) {
     scan <- quickr_makevars_scan_include_paths(
@@ -196,10 +204,10 @@ quickr_makeconf_variables <- function() {
   scan$variables
 }
 
-quickr_makevars_include_paths <- function(paths) {
+quickr_makevars_include_paths <- function(paths, config_name = "") {
   scan <- quickr_makevars_scan_include_paths(
     normalizePath(paths, winslash = "/", mustWork = FALSE),
-    variables = quickr_makeconf_variables(),
+    variables = quickr_makeconf_variables(config_name),
     visited = character()
   )
   scan$paths
@@ -570,37 +578,37 @@ quickr_expand_makevars_include_globs <- function(paths) {
   normalizePath(out, winslash = "/", mustWork = FALSE)
 }
 
-quickr_makevars_all_paths <- function() {
+quickr_makevars_all_paths <- function(config_name = "") {
   paths <- quickr_makevars_paths()
   active_paths <- quickr_active_makevars_paths()
   if (!length(paths) && !length(active_paths)) {
     return(character())
   }
 
-  unique(c(paths, quickr_makevars_include_paths(active_paths)))
+  unique(c(paths, quickr_makevars_include_paths(active_paths, config_name)))
 }
 
-quickr_active_makevars_all_paths <- function() {
+quickr_active_makevars_all_paths <- function(config_name = "") {
   paths <- quickr_active_makevars_paths()
   if (!length(paths)) {
     return(character())
   }
 
-  unique(c(paths, quickr_makevars_include_paths(paths)))
+  unique(c(paths, quickr_makevars_include_paths(paths, config_name)))
 }
 
-quickr_makevars_signature <- function() {
-  paths <- quickr_makevars_all_paths()
+quickr_makevars_signature <- function(config_name = "") {
+  paths <- quickr_makevars_all_paths(config_name)
   if (!length(paths)) {
     return("")
   }
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
-quickr_makevars_env_signature <- function() {
+quickr_makevars_env_signature <- function(config_name = "") {
   paths <- unique(c(
-    quickr_active_makevars_all_paths(),
-    quickr_makefiles_all_paths()
+    quickr_active_makevars_all_paths(config_name),
+    quickr_makefiles_all_paths(config_name)
   ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
@@ -619,10 +627,10 @@ quickr_makevars_env_signature <- function() {
   paste(paste(names(values), values, sep = "="), collapse = "\r")
 }
 
-quickr_makevars_has_uncached_functions <- function() {
+quickr_makevars_has_uncached_functions <- function(config_name = "") {
   paths <- unique(c(
-    quickr_active_makevars_all_paths(),
-    quickr_makefiles_all_paths()
+    quickr_active_makevars_all_paths(config_name),
+    quickr_makefiles_all_paths(config_name)
   ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
@@ -704,8 +712,35 @@ quickr_makevars_env_value <- function(name) {
   Sys.getenv(name, unset = "")
 }
 
-quickr_makeconf_signature <- function() {
-  quickr_file_signature(quickr_makeconf_path())
+quickr_makeconf_paths <- function(config_name = "") {
+  path <- quickr_makeconf_path()
+  if (!quickr_regular_file_exists(path)) {
+    return(normalizePath(path, winslash = "/", mustWork = FALSE))
+  }
+
+  variables <- quickr_makevars_seed_variables(config_name)
+  makefiles <- quickr_makefiles_paths()
+  if (length(makefiles)) {
+    scan <- quickr_makevars_scan_include_paths(
+      makefiles,
+      variables = variables,
+      visited = character()
+    )
+    variables <- scan$variables
+  }
+
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  scan <- quickr_makevars_scan_include_paths(
+    path,
+    variables = variables,
+    visited = character()
+  )
+  unique(c(path, scan$paths))
+}
+
+quickr_makeconf_signature <- function(config_name = "") {
+  paths <- quickr_makeconf_paths(config_name)
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
 quickr_makefiles_paths <- function() {
@@ -719,17 +754,22 @@ quickr_makefiles_paths <- function() {
   normalizePath(path.expand(paths), winslash = "/", mustWork = FALSE)
 }
 
-quickr_makefiles_all_paths <- function() {
+quickr_makefiles_all_paths <- function(config_name = "") {
   paths <- quickr_makefiles_paths()
   if (!length(paths)) {
     return(character())
   }
 
-  unique(c(paths, quickr_makevars_include_paths(paths)))
+  scan <- quickr_makevars_scan_include_paths(
+    paths,
+    variables = quickr_makevars_seed_variables(config_name),
+    visited = character()
+  )
+  unique(c(paths, scan$paths))
 }
 
-quickr_makefiles_signature <- function() {
-  paths <- quickr_makefiles_all_paths()
+quickr_makefiles_signature <- function(config_name = "") {
+  paths <- quickr_makefiles_all_paths(config_name)
   if (!length(paths)) {
     return("")
   }
@@ -737,7 +777,7 @@ quickr_makefiles_signature <- function() {
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
-quickr_toolchain_env_signature <- function() {
+quickr_toolchain_env_signature <- function(config_name = "") {
   vars <- c(
     "PATH",
     "BINPREF",
@@ -764,17 +804,25 @@ quickr_toolchain_env_signature <- function() {
   paste(
     c(
       paste(names(env), env, sep = "="),
-      paste("MAKEVARS", quickr_makevars_signature(), sep = "="),
-      paste("MAKEVARS_ENV", quickr_makevars_env_signature(), sep = "="),
-      paste("MAKEFILES_FILES", quickr_makefiles_signature(), sep = "="),
-      paste("MAKECONF", quickr_makeconf_signature(), sep = "=")
+      paste("MAKEVARS", quickr_makevars_signature(config_name), sep = "="),
+      paste(
+        "MAKEVARS_ENV",
+        quickr_makevars_env_signature(config_name),
+        sep = "="
+      ),
+      paste(
+        "MAKEFILES_FILES",
+        quickr_makefiles_signature(config_name),
+        sep = "="
+      ),
+      paste("MAKECONF", quickr_makeconf_signature(config_name), sep = "=")
     ),
     collapse = "\r"
   )
 }
 
 quickr_r_cmd_config_cache_key <- function(name) {
-  paste("r_cmd_config", name, quickr_toolchain_env_signature(), sep = "\r")
+  paste("r_cmd_config", name, quickr_toolchain_env_signature(name), sep = "\r")
 }
 
 quickr_cached_r_cmd_config_value <- function(
@@ -783,7 +831,7 @@ quickr_cached_r_cmd_config_value <- function(
 ) {
   stopifnot(is_string(name), is.environment(cache))
 
-  if (quickr_makevars_has_uncached_functions()) {
+  if (quickr_makevars_has_uncached_functions(name)) {
     return(quickr_r_cmd_config_probe(name)$value)
   }
 
