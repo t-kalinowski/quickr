@@ -399,7 +399,8 @@ quickr_makevars_condition_result <- function(line, variables) {
   )
   parts <- regmatches(line, match)[[1]]
   if (length(parts) == 3L) {
-    value <- quickr_makevars_variable_value(trimws(parts[[3]]), variables)
+    name <- quickr_makevars_condition_value(parts[[3]], variables)
+    value <- quickr_makevars_variable_value(name, variables)
     defined <- nzchar(value)
     return(if (identical(parts[[2]], "ifdef")) defined else !defined)
   }
@@ -481,8 +482,11 @@ quickr_makevars_apply_assignment <- function(variables, assignment) {
     value <- quickr_expand_makevars_variables(value, variables)
   }
 
-  if (identical(assignment$operator, "+=") && name %in% names(variables)) {
-    value <- paste(variables[[name]], value)
+  if (identical(assignment$operator, "+=")) {
+    old_value <- quickr_makevars_variable_value(name, variables)
+    if (nzchar(old_value)) {
+      value <- paste(old_value, value)
+    }
   }
 
   variables[[name]] <- value
