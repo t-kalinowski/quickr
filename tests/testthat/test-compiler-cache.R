@@ -37,13 +37,17 @@ test_that("quickr_cached_flang_available retries failed probes", {
     "flang version"
   }
 
-  local_mocked_bindings(system2 = system2_stub, .package = "base")
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = system2_stub,
+    .package = "base"
+  )
 
-  result <- quickr_cached_flang_available(which = which_stub, cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_false(result$available)
 
-  result <- quickr_cached_flang_available(which = which_stub, cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_true(result$available)
   expect_equal(calls, 2L)
@@ -61,13 +65,17 @@ test_that("quickr_cached_flang_available revalidates successful probes", {
     structure("error", status = 1L)
   }
 
-  local_mocked_bindings(system2 = system2_stub, .package = "base")
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = system2_stub,
+    .package = "base"
+  )
 
-  result <- quickr_cached_flang_available(which = which_stub, cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_true(result$available)
 
-  result <- quickr_cached_flang_available(which = which_stub, cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_false(result$available)
   expect_equal(calls, 2L)
