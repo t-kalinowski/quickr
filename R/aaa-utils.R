@@ -172,14 +172,25 @@ quickr_file_signature <- function(path) {
 }
 
 quickr_makeconf_variables <- function() {
+  variables <- character()
+  makefiles <- quickr_makefiles_paths()
+  if (length(makefiles)) {
+    scan <- quickr_makevars_scan_include_paths(
+      makefiles,
+      variables = variables,
+      visited = character()
+    )
+    variables <- scan$variables
+  }
+
   path <- quickr_makeconf_path()
   if (!quickr_regular_file_exists(path)) {
-    return(character())
+    return(variables)
   }
 
   scan <- quickr_makevars_scan_include_paths(
     normalizePath(path, winslash = "/", mustWork = FALSE),
-    variables = character(),
+    variables = variables,
     visited = character()
   )
   scan$variables
@@ -617,8 +628,10 @@ quickr_makevars_has_uncached_functions <- function() {
 
 quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
+  function_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]"
+  substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
   any(grepl(
-    "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]",
+    paste(function_pattern, substitution_pattern, sep = "|"),
     lines,
     perl = TRUE
   ))
