@@ -349,9 +349,14 @@ quickr_windows_add_dll_paths <- function(
   dirs <- vapply(dirs, config_path, character(1))
   dirs <- dirs[nzchar(dirs)]
 
+  arch_lib_dirs <- dirs[
+    tolower(basename(dirs)) %in%
+      c("x64", "i386") &
+      tolower(basename(dirname(dirs))) == "lib"
+  ]
   bin_siblings <- c(
     file.path(dirs, "..", "bin"),
-    file.path(dirs, "..", "..", "bin")
+    file.path(arch_lib_dirs, "..", "..", "bin")
   )
 
   config_binpref <- config_path(config_value("BINPREF"))

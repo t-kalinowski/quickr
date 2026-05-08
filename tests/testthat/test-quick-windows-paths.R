@@ -126,6 +126,48 @@ test_that("quickr_windows_add_dll_paths adds bin next to arch lib dirs", {
   expect_true(bin_dir_norm %in% path_norm)
 })
 
+test_that("quickr_windows_add_dll_paths skips unrelated grandparent bin dirs", {
+  temp <- withr::local_tempdir()
+  lib_dir <- file.path(temp, "vendor", "lib")
+  grandparent_bin <- file.path(temp, "bin")
+  dir.create(lib_dir, recursive = TRUE)
+  dir.create(grandparent_bin, recursive = TRUE)
+
+  withr::local_envvar(c(
+    PATH = temp,
+    RTOOLS45_HOME = "",
+    RTOOLS44_HOME = "",
+    RTOOLS43_HOME = "",
+    RTOOLS42_HOME = "",
+    RTOOLS40_HOME = "",
+    RTOOLS_HOME = ""
+  ))
+
+  res <- quickr_windows_add_dll_paths(
+    flags = c(paste0("-L", lib_dir)),
+    os_type = "windows",
+    config_value = function(...) "",
+    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+  )
+
+  grandparent_bin_norm <- tolower(normalizePath(
+    grandparent_bin,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+  res_norm <- tolower(normalizePath(res, winslash = "\\", mustWork = FALSE))
+  path_entries <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1L]]
+  path_entries <- path_entries[nzchar(path_entries)]
+  path_norm <- tolower(normalizePath(
+    path_entries,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+
+  expect_false(grandparent_bin_norm %in% res_norm)
+  expect_false(grandparent_bin_norm %in% path_norm)
+})
+
 test_that("quickr_windows_add_dll_paths adds usr/bin from Rtools link dirs", {
   temp <- withr::local_tempdir()
   lib_arch_dir <- file.path(
