@@ -50,7 +50,7 @@ test_that("quickr_r_cmd_config_value returns empty on command failure", {
 })
 
 test_that("quickr_flang_path prefers flang-new", {
-  which <- function(x) {
+  which_stub <- function(x) {
     if (x == "flang-new") {
       "/tmp/flang-new"
     } else if (x == "flang") {
@@ -60,7 +60,19 @@ test_that("quickr_flang_path prefers flang-new", {
     }
   }
 
-  expect_identical(quickr_flang_path(which = which), "/tmp/flang-new")
+  local_mocked_bindings(Sys.which = which_stub, .package = "base")
+
+  expect_identical(quickr_flang_path(), "/tmp/flang-new")
+})
+
+test_that("flang probe helpers do not expose test-only process hooks", {
+  expect_false("which" %in% names(formals(quickr_flang_path)))
+  expect_false("which" %in% names(formals(quickr_flang_available)))
+  expect_false("system2" %in% names(formals(quickr_flang_available)))
+  expect_false("which" %in% names(formals(quickr_cached_flang_available)))
+  expect_false("system2" %in% names(formals(quickr_cached_flang_available)))
+  expect_false("which" %in% names(formals(quickr:::quickr_fcompiler_env)))
+  expect_false("system2" %in% names(formals(quickr:::quickr_fcompiler_env)))
 })
 
 test_that("quickr_prefer_flang respects quickr.fortran_compiler", {
@@ -128,8 +140,6 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   file.create(flang)
   file.create(file.path(prefix, "lib", "libflang_rt.runtime.dylib"))
 
-  which <- function(x) if (x == "flang-new") flang else ""
-
   cache_env <- environment(quickr:::quickr_flang_runtime_flags)
   old_cache <- cache_env$cache
   cache_env$cache <- NULL
@@ -138,11 +148,15 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
   build_dir <- file.path(temp, "build")
   dir.create(build_dir)
 
+  local_mocked_bindings(
+    Sys.which = function(x) if (x == "flang-new") flang else "",
+    system2 = function(...) "",
+    .package = "base"
+  )
+
   withr::local_options(quickr.fortran_compiler = "flang")
   env <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    which = which,
-    system2 = function(...) "",
     sysname = "Darwin"
   )
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
@@ -155,8 +169,6 @@ test_that("quickr_fcompiler_env writes Makevars for default gfortran flags", {
   withr::local_options(quickr.fortran_compiler = "gfortran")
   env <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    which = function(cmd) "",
-    system2 = function(...) "",
     sysname = "Linux",
     config_value = function(name) {
       if (identical(name, "FC")) "gfortran -m64" else ""
@@ -174,12 +186,12 @@ test_that("quickr_fcompiler_env writes Makevars for default gfortran flags", {
 test_that("quickr_fcompiler_env errors when flang is explicitly requested but unavailable", {
   build_dir <- withr::local_tempdir()
 
+  local_mocked_bindings(Sys.which = function(cmd) "", .package = "base")
+
   withr::local_options(quickr.fortran_compiler = "flang")
   expect_error(
     quickr:::quickr_fcompiler_env(
-      build_dir = build_dir,
-      which = function(cmd) "",
-      system2 = function(...) structure("", status = 1L)
+      build_dir = build_dir
     ),
     "configured to use flang",
     fixed = TRUE
@@ -190,10 +202,12 @@ test_that("quickr_flang_available returns unavailable when system2 fails", {
   which_stub <- function(x) if (x == "flang-new") "/tmp/flang-new" else ""
   system2_fail <- function(...) structure("error", status = 1L)
 
-  result <- quickr:::quickr_flang_available(
-    which = which_stub,
-    system2 = system2_fail
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = system2_fail,
+    .package = "base"
   )
+  result <- quickr:::quickr_flang_available()
   expect_identical(result$path, "/tmp/flang-new")
   expect_false(result$available)
 })
@@ -316,7 +330,7 @@ test_that("quickr_fcompiler_env handles flang unavailable for non-explicit reque
   # Mock flang as preferred but unavailable
   local_mocked_bindings(
     quickr_prefer_flang = function(...) TRUE,
-    quickr_flang_available = function(...) {
+    quickr_cached_flang_available = function(...) {
       list(path = "/tmp/flang", available = FALSE)
     },
     .package = "quickr"
@@ -325,8 +339,6 @@ test_that("quickr_fcompiler_env handles flang unavailable for non-explicit reque
   # Should return character() since not explicit and flang unavailable
   result <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    which = function(x) "",
-    system2 = function(...) "",
     sysname = "Darwin",
     config_value = function(name) if (identical(name, "FC")) "clang" else ""
   )
@@ -349,12 +361,15 @@ test_that("quickr_fcompiler_env errors when flang runtime not found on Darwin ex
   dir.create(build_dir)
 
   withr::local_options(quickr.fortran_compiler = "flang")
+  local_mocked_bindings(
+    Sys.which = function(x) if (x == "flang-new") flang else "",
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   expect_error(
     quickr:::quickr_fcompiler_env(
       build_dir = build_dir,
-      which = function(x) if (x == "flang-new") flang else "",
-      system2 = function(...) "",
       sysname = "Darwin"
     ),
     "could not locate the flang runtime library"
@@ -378,11 +393,16 @@ test_that("quickr_fcompiler_env falls back when flang runtime not found non-expl
   dir.create(build_dir)
 
   withr::local_options(quickr.fortran_compiler = "auto")
+  local_mocked_bindings(
+    quickr_prefer_flang = function(...) TRUE,
+    quickr_cached_flang_available = function(...) {
+      list(path = flang, available = TRUE)
+    },
+    .package = "quickr"
+  )
 
   result <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    which = function(x) if (x == "flang-new") flang else "",
-    system2 = function(...) "",
     sysname = "Darwin",
     config_value = function(name) if (identical(name, "FC")) "clang" else ""
   )

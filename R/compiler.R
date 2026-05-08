@@ -1,28 +1,22 @@
-quickr_flang_path <- function(which = Sys.which) {
-  flang_new <- which("flang-new")
+quickr_flang_path <- function() {
+  flang_new <- Sys.which("flang-new")
   if (nzchar(flang_new)) {
     return(flang_new)
   }
-  flang <- which("flang")
+  flang <- Sys.which("flang")
   if (nzchar(flang)) {
     return(flang)
   }
   ""
 }
 
-quickr_flang_available <- function(
-  which = Sys.which,
-  system2 = base::system2
-) {
-  flang <- quickr_flang_path(which = which)
-  quickr_flang_available_at_path(flang, system2 = system2)
+quickr_flang_available <- function() {
+  flang <- quickr_flang_path()
+  quickr_flang_available_at_path(flang)
 }
 
-quickr_flang_available_at_path <- function(
-  flang,
-  system2 = base::system2
-) {
-  stopifnot(is_string(flang), is.function(system2))
+quickr_flang_available_at_path <- function(flang) {
+  stopifnot(is_string(flang))
 
   if (!nzchar(flang)) {
     return(list(path = "", available = FALSE))
@@ -38,17 +32,11 @@ quickr_flang_available_at_path <- function(
 }
 
 quickr_cached_flang_available <- function(
-  which = Sys.which,
-  system2 = base::system2,
   cache = quickr_compiler_probe_cache
 ) {
-  stopifnot(is.function(which), is.function(system2), is.environment(cache))
+  stopifnot(is.environment(cache))
 
-  flang <- quickr_flang_path(which = which)
-  if (!identical(system2, base::system2)) {
-    return(quickr_flang_available_at_path(flang, system2 = system2))
-  }
-
+  flang <- quickr_flang_path()
   cache_key <- paste("flang_available", flang, sep = "\r")
   cached <- get0(cache_key, envir = cache, inherits = FALSE, ifnotfound = NULL)
   if (!is.null(cached)) {
@@ -229,8 +217,6 @@ quickr_default_fortran_makevars_lines <- function(
 
 quickr_fcompiler_env <- function(
   build_dir,
-  which = Sys.which,
-  system2 = base::system2,
   write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
@@ -239,7 +225,6 @@ quickr_fcompiler_env <- function(
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
-  default_probes <- missing(which) && missing(system2)
   use_openmp <- isTRUE(use_openmp)
   link_flags <- link_flags[nzchar(link_flags)]
   compiler_opt <- quickr_fortran_compiler_option()
@@ -247,23 +232,9 @@ quickr_fcompiler_env <- function(
 
   flang <- ""
   flang_runtime <- character()
-  flang_info <- NULL
   use_flang <- quickr_prefer_flang()
-  if (!default_probes && !explicit_request && is.null(compiler_opt)) {
-    use_flang <- sysname == "Darwin" && !quickr_flang_auto_disabled()
-    if (use_flang) {
-      flang_info <- quickr_flang_available(which = which, system2 = system2)
-      use_flang <- isTRUE(flang_info$available)
-    }
-  }
   if (use_flang) {
-    if (is.null(flang_info)) {
-      flang_info <- if (default_probes) {
-        quickr_cached_flang_available()
-      } else {
-        quickr_flang_available(which = which, system2 = system2)
-      }
-    }
+    flang_info <- quickr_cached_flang_available()
     flang <- flang_info$path
     if (!isTRUE(flang_info$available)) {
       if (isTRUE(explicit_request)) {

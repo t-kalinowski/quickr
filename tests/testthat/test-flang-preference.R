@@ -1,12 +1,17 @@
 skip_on_cran()
 
 test_that("quickr_fcompiler_env prefers flang-new when requested", {
-  which <- function(cmd) {
+  which_stub <- function(cmd) {
     if (identical(cmd, "flang-new")) {
       return("/opt/bin/flang-new")
     }
     ""
   }
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   withr::local_options(quickr.fortran_compiler = "flang")
 
@@ -14,8 +19,6 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
   dir.create(build_dir)
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
-    system2 = function(...) "",
-    which = which,
     sysname = "Linux"
   )
 
@@ -29,12 +32,17 @@ test_that("quickr_fcompiler_env prefers flang-new when requested", {
 })
 
 test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
-  which <- function(cmd) {
+  which_stub <- function(cmd) {
     if (identical(cmd, "flang")) {
       return("/opt/bin/flang")
     }
     ""
   }
+  local_mocked_bindings(
+    Sys.which = which_stub,
+    system2 = function(...) "",
+    .package = "base"
+  )
 
   withr::local_options(quickr.fortran_compiler = "flang")
 
@@ -42,8 +50,6 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
   dir.create(build_dir)
   env <- quickr:::quickr_fcompiler_env(
     build_dir,
-    system2 = function(...) "",
-    which = which,
     sysname = "Linux"
   )
 
@@ -57,15 +63,17 @@ test_that("quickr_fcompiler_env falls back to flang when flang-new missing", {
 })
 
 test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
-  which <- function(cmd) ""
   build_dir <- tempfile("quickr-build-")
   dir.create(build_dir)
+  local_mocked_bindings(
+    quickr_prefer_flang = function(...) FALSE,
+    .package = "quickr"
+  )
 
   withr::local_options(quickr.fortran_compiler = "gfortran")
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which,
       config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
@@ -75,7 +83,6 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   expect_equal(
     quickr:::quickr_fcompiler_env(
       build_dir,
-      which = which,
       config_value = function(name) if (identical(name, "FC")) "clang" else ""
     ),
     character()
