@@ -426,6 +426,7 @@ quickr_windows_add_dll_paths <- function(
     winslash = "\\",
     mustWork = FALSE
   )
+  path_entries <- path_entries[tolower(path_entries) %in% dirs_norm]
 
   invisible(path_entries)
 }

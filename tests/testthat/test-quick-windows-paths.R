@@ -172,6 +172,41 @@ test_that("quickr_windows_add_dll_paths returns post-update PATH order", {
   expect_lt(match(config_norm, path_norm), match(lib_norm, path_norm))
 })
 
+test_that("quickr_windows_add_dll_paths excludes unrelated PATH directories", {
+  temp <- withr::local_tempdir()
+  lib_dir <- file.path(temp, "lib")
+  unrelated_dir <- file.path(temp, "unrelated")
+  dir.create(lib_dir)
+  dir.create(unrelated_dir)
+  file.create(file.path(unrelated_dir, "libopenblas-bad.dll"))
+
+  withr::local_envvar(c(
+    PATH = paste(c(unrelated_dir, lib_dir), collapse = ";"),
+    RTOOLS45_HOME = "",
+    RTOOLS44_HOME = "",
+    RTOOLS43_HOME = "",
+    RTOOLS42_HOME = "",
+    RTOOLS40_HOME = "",
+    RTOOLS_HOME = ""
+  ))
+
+  res <- quickr_windows_add_dll_paths(
+    flags = c(paste0("-L", lib_dir)),
+    os_type = "windows",
+    config_value = function(...) "",
+    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+  )
+
+  res_norm <- tolower(normalizePath(res, winslash = "\\", mustWork = FALSE))
+  unrelated_norm <- tolower(normalizePath(
+    unrelated_dir,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+
+  expect_false(unrelated_norm %in% res_norm)
+})
+
 test_that("quickr_windows_load_dll_dependencies preloads known runtime DLLs", {
   temp <- withr::local_tempdir()
   lib_dir <- file.path(temp, "lib")
