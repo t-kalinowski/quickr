@@ -692,6 +692,7 @@ quickr_makefiles_signature <- function() {
     return("")
   }
 
+  paths <- unique(c(paths, quickr_makevars_include_paths(paths)))
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
