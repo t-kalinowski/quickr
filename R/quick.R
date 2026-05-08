@@ -414,11 +414,20 @@ quickr_windows_add_dll_paths <- function(
   ))
   dirs_norm <- tolower(dirs)
   to_add <- dirs[!dirs_norm %in% existing_norm]
+  path_entries <- existing
   if (length(to_add)) {
-    Sys.setenv(PATH = paste(c(to_add, existing), collapse = ";"))
+    path_entries <- c(to_add, existing)
+    Sys.setenv(PATH = paste(path_entries, collapse = ";"))
   }
+  path_entries <- path_entries[nzchar(path_entries)]
+  path_entries <- path_entries[dir.exists(path_entries)]
+  path_entries <- normalizePath(
+    path_entries,
+    winslash = "\\",
+    mustWork = FALSE
+  )
 
-  invisible(dirs)
+  invisible(path_entries)
 }
 
 

@@ -119,6 +119,59 @@ test_that("quickr_windows_add_dll_paths leaves PATH unchanged when complete", {
   expect_identical(Sys.getenv("PATH"), base_path)
 })
 
+test_that("quickr_windows_add_dll_paths returns post-update PATH order", {
+  temp <- withr::local_tempdir()
+  lib_dir <- file.path(temp, "lib")
+  config_dir <- file.path(temp, "config")
+  dir.create(lib_dir)
+  dir.create(config_dir)
+
+  base_path <- paste(c(config_dir, lib_dir), collapse = ";")
+  withr::local_envvar(c(
+    PATH = base_path,
+    RTOOLS45_HOME = "",
+    RTOOLS44_HOME = "",
+    RTOOLS43_HOME = "",
+    RTOOLS42_HOME = "",
+    RTOOLS40_HOME = "",
+    RTOOLS_HOME = ""
+  ))
+
+  res <- quickr_windows_add_dll_paths(
+    flags = c(paste0("-L", lib_dir)),
+    os_type = "windows",
+    config_value = function(name) {
+      if (identical(name, "FC")) {
+        return(file.path(config_dir, "gfortran"))
+      }
+      ""
+    },
+    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+  )
+
+  path_entries <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1L]]
+  path_entries <- path_entries[nzchar(path_entries)]
+  res_norm <- tolower(normalizePath(res, winslash = "\\", mustWork = FALSE))
+  path_norm <- tolower(normalizePath(
+    path_entries,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+  config_norm <- tolower(normalizePath(
+    config_dir,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+  lib_norm <- tolower(normalizePath(
+    lib_dir,
+    winslash = "\\",
+    mustWork = FALSE
+  ))
+
+  expect_lt(match(config_norm, res_norm), match(lib_norm, res_norm))
+  expect_lt(match(config_norm, path_norm), match(lib_norm, path_norm))
+})
+
 test_that("quickr_windows_load_dll_dependencies preloads known runtime DLLs", {
   temp <- withr::local_tempdir()
   lib_dir <- file.path(temp, "lib")
