@@ -346,3 +346,39 @@ test_that("quickr_windows_add_dll_paths leaves PATH unchanged when complete", {
   expect_type(res, "character")
   expect_identical(Sys.getenv("PATH"), base_path)
 })
+
+test_that("quickr_windows_load_dll_dependencies preloads known runtime DLLs", {
+  temp <- withr::local_tempdir()
+  lib_dir <- file.path(temp, "lib")
+  bin_dir <- file.path(temp, "bin")
+  dir.create(lib_dir)
+  dir.create(bin_dir)
+  file.create(
+    file.path(lib_dir, "libgfortran-5.dll"),
+    file.path(bin_dir, "libgfortran-5.dll"),
+    file.path(bin_dir, "libquadmath-0.dll"),
+    file.path(lib_dir, "Rlapack.dll")
+  )
+
+  loaded <- character()
+  res <- quickr_windows_load_dll_dependencies(
+    c(lib_dir, bin_dir),
+    os_type = "windows",
+    dyn_load = function(path) {
+      loaded <<- c(loaded, path)
+      structure(list(), class = "DLLInfo")
+    }
+  )
+
+  expected <- normalizePath(
+    c(
+      file.path(bin_dir, "libquadmath-0.dll"),
+      file.path(lib_dir, "libgfortran-5.dll"),
+      file.path(lib_dir, "Rlapack.dll")
+    ),
+    winslash = "\\",
+    mustWork = FALSE
+  )
+  expect_identical(res, expected)
+  expect_identical(loaded, expected)
+})

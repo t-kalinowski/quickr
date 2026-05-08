@@ -296,7 +296,8 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
     stop("Compilation Error", call. = FALSE)
   }
 
-  quickr_windows_add_dll_paths(link_flags)
+  dll_dirs <- quickr_windows_add_dll_paths(link_flags)
+  quickr_windows_load_dll_dependencies(dll_dirs)
 
   # tryCatch(dyn.unload(dll_path), error = identity)
   dll <- tryCatch(
@@ -436,6 +437,44 @@ quickr_windows_add_dll_paths <- function(
   }
 
   invisible(dirs)
+}
+
+
+quickr_windows_load_dll_dependencies <- function(
+  dirs,
+  os_type = .Platform$OS.type,
+  dyn_load = base::dyn.load
+) {
+  if (!identical(os_type, "windows")) {
+    return(invisible(character()))
+  }
+  stopifnot(is.character(dirs), is.function(dyn_load))
+
+  patterns <- c(
+    "libgcc_s*.dll",
+    "libwinpthread*.dll",
+    "libquadmath*.dll",
+    "libgfortran*.dll",
+    "libopenblas*.dll",
+    "Rblas.dll",
+    "Rlapack.dll"
+  )
+  dlls <- unlist(
+    lapply(patterns, \(pattern) Sys.glob(file.path(dirs, pattern))),
+    use.names = FALSE
+  )
+  dlls <- dlls[file.exists(dlls)]
+  if (!length(dlls)) {
+    return(invisible(character()))
+  }
+
+  dlls <- normalizePath(dlls, winslash = "\\", mustWork = FALSE)
+  dlls <- dlls[!duplicated(tolower(basename(dlls)))]
+  for (dll in dlls) {
+    dyn_load(dll)
+  }
+
+  invisible(dlls)
 }
 
 
