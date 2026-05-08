@@ -1226,6 +1226,51 @@ test_that("quickr_cached_r_cmd_config_value ignores Makevars recipe assignments"
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value ignores Makevars define bodies", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  ignored_root <- file.path(root, "ignored")
+  dir.create(active_root)
+  dir.create(ignored_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT =", active_root),
+      "define toolchain_template",
+      paste("ROOT =", ignored_root),
+      "endef",
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value preserves command-line VAR", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()

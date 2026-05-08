@@ -240,14 +240,22 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   out <- character()
   vars <- variables
   conditional_stack <- list()
+  in_define <- FALSE
 
   for (line in lines) {
-    if (startsWith(line, "\t")) {
+    if (startsWith(line, "\t") && !in_define) {
       next
     }
 
     line <- trimws(quickr_strip_make_comment(line))
     if (!nzchar(line)) {
+      next
+    }
+
+    if (in_define) {
+      if (quickr_makevars_define_end(line)) {
+        in_define <- FALSE
+      }
       next
     }
 
@@ -262,6 +270,11 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
     }
 
     if (!quickr_makevars_conditionals_active(conditional_stack)) {
+      next
+    }
+
+    if (quickr_makevars_define_start(line)) {
+      in_define <- TRUE
       next
     }
 
@@ -285,6 +298,18 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   }
 
   list(paths = out, variables = vars)
+}
+
+quickr_makevars_define_start <- function(line) {
+  grepl(
+    "^(?:(?:export|override)[[:space:]]+)*define(?:[[:space:]]|$)",
+    line,
+    perl = TRUE
+  )
+}
+
+quickr_makevars_define_end <- function(line) {
+  identical(line, "endef")
 }
 
 quickr_makevars_update_conditionals <- function(line, variables, stack) {
