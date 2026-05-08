@@ -598,7 +598,10 @@ quickr_makevars_signature <- function() {
 }
 
 quickr_makevars_env_signature <- function() {
-  paths <- quickr_active_makevars_all_paths()
+  paths <- unique(c(
+    quickr_active_makevars_all_paths(),
+    quickr_makefiles_all_paths()
+  ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
     return("")
@@ -617,7 +620,10 @@ quickr_makevars_env_signature <- function() {
 }
 
 quickr_makevars_has_uncached_functions <- function() {
-  paths <- quickr_active_makevars_all_paths()
+  paths <- unique(c(
+    quickr_active_makevars_all_paths(),
+    quickr_makefiles_all_paths()
+  ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
     return(FALSE)
@@ -713,13 +719,21 @@ quickr_makefiles_paths <- function() {
   normalizePath(path.expand(paths), winslash = "/", mustWork = FALSE)
 }
 
-quickr_makefiles_signature <- function() {
+quickr_makefiles_all_paths <- function() {
   paths <- quickr_makefiles_paths()
+  if (!length(paths)) {
+    return(character())
+  }
+
+  unique(c(paths, quickr_makevars_include_paths(paths)))
+}
+
+quickr_makefiles_signature <- function() {
+  paths <- quickr_makefiles_all_paths()
   if (!length(paths)) {
     return("")
   }
 
-  paths <- unique(c(paths, quickr_makevars_include_paths(paths)))
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 

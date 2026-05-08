@@ -954,6 +954,66 @@ test_that("quickr_cached_r_cmd_config_value keys on nested MAKEFILES content", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on MAKEFILES env refs", {
+  cache <- new.env(parent = emptyenv())
+  makefile <- withr::local_tempfile()
+  writeLines("override FC = $(QUICKR_FC)", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MAKEFILES = makefile,
+    QUICKR_FC = "gfortran"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries dynamic MAKEFILES inputs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("override FC = $(shell cat", compiler_file, ")"), makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = makefile)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with Makeconf", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
