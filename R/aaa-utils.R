@@ -690,8 +690,14 @@ quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
   function_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]"
   substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
+  shell_assignment_pattern <- "^[[:space:]]*(?:(?:export|override|private)[[:space:]]+)*[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]*!="
   any(grepl(
-    paste(function_pattern, substitution_pattern, sep = "|"),
+    paste(
+      function_pattern,
+      substitution_pattern,
+      shell_assignment_pattern,
+      sep = "|"
+    ),
     lines,
     perl = TRUE
   ))
@@ -749,13 +755,21 @@ quickr_makevars_text_variable_refs <- function(text) {
 
 quickr_makevars_env_value <- function(name) {
   if (identical(name, "R_HOME")) {
-    return(R.home())
+    return(paste0("set:", R.home()))
   }
   if (identical(name, "CURDIR")) {
-    return(normalizePath(getwd(), winslash = "/", mustWork = TRUE))
+    return(paste0(
+      "set:",
+      normalizePath(getwd(), winslash = "/", mustWork = TRUE)
+    ))
   }
 
-  Sys.getenv(name, unset = "")
+  value <- Sys.getenv(name, unset = NA_character_)
+  if (is.na(value)) {
+    return("unset:")
+  }
+
+  paste0("set:", value)
 }
 
 quickr_makeconf_paths <- function(config_name = "") {

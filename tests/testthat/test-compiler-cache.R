@@ -372,6 +372,43 @@ test_that("quickr_cached_r_cmd_config_value respects env-defined conditional Mak
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value distinguishes unset and empty env refs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  writeLines(
+    c(
+      "MYFC ?= gfortran",
+      "override FC = $(MYFC)"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MYFC = NA,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(MYFC = "")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value propagates variables through includes", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
@@ -739,6 +776,36 @@ test_that("quickr_cached_r_cmd_config_value retries Makevars with shell function
   compiler_file <- file.path(root, "fc")
   writeLines("gfortran", compiler_file)
   writeLines(paste("FC = $(shell cat", compiler_file, ")"), makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars shell assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC != cat", compiler_file), makevars)
   calls <- 0L
   local_mocked_bindings(
     quickr_r_cmd_config_probe = function(name) {
