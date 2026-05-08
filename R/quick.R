@@ -333,33 +333,41 @@ quickr_windows_add_dll_paths <- function(
   if (!identical(os_type, "windows")) {
     return(invisible(character()))
   }
+
+  config_path <- function(value) {
+    value <- trimws(value)
+    if (!nzchar(value)) {
+      return("")
+    }
+    value <- sub("^\"([^\"]+)\".*", "\\1", value)
+    value <- sub("^'([^']+)'.*", "\\1", value)
+    strsplit(value, "\\s+")[[1L]][[1L]]
+  }
+
   dirs <- flags[grepl("^-L", flags)]
   dirs <- sub("^-L", "", dirs)
+  dirs <- vapply(dirs, config_path, character(1))
   dirs <- dirs[nzchar(dirs)]
 
-  bin_siblings <- file.path(dirs, "..", "bin")
+  bin_siblings <- c(
+    file.path(dirs, "..", "bin"),
+    file.path(dirs, "..", "..", "bin")
+  )
 
+  config_binpref <- config_path(config_value("BINPREF"))
+  if (nzchar(config_binpref) && !dir.exists(config_binpref)) {
+    config_binpref <- dirname(config_binpref)
+  }
   config_values <- c(
-    config_value("BINPREF"),
     config_value("FC"),
     config_value("F77"),
     config_value("CC"),
     config_value("CXX")
   )
-  config_paths <- vapply(
-    config_values,
-    function(value) {
-      value <- trimws(value)
-      if (!nzchar(value)) {
-        return("")
-      }
-      value <- sub("^\"([^\"]+)\".*", "\\1", value)
-      value <- sub("^'([^']+)'.*", "\\1", value)
-      strsplit(value, "\\s+")[[1L]][[1L]]
-    },
-    character(1)
-  )
-  config_bins <- unique(dirname(config_paths[nzchar(config_paths)]))
+  config_paths <- vapply(config_values, config_path, character(1))
+  config_bins <- dirname(config_paths[nzchar(config_paths)])
+  config_bins <- config_bins[nzchar(config_bins) & config_bins != "."]
+  config_bins <- unique(c(config_binpref, config_bins))
 
   r_bin <- R.home("bin")
   r_bin_x64 <- file.path(r_bin, "x64")
@@ -374,6 +382,16 @@ quickr_windows_add_dll_paths <- function(
     "RTOOLS_HOME"
   ))
   rtools_roots <- rtools_roots[nzchar(rtools_roots)]
+  link_dirs <- gsub("\\", "/", dirs, fixed = TRUE)
+  rtools_link_roots <- sub(
+    "/(?:x86_64|aarch64)-w64-mingw32(?:\\.static(?:\\.posix)?)?/.*$",
+    "",
+    link_dirs
+  )
+  rtools_link_roots <- rtools_link_roots[
+    nzchar(rtools_link_roots) & rtools_link_roots != link_dirs
+  ]
+  rtools_roots <- unique(c(rtools_roots, rtools_link_roots))
   rtools_bins <- unique(c(
     file.path(rtools_roots, "usr", "bin"),
     file.path(rtools_roots, "mingw64", "bin"),
