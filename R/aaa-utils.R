@@ -204,10 +204,25 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   lines <- quickr_join_makevars_continuations(lines)
   out <- character()
   vars <- variables
+  conditional_stack <- list()
 
   for (line in lines) {
     line <- trimws(quickr_strip_make_comment(line))
     if (!nzchar(line)) {
+      next
+    }
+
+    conditional <- quickr_makevars_update_conditionals(
+      line,
+      vars,
+      conditional_stack
+    )
+    if (!is.null(conditional)) {
+      conditional_stack <- conditional
+      next
+    }
+
+    if (!quickr_makevars_conditionals_active(conditional_stack)) {
       next
     }
 
@@ -231,6 +246,93 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   }
 
   list(paths = out, variables = vars)
+}
+
+quickr_makevars_update_conditionals <- function(line, variables, stack) {
+  condition <- quickr_makevars_condition_result(line, variables)
+  if (!is.null(condition)) {
+    parent_active <- quickr_makevars_conditionals_active(stack)
+    stack[[length(stack) + 1L]] <- list(
+      parent_active = parent_active,
+      matched = condition,
+      active = parent_active && condition
+    )
+    return(stack)
+  }
+
+  if (grepl("^else([[:space:]]|$)", line)) {
+    if (!length(stack)) {
+      return(NULL)
+    }
+
+    rest <- trimws(sub("^else", "", line))
+    top <- stack[[length(stack)]]
+    condition <- if (nzchar(rest)) {
+      quickr_makevars_condition_result(rest, variables)
+    } else {
+      TRUE
+    }
+    if (is.null(condition)) {
+      condition <- TRUE
+    }
+    top$active <- top$parent_active && !top$matched && condition
+    top$matched <- top$matched || condition
+    stack[[length(stack)]] <- top
+    return(stack)
+  }
+
+  if (identical(line, "endif")) {
+    if (!length(stack)) {
+      return(NULL)
+    }
+
+    stack[[length(stack)]] <- NULL
+    return(stack)
+  }
+
+  NULL
+}
+
+quickr_makevars_conditionals_active <- function(stack) {
+  if (!length(stack)) {
+    return(TRUE)
+  }
+
+  isTRUE(stack[[length(stack)]]$active)
+}
+
+quickr_makevars_condition_result <- function(line, variables) {
+  match <- regexec(
+    "^(ifeq|ifneq)[[:space:]]*\\((.*),(.*)\\)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 4L) {
+    left <- quickr_makevars_condition_value(parts[[3]], variables)
+    right <- quickr_makevars_condition_value(parts[[4]], variables)
+    equal <- identical(left, right)
+    return(if (identical(parts[[2]], "ifeq")) equal else !equal)
+  }
+
+  match <- regexec(
+    "^(ifdef|ifndef)[[:space:]]+(.+)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 3L) {
+    value <- quickr_makevars_variable_value(trimws(parts[[3]]), variables)
+    defined <- nzchar(value)
+    return(if (identical(parts[[2]], "ifdef")) defined else !defined)
+  }
+
+  NULL
+}
+
+quickr_makevars_condition_value <- function(value, variables) {
+  value <- trimws(quickr_expand_makevars_variables(value, variables))
+  sub("^(['\"])(.*)\\1$", "\\2", value, perl = TRUE)
 }
 
 quickr_join_makevars_continuations <- function(lines) {
