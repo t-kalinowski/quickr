@@ -12,11 +12,11 @@ test_that("quickr_cached_r_cmd_config_value reuses successful lookups", {
   )
 
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "FC-value-1"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "FC-value-1"
   )
   expect_equal(calls, 1L)
@@ -37,15 +37,15 @@ test_that("quickr_cached_r_cmd_config_value retries failed lookups", {
   )
 
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     ""
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "gfortran"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "gfortran"
   )
   expect_equal(calls, 2L)
@@ -64,21 +64,21 @@ test_that("quickr_cached_r_cmd_config_value keys on toolchain env", {
 
   withr::local_envvar(FC = "gfortran")
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
 
   withr::local_envvar(FC = "flang")
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
   )
   expect_equal(calls, 2L)
@@ -99,17 +99,17 @@ test_that("quickr_cached_r_cmd_config_value keys on explicit Makevars content", 
   withr::local_envvar(R_MAKEVARS_USER = makevars)
 
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
 
   writeLines("FC=flang", makevars)
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
   )
   expect_equal(calls, 2L)
@@ -138,13 +138,13 @@ test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
   ))
 
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
 
   withr::local_envvar(HOME = home_b)
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
   )
   expect_equal(calls, 2L)
@@ -171,17 +171,83 @@ test_that("quickr_cached_r_cmd_config_value keys on platform Makevars", {
   ))
 
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-1"
   )
 
   writeLines("FC=flang", makevars)
   expect_identical(
-    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on default site Makevars", {
+  cache <- new.env(parent = emptyenv())
+  r_home <- withr::local_tempdir()
+  site_makevars <- file.path(r_home, "etc", "Makevars.site")
+  dir.create(dirname(site_makevars), recursive = TRUE)
+  writeLines("FC=gfortran", site_makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    R.home = function(...) r_home,
+    .package = "base"
+  )
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_SITE = NA)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", site_makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on R_ARCH", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  withr::local_envvar(R_ARCH = "/x64")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(R_ARCH = "/i386")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
   )
   expect_equal(calls, 2L)
@@ -199,11 +265,11 @@ test_that("quickr_cached_flang_available reuses successful probes", {
     .package = "quickr"
   )
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_true(result$available)
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_true(result$available)
   expect_equal(calls, 1L)
@@ -221,11 +287,11 @@ test_that("quickr_cached_flang_available retries failed probes", {
     .package = "quickr"
   )
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_false(result$available)
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
   expect_true(result$available)
   expect_equal(calls, 2L)
@@ -244,14 +310,14 @@ test_that("quickr_cached_flang_available keys on flang path", {
     .package = "quickr"
   )
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang-new")
 
   flang <- "/tmp/flang"
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang")
 
-  result <- quickr:::quickr_cached_flang_available(cache = cache)
+  result <- quickr_cached_flang_available(cache = cache)
   expect_identical(result$path, "/tmp/flang")
   expect_equal(calls, 2L)
 })
@@ -267,7 +333,7 @@ test_that("quickr_r_cmd_config_probe reports command failures", {
   }
 
   expect_identical(
-    quickr:::quickr_r_cmd_config_probe(
+    quickr_r_cmd_config_probe(
       "FC",
       r_cmd = "R",
       system2 = system2_stub
@@ -275,7 +341,7 @@ test_that("quickr_r_cmd_config_probe reports command failures", {
     list(value = "", ok = FALSE)
   )
   expect_identical(
-    quickr:::quickr_r_cmd_config_probe(
+    quickr_r_cmd_config_probe(
       "FC",
       r_cmd = "R",
       system2 = system2_stub

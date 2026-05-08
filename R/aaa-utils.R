@@ -69,6 +69,22 @@ quickr_default_makevars_names <- function(
   ))
 }
 
+quickr_r_etc_path <- function(
+  file,
+  r_home = R.home(),
+  r_arch = Sys.getenv("R_ARCH", unset = "")
+) {
+  file.path(r_home, paste0("etc", r_arch), file)
+}
+
+quickr_default_site_makevars_path <- function() {
+  quickr_r_etc_path("Makevars.site")
+}
+
+quickr_makeconf_path <- function() {
+  quickr_r_etc_path("Makeconf")
+}
+
 quickr_makevars_paths <- function() {
   user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
   user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
@@ -89,7 +105,7 @@ quickr_makevars_paths <- function() {
   site_paths <- if (!is.na(site_makevars) && nzchar(site_makevars)) {
     site_makevars
   } else {
-    character()
+    quickr_default_site_makevars_path()
   }
 
   unique(c(user_paths, site_paths))
@@ -114,12 +130,17 @@ quickr_makevars_signature <- function() {
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
+quickr_makeconf_signature <- function() {
+  quickr_file_signature(quickr_makeconf_path())
+}
+
 quickr_toolchain_env_signature <- function() {
   vars <- c(
     "PATH",
     "BINPREF",
     "HOME",
     "R_USER",
+    "R_ARCH",
     "CC",
     "CXX",
     "FC",
@@ -138,7 +159,8 @@ quickr_toolchain_env_signature <- function() {
   paste(
     c(
       paste(names(env), env, sep = "="),
-      paste("MAKEVARS", quickr_makevars_signature(), sep = "=")
+      paste("MAKEVARS", quickr_makevars_signature(), sep = "="),
+      paste("MAKECONF", quickr_makeconf_signature(), sep = "=")
     ),
     collapse = "\r"
   )
