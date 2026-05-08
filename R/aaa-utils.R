@@ -85,25 +85,38 @@ quickr_makeconf_path <- function() {
   quickr_r_etc_path("Makeconf")
 }
 
+quickr_regular_file_exists <- function(path) {
+  info <- file.info(path)
+  !is.na(info$isdir) && !info$isdir
+}
+
+quickr_default_user_makevars_paths <- function() {
+  user_roots <- unique(c(
+    Sys.getenv("HOME", unset = ""),
+    Sys.getenv("R_USER", unset = "")
+  ))
+  user_roots <- user_roots[nzchar(user_roots)]
+  if (!length(user_roots)) {
+    return(character())
+  }
+
+  as.vector(outer(
+    user_roots,
+    file.path(".R", quickr_default_makevars_names()),
+    file.path
+  ))
+}
+
 quickr_makevars_paths <- function() {
   user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
   user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
-    user_makevars
-  } else {
-    user_roots <- unique(c(
-      Sys.getenv("HOME", unset = ""),
-      Sys.getenv("R_USER", unset = "")
-    ))
-    user_roots <- user_roots[nzchar(user_roots)]
-    if (length(user_roots)) {
-      as.vector(outer(
-        user_roots,
-        file.path(".R", quickr_default_makevars_names()),
-        file.path
-      ))
+    if (quickr_regular_file_exists(user_makevars)) {
+      user_makevars
     } else {
-      character()
+      unique(c(user_makevars, quickr_default_user_makevars_paths()))
     }
+  } else {
+    quickr_default_user_makevars_paths()
   }
 
   site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
@@ -118,7 +131,7 @@ quickr_makevars_paths <- function() {
 
 quickr_file_signature <- function(path) {
   path <- normalizePath(path, winslash = "/", mustWork = FALSE)
-  if (!file.exists(path)) {
+  if (!quickr_regular_file_exists(path)) {
     return(paste(path, "<missing>", sep = "="))
   }
 
@@ -140,7 +153,7 @@ quickr_makevars_include_paths_impl <- function(paths, visited) {
   out <- character()
 
   for (path in paths) {
-    if (!file.exists(path)) {
+    if (!quickr_regular_file_exists(path)) {
       next
     }
 
@@ -308,13 +321,73 @@ quickr_expand_makevars_include_globs <- function(paths) {
   normalizePath(out, winslash = "/", mustWork = FALSE)
 }
 
-quickr_makevars_signature <- function() {
+quickr_makevars_all_paths <- function() {
   paths <- quickr_makevars_paths()
+  if (!length(paths)) {
+    return(character())
+  }
+
+  unique(c(paths, quickr_makevars_include_paths(paths)))
+}
+
+quickr_makevars_signature <- function() {
+  paths <- quickr_makevars_all_paths()
   if (!length(paths)) {
     return("")
   }
-  paths <- unique(c(paths, quickr_makevars_include_paths(paths)))
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
+quickr_makevars_env_signature <- function() {
+  paths <- quickr_makevars_all_paths()
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return("")
+  }
+
+  refs <- unique(unlist(
+    lapply(paths, quickr_makevars_variable_refs),
+    use.names = FALSE
+  ))
+  if (!length(refs)) {
+    return("")
+  }
+
+  values <- vapply(refs, quickr_makevars_env_value, character(1))
+  paste(paste(names(values), values, sep = "="), collapse = "\r")
+}
+
+quickr_makevars_variable_refs <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  lines <- vapply(lines, quickr_strip_make_comment, character(1))
+  quickr_makevars_text_variable_refs(paste(lines, collapse = "\n"))
+}
+
+quickr_makevars_text_variable_refs <- function(text) {
+  matches <- gregexpr(
+    "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}",
+    text,
+    perl = TRUE
+  )
+  tokens <- regmatches(text, matches)[[1]]
+  if (!length(tokens)) {
+    return(character())
+  }
+
+  unique(sub(
+    "^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$",
+    "\\1",
+    tokens
+  ))
+}
+
+quickr_makevars_env_value <- function(name) {
+  if (identical(name, "R_HOME")) {
+    return(R.home())
+  }
+
+  Sys.getenv(name, unset = "")
 }
 
 quickr_makeconf_signature <- function() {
@@ -347,6 +420,7 @@ quickr_toolchain_env_signature <- function() {
     c(
       paste(names(env), env, sep = "="),
       paste("MAKEVARS", quickr_makevars_signature(), sep = "="),
+      paste("MAKEVARS_ENV", quickr_makevars_env_signature(), sep = "="),
       paste("MAKECONF", quickr_makeconf_signature(), sep = "=")
     ),
     collapse = "\r"

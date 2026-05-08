@@ -115,6 +115,73 @@ test_that("quickr_cached_r_cmd_config_value keys on explicit Makevars content", 
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on default Makevars with missing explicit path", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  dir.create(file.path(home, ".R"))
+  makevars <- file.path(home, ".R", "Makevars")
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = NA,
+    R_MAKEVARS_USER = file.path(home, "missing-Makevars")
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makevars-referenced env", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC=$(QUICKR_TEST_FC)", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    QUICKR_TEST_FC = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_TEST_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on included Makevars content", {
   cache <- new.env(parent = emptyenv())
   makevars <- withr::local_tempfile()
