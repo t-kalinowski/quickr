@@ -127,11 +127,193 @@ quickr_file_signature <- function(path) {
   paste(path, info$size, info$mtime, hash, sep = "=")
 }
 
+quickr_makevars_include_paths <- function(paths) {
+  quickr_makevars_include_paths_impl(
+    normalizePath(paths, winslash = "/", mustWork = FALSE),
+    visited = character()
+  )
+}
+
+quickr_makevars_include_paths_impl <- function(paths, visited) {
+  paths <- unique(normalizePath(paths, winslash = "/", mustWork = FALSE))
+  paths <- setdiff(paths, visited)
+  out <- character()
+
+  for (path in paths) {
+    if (!file.exists(path)) {
+      next
+    }
+
+    included <- quickr_makevars_direct_include_paths(path)
+    out <- unique(c(out, included))
+    if (length(included)) {
+      out <- unique(c(
+        out,
+        quickr_makevars_include_paths_impl(included, c(visited, path))
+      ))
+    }
+  }
+
+  out
+}
+
+quickr_makevars_direct_include_paths <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  variables <- quickr_makevars_variable_map(lines)
+  include_paths <- unlist(
+    lapply(
+      lines,
+      quickr_makevars_line_include_paths,
+      variables = variables,
+      makevars_path = path
+    ),
+    use.names = FALSE
+  )
+
+  unique(include_paths)
+}
+
+quickr_join_makevars_continuations <- function(lines) {
+  out <- character()
+  current <- ""
+
+  for (line in lines) {
+    if (nzchar(current)) {
+      line <- paste(current, trimws(line, which = "left"))
+    }
+
+    if (grepl("\\\\$", line)) {
+      current <- sub("\\\\$", "", line)
+      next
+    }
+
+    out <- c(out, line)
+    current <- ""
+  }
+
+  if (nzchar(current)) {
+    out <- c(out, current)
+  }
+
+  out
+}
+
+quickr_makevars_variable_map <- function(lines) {
+  lines <- trimws(vapply(lines, quickr_strip_make_comment, character(1)))
+  assignments <- regexec(
+    "^([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*[:?+]?=[[:space:]]*(.*)$",
+    lines,
+    perl = TRUE
+  )
+  matches <- regmatches(lines, assignments)
+  matches <- matches[lengths(matches) == 3L]
+  if (!length(matches)) {
+    return(character())
+  }
+
+  values <- vapply(matches, `[[`, character(1), 3L)
+  names(values) <- vapply(matches, `[[`, character(1), 2L)
+  values
+}
+
+quickr_makevars_line_include_paths <- function(
+  line,
+  variables,
+  makevars_path
+) {
+  line <- trimws(quickr_strip_make_comment(line))
+  match <- regexec(
+    "^(-?include|sinclude)[[:space:]]+(.+)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) != 3L) {
+    return(character())
+  }
+
+  spec <- quickr_expand_makevars_variables(parts[[3]], variables)
+  paths <- strsplit(trimws(spec), "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  paths <- unlist(
+    lapply(paths, quickr_resolve_makevars_include_path, makevars_path),
+    use.names = FALSE
+  )
+
+  unique(paths)
+}
+
+quickr_strip_make_comment <- function(line) {
+  sub("(^|[^\\\\])#.*$", "\\1", line, perl = TRUE)
+}
+
+quickr_expand_makevars_variables <- function(text, variables) {
+  for (i in seq_len(20L)) {
+    match <- regexpr(
+      "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}",
+      text,
+      perl = TRUE
+    )
+    if (match[[1]] == -1L) {
+      break
+    }
+
+    token <- regmatches(text, match)
+    name <- sub("^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$", "\\1", token)
+    value <- quickr_makevars_variable_value(name, variables)
+    regmatches(text, match) <- value
+  }
+
+  text
+}
+
+quickr_makevars_variable_value <- function(name, variables) {
+  if (name %in% names(variables)) {
+    return(variables[[name]])
+  }
+
+  if (identical(name, "R_HOME")) {
+    return(R.home())
+  }
+
+  Sys.getenv(name, unset = "")
+}
+
+quickr_resolve_makevars_include_path <- function(path, makevars_path) {
+  path <- path.expand(path)
+  if (grepl("^(/|[A-Za-z]:[/\\\\])", path)) {
+    return(quickr_expand_makevars_include_globs(path))
+  }
+
+  quickr_expand_makevars_include_globs(unique(c(
+    path,
+    file.path(dirname(makevars_path), path)
+  )))
+}
+
+quickr_expand_makevars_include_globs <- function(paths) {
+  out <- unlist(
+    lapply(paths, \(path) {
+      matches <- Sys.glob(path)
+      if (length(matches)) {
+        matches
+      } else {
+        path
+      }
+    }),
+    use.names = FALSE
+  )
+
+  normalizePath(out, winslash = "/", mustWork = FALSE)
+}
+
 quickr_makevars_signature <- function() {
   paths <- quickr_makevars_paths()
   if (!length(paths)) {
     return("")
   }
+  paths <- unique(c(paths, quickr_makevars_include_paths(paths)))
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
