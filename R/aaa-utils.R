@@ -176,7 +176,9 @@ quickr_makevars_seed_variables <- function(config_name = "") {
     return(character())
   }
 
-  c(VAR = config_name)
+  variables <- c(VAR = config_name)
+  attr(variables, "quickr_command_line_variables") <- "VAR"
+  variables
 }
 
 quickr_makeconf_variables <- function(config_name = "") {
@@ -240,6 +242,10 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   conditional_stack <- list()
 
   for (line in lines) {
+    if (startsWith(line, "\t")) {
+      next
+    }
+
     line <- trimws(quickr_strip_make_comment(line))
     if (!nzchar(line)) {
       next
@@ -408,21 +414,34 @@ quickr_join_makevars_continuations <- function(lines) {
 
 quickr_makevars_assignment <- function(line) {
   match <- regexec(
-    "^(?:(?:export|override|private)[[:space:]]+)*([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*([:?+]?=)[[:space:]]*(.*)$",
+    "^((?:(?:export|override|private)[[:space:]]+)*)?([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*([:?+]?=)[[:space:]]*(.*)$",
     line,
     perl = TRUE
   )
   parts <- regmatches(line, match)[[1]]
-  if (length(parts) != 4L) {
+  if (length(parts) != 5L) {
     return(NULL)
   }
 
-  list(name = parts[[2]], operator = parts[[3]], value = parts[[4]])
+  list(
+    name = parts[[3]],
+    operator = parts[[4]],
+    value = parts[[5]],
+    override = grepl("(^|[[:space:]])override[[:space:]]+", parts[[2]])
+  )
 }
 
 quickr_makevars_apply_assignment <- function(variables, assignment) {
   name <- assignment$name
   value <- assignment$value
+
+  if (
+    name %in%
+      attr(variables, "quickr_command_line_variables", exact = TRUE) &&
+      !isTRUE(assignment$override)
+  ) {
+    return(variables)
+  }
 
   if (
     identical(assignment$operator, "?=") &&
