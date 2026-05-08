@@ -254,6 +254,10 @@ quickr_makevars_apply_assignment <- function(variables, assignment) {
     return(variables)
   }
 
+  if (identical(assignment$operator, ":=")) {
+    value <- quickr_expand_makevars_variables(value, variables)
+  }
+
   if (identical(assignment$operator, "+=") && name %in% names(variables)) {
     value <- paste(variables[[name]], value)
   }
@@ -329,14 +333,7 @@ quickr_makevars_variable_value <- function(name, variables) {
 
 quickr_resolve_makevars_include_path <- function(path, makevars_path) {
   path <- path.expand(path)
-  if (grepl("^(/|[A-Za-z]:[/\\\\])", path)) {
-    return(quickr_expand_makevars_include_globs(path))
-  }
-
-  quickr_expand_makevars_include_globs(unique(c(
-    path,
-    file.path(dirname(makevars_path), path)
-  )))
+  quickr_expand_makevars_include_globs(path)
 }
 
 quickr_expand_makevars_include_globs <- function(paths) {
