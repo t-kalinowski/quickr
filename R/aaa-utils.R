@@ -627,7 +627,8 @@ quickr_makevars_signature <- function(config_name = "") {
 quickr_makevars_env_signature <- function(config_name = "") {
   paths <- unique(c(
     quickr_active_makevars_all_paths(config_name),
-    quickr_makefiles_all_paths(config_name)
+    quickr_makefiles_all_paths(config_name),
+    quickr_makeconf_paths(config_name)
   ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
@@ -649,7 +650,8 @@ quickr_makevars_env_signature <- function(config_name = "") {
 quickr_makevars_has_uncached_functions <- function(config_name = "") {
   paths <- unique(c(
     quickr_active_makevars_all_paths(config_name),
-    quickr_makefiles_all_paths(config_name)
+    quickr_makefiles_all_paths(config_name),
+    quickr_makeconf_paths(config_name)
   ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {

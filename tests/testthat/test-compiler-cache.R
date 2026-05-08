@@ -1124,6 +1124,64 @@ test_that("quickr_cached_r_cmd_config_value keys on Makeconf includes", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on Makeconf env refs", {
+  cache <- new.env(parent = emptyenv())
+  makeconf <- withr::local_tempfile()
+  writeLines("FC=$(QUICKR_FC)", makeconf)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(QUICKR_FC = "gfortran")
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries dynamic Makeconf inputs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC = $(shell cat", compiler_file, ")"), makeconf)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value ignores Makevars recipe assignments", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
