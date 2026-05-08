@@ -1095,6 +1095,42 @@ test_that("quickr_cached_r_cmd_config_value retries Makevars with unresolved fun
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value retries Makevars with indirect refs", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "FC_VAR = QUICKR_FC",
+      "FC = $($(FC_VAR))"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    QUICKR_FC = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on MAKEFILES content", {
   cache <- new.env(parent = emptyenv())
   makefile <- withr::local_tempfile()
@@ -1108,6 +1144,37 @@ test_that("quickr_cached_r_cmd_config_value keys on MAKEFILES content", {
     .package = "quickr"
   )
   withr::local_envvar(MAKEFILES = makefile)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makefile)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value expands MAKEFILES entries", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  writeLines("FC=gfortran", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MAKEFILES = "$(ROOT)/global.mk",
+    ROOT = root
+  ))
 
   expect_identical(
     quickr_cached_r_cmd_config_value("FC", cache = cache),

@@ -189,7 +189,7 @@ quickr_makevars_seed_variables <- function(config_name = "") {
 
 quickr_makeconf_variables <- function(config_name = "") {
   variables <- quickr_makevars_seed_variables(config_name)
-  makefiles <- quickr_makefiles_paths()
+  makefiles <- quickr_makefiles_paths(config_name)
   if (length(makefiles)) {
     scan <- quickr_makevars_scan_include_paths(
       makefiles,
@@ -701,11 +701,13 @@ quickr_file_has_makevars_uncached_function <- function(path) {
   function_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]"
   substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
   shell_assignment_pattern <- "^[[:space:]]*(?:(?:export|override|private)[[:space:]]+)*[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]*!="
+  indirect_ref_pattern <- "\\$[({]\\$[({]"
   any(grepl(
     paste(
       function_pattern,
       substitution_pattern,
       shell_assignment_pattern,
+      indirect_ref_pattern,
       sep = "|"
     ),
     lines,
@@ -789,7 +791,7 @@ quickr_makeconf_paths <- function(config_name = "") {
   }
 
   variables <- quickr_makevars_seed_variables(config_name)
-  makefiles <- quickr_makefiles_paths()
+  makefiles <- quickr_makefiles_paths(config_name)
   if (length(makefiles)) {
     scan <- quickr_makevars_scan_include_paths(
       makefiles,
@@ -813,19 +815,23 @@ quickr_makeconf_signature <- function(config_name = "") {
   paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
 }
 
-quickr_makefiles_paths <- function() {
+quickr_makefiles_paths <- function(config_name = "") {
   makefiles <- Sys.getenv("MAKEFILES", unset = "")
   if (!nzchar(makefiles)) {
     return(character())
   }
 
+  makefiles <- quickr_expand_makevars_variables(
+    makefiles,
+    quickr_makevars_seed_variables(config_name)
+  )
   paths <- strsplit(makefiles, "[[:space:]]+")[[1]]
   paths <- paths[nzchar(paths)]
   normalizePath(path.expand(paths), winslash = "/", mustWork = FALSE)
 }
 
 quickr_makefiles_all_paths <- function(config_name = "") {
-  paths <- quickr_makefiles_paths()
+  paths <- quickr_makefiles_paths(config_name)
   if (!length(paths)) {
     return(character())
   }
