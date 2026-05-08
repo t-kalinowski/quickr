@@ -316,6 +316,19 @@ quickr_makevars_condition_result <- function(line, variables) {
   }
 
   match <- regexec(
+    "^(ifeq|ifneq)[[:space:]]+(['\"])(.*)\\2[[:space:]]+(['\"])(.*)\\4$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 6L) {
+    left <- quickr_makevars_condition_value(parts[[4]], variables)
+    right <- quickr_makevars_condition_value(parts[[6]], variables)
+    equal <- identical(left, right)
+    return(if (identical(parts[[2]], "ifeq")) equal else !equal)
+  }
+
+  match <- regexec(
     "^(ifdef|ifndef)[[:space:]]+(.+)$",
     line,
     perl = TRUE
