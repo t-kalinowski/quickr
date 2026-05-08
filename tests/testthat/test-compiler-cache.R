@@ -150,6 +150,43 @@ test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on platform Makevars", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  dir.create(file.path(home, ".R"))
+  makevars <- file.path(home, ".R", paste0("Makevars-", R.version$platform))
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = NA,
+    R_MAKEVARS_USER = NA
+  ))
+
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr:::quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_flang_available reuses successful probes", {
   cache <- new.env(parent = emptyenv())
   calls <- 0L

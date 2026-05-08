@@ -56,6 +56,19 @@ quickr_r_cmd <- function(
 
 quickr_compiler_probe_cache <- new.env(parent = emptyenv())
 
+quickr_default_makevars_names <- function(
+  platform = R.version$platform
+) {
+  unique(c(
+    paste0("Makevars-", platform),
+    "Makevars.ucrt",
+    "Makevars.win64",
+    "Makevars.win32",
+    "Makevars.win",
+    "Makevars"
+  ))
+}
+
 quickr_makevars_paths <- function() {
   user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
   user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
@@ -66,7 +79,7 @@ quickr_makevars_paths <- function() {
       user_root <- Sys.getenv("HOME", unset = "")
     }
     if (nzchar(user_root)) {
-      file.path(user_root, ".R", c("Makevars", "Makevars.win"))
+      file.path(user_root, ".R", quickr_default_makevars_names())
     } else {
       character()
     }
