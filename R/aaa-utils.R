@@ -54,11 +54,960 @@ quickr_r_cmd <- function(
   r_cmd
 }
 
+quickr_compiler_probe_cache <- new.env(parent = emptyenv())
+
+quickr_default_makevars_names <- function(
+  platform = Sys.getenv("R_PLATFORM", unset = R.version$platform),
+  os_type = Sys.getenv("R_OSTYPE", unset = .Platform$OS.type)
+) {
+  if (identical(os_type, "windows")) {
+    return(c(
+      "Makevars.ucrt",
+      "Makevars.win64",
+      "Makevars.win",
+      "Makevars"
+    ))
+  }
+
+  c(paste0("Makevars-", platform), "Makevars")
+}
+
+quickr_r_etc_path <- function(
+  file,
+  r_home = R.home(),
+  r_arch = Sys.getenv("R_ARCH", unset = "")
+) {
+  file.path(r_home, paste0("etc", r_arch), file)
+}
+
+quickr_default_site_makevars_path <- function() {
+  quickr_r_etc_path("Makevars.site")
+}
+
+quickr_makeconf_path <- function() {
+  quickr_r_etc_path("Makeconf")
+}
+
+quickr_regular_file_exists <- function(path) {
+  info <- file.info(path)
+  !is.na(info$isdir) && !info$isdir
+}
+
+quickr_default_user_makevars_paths <- function() {
+  home <- Sys.getenv("HOME", unset = "")
+  if (!nzchar(home)) {
+    return(character())
+  }
+
+  file.path(home, ".R", quickr_default_makevars_names())
+}
+
+quickr_makevars_paths <- function() {
+  user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
+  user_paths <- if (!is.na(user_makevars) && nzchar(user_makevars)) {
+    if (quickr_regular_file_exists(user_makevars)) {
+      user_makevars
+    } else {
+      unique(c(user_makevars, quickr_default_user_makevars_paths()))
+    }
+  } else {
+    quickr_default_user_makevars_paths()
+  }
+
+  site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
+  site_paths <- if (is.na(site_makevars)) {
+    quickr_default_site_makevars_path()
+  } else if (nzchar(site_makevars)) {
+    site_makevars
+  } else {
+    character()
+  }
+
+  unique(c(site_paths, user_paths))
+}
+
+quickr_first_existing_file <- function(paths) {
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return(character())
+  }
+
+  paths[[1]]
+}
+
+quickr_active_makevars_paths <- function() {
+  site_makevars <- Sys.getenv("R_MAKEVARS_SITE", unset = NA_character_)
+  site_path <- if (is.na(site_makevars)) {
+    quickr_default_site_makevars_path()
+  } else if (nzchar(site_makevars)) {
+    site_makevars
+  } else {
+    character()
+  }
+  site_path <- if (length(site_path) && quickr_regular_file_exists(site_path)) {
+    site_path
+  } else {
+    character()
+  }
+
+  user_makevars <- Sys.getenv("R_MAKEVARS_USER", unset = NA_character_)
+  user_path <- if (
+    !is.na(user_makevars) &&
+      nzchar(user_makevars) &&
+      quickr_regular_file_exists(user_makevars)
+  ) {
+    user_makevars
+  } else {
+    quickr_first_existing_file(quickr_default_user_makevars_paths())
+  }
+
+  unique(c(site_path, user_path))
+}
+
+quickr_file_signature <- function(path) {
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (!quickr_regular_file_exists(path)) {
+    return(paste(path, "<missing>", sep = "="))
+  }
+
+  info <- file.info(path)
+  hash <- unname(tools::md5sum(path))
+  paste(path, info$size, info$mtime, hash, sep = "=")
+}
+
+quickr_makevars_seed_variables <- function(config_name = "") {
+  variables <- c(R_HOME = R.home())
+  command_line_variables <- "R_HOME"
+  if (nzchar(config_name)) {
+    variables <- c(variables, VAR = config_name)
+    command_line_variables <- c(command_line_variables, "VAR")
+  }
+
+  attr(variables, "quickr_command_line_variables") <- command_line_variables
+  variables
+}
+
+quickr_makeconf_variables <- function(config_name = "") {
+  variables <- quickr_makevars_seed_variables(config_name)
+  makefiles <- quickr_makefiles_paths(config_name)
+  if (length(makefiles)) {
+    scan <- quickr_makevars_scan_include_paths(
+      makefiles,
+      variables = variables,
+      visited = character()
+    )
+    variables <- scan$variables
+  }
+
+  path <- quickr_makeconf_path()
+  if (!quickr_regular_file_exists(path)) {
+    return(variables)
+  }
+
+  scan <- quickr_makevars_scan_include_paths(
+    normalizePath(path, winslash = "/", mustWork = FALSE),
+    variables = variables,
+    visited = character()
+  )
+  scan$variables
+}
+
+quickr_makevars_include_paths <- function(paths, config_name = "") {
+  scan <- quickr_makevars_scan_include_paths(
+    normalizePath(paths, winslash = "/", mustWork = FALSE),
+    variables = quickr_makeconf_variables(config_name),
+    visited = character()
+  )
+  scan$paths
+}
+
+quickr_makevars_scan_include_paths <- function(paths, variables, visited) {
+  paths <- unique(normalizePath(paths, winslash = "/", mustWork = FALSE))
+  out <- character()
+  vars <- variables
+
+  for (path in paths) {
+    scan <- quickr_makevars_scan_one_include_path(path, vars, visited)
+    out <- unique(c(out, scan$paths))
+    vars <- scan$variables
+  }
+
+  list(paths = out, variables = vars)
+}
+
+quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  if (path %in% visited || !quickr_regular_file_exists(path)) {
+    return(list(paths = character(), variables = variables))
+  }
+
+  lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  out <- character()
+  vars <- variables
+  conditional_stack <- list()
+  define_assignment <- NULL
+  define_lines <- character()
+
+  for (line in lines) {
+    if (startsWith(line, "\t") && is.null(define_assignment)) {
+      next
+    }
+
+    line <- trimws(quickr_strip_make_comment(line))
+    if (!nzchar(line)) {
+      next
+    }
+
+    if (!is.null(define_assignment)) {
+      if (quickr_makevars_define_end(line)) {
+        define_assignment$value <- paste(define_lines, collapse = "\n")
+        vars <- quickr_makevars_apply_assignment(vars, define_assignment)
+        define_assignment <- NULL
+        define_lines <- character()
+      } else {
+        define_lines <- c(define_lines, line)
+      }
+      next
+    }
+
+    conditional <- quickr_makevars_update_conditionals(
+      line,
+      vars,
+      conditional_stack
+    )
+    if (!is.null(conditional)) {
+      conditional_stack <- conditional
+      next
+    }
+
+    if (!quickr_makevars_conditionals_active(conditional_stack)) {
+      next
+    }
+
+    define_assignment <- quickr_makevars_define_assignment(line)
+    if (!is.null(define_assignment)) {
+      define_lines <- character()
+      next
+    }
+
+    assignment <- quickr_makevars_assignment(line)
+    if (!is.null(assignment)) {
+      vars <- quickr_makevars_apply_assignment(vars, assignment)
+      next
+    }
+
+    included <- quickr_makevars_include_paths_from_line(line, vars, path)
+    out <- unique(c(out, included))
+    if (length(included)) {
+      scan <- quickr_makevars_scan_include_paths(
+        included,
+        vars,
+        c(visited, path)
+      )
+      out <- unique(c(out, scan$paths))
+      vars <- scan$variables
+    }
+  }
+
+  list(paths = out, variables = vars)
+}
+
+quickr_makevars_define_assignment <- function(line) {
+  match <- regexec(
+    "^((?:(?:export|override)[[:space:]]+)*)?define[[:space:]]+([A-Za-z_][A-Za-z0-9_.-]*).*$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) != 3L) {
+    return(NULL)
+  }
+
+  list(
+    name = parts[[3]],
+    operator = "=",
+    value = "",
+    override = grepl("(^|[[:space:]])override[[:space:]]+", parts[[2]])
+  )
+}
+
+quickr_makevars_define_end <- function(line) {
+  identical(line, "endef")
+}
+
+quickr_makevars_update_conditionals <- function(line, variables, stack) {
+  condition <- quickr_makevars_condition_result(line, variables)
+  if (!is.null(condition)) {
+    parent_active <- quickr_makevars_conditionals_active(stack)
+    stack[[length(stack) + 1L]] <- list(
+      parent_active = parent_active,
+      matched = condition,
+      active = parent_active && condition
+    )
+    return(stack)
+  }
+
+  if (grepl("^else([[:space:]]|$)", line)) {
+    if (!length(stack)) {
+      return(NULL)
+    }
+
+    rest <- trimws(sub("^else", "", line))
+    top <- stack[[length(stack)]]
+    condition <- if (nzchar(rest)) {
+      quickr_makevars_condition_result(rest, variables)
+    } else {
+      TRUE
+    }
+    if (is.null(condition)) {
+      condition <- TRUE
+    }
+    top$active <- top$parent_active && !top$matched && condition
+    top$matched <- top$matched || condition
+    stack[[length(stack)]] <- top
+    return(stack)
+  }
+
+  if (identical(line, "endif")) {
+    if (!length(stack)) {
+      return(NULL)
+    }
+
+    stack[[length(stack)]] <- NULL
+    return(stack)
+  }
+
+  NULL
+}
+
+quickr_makevars_conditionals_active <- function(stack) {
+  if (!length(stack)) {
+    return(TRUE)
+  }
+
+  isTRUE(stack[[length(stack)]]$active)
+}
+
+quickr_makevars_condition_result <- function(line, variables) {
+  match <- regexec(
+    "^(ifeq|ifneq)[[:space:]]*\\((.*?),(.*)\\)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 4L) {
+    left <- quickr_makevars_condition_value(parts[[3]], variables)
+    right <- quickr_makevars_condition_value(parts[[4]], variables)
+    equal <- identical(left, right)
+    return(if (identical(parts[[2]], "ifeq")) equal else !equal)
+  }
+
+  match <- regexec(
+    "^(ifeq|ifneq)[[:space:]]+(['\"])(.*)\\2[[:space:]]+(['\"])(.*)\\4$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 6L) {
+    left <- quickr_makevars_condition_value(parts[[4]], variables)
+    right <- quickr_makevars_condition_value(parts[[6]], variables)
+    equal <- identical(left, right)
+    return(if (identical(parts[[2]], "ifeq")) equal else !equal)
+  }
+
+  match <- regexec(
+    "^(ifdef|ifndef)[[:space:]]+(.+)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) == 3L) {
+    name <- quickr_makevars_condition_value(parts[[3]], variables)
+    value <- quickr_makevars_variable_value(name, variables)
+    defined <- nzchar(value)
+    return(if (identical(parts[[2]], "ifdef")) defined else !defined)
+  }
+
+  NULL
+}
+
+quickr_makevars_condition_value <- function(value, variables) {
+  value <- trimws(quickr_expand_makevars_variables(value, variables))
+  sub("^(['\"])(.*)\\1$", "\\2", value, perl = TRUE)
+}
+
+quickr_join_makevars_continuations <- function(lines) {
+  out <- character()
+  current <- ""
+
+  for (line in lines) {
+    if (nzchar(current)) {
+      line <- paste(current, trimws(line, which = "left"))
+    }
+
+    if (grepl("\\\\$", line)) {
+      current <- sub("\\\\$", "", line)
+      next
+    }
+
+    out <- c(out, line)
+    current <- ""
+  }
+
+  if (nzchar(current)) {
+    out <- c(out, current)
+  }
+
+  out
+}
+
+quickr_makevars_assignment <- function(line) {
+  match <- regexec(
+    "^((?:(?:export|override|private)[[:space:]]+)*)?([A-Za-z_][A-Za-z0-9_.-]*)[[:space:]]*([:?+]?=)[[:space:]]*(.*)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) != 5L) {
+    return(NULL)
+  }
+
+  list(
+    name = parts[[3]],
+    operator = parts[[4]],
+    value = parts[[5]],
+    override = grepl("(^|[[:space:]])override[[:space:]]+", parts[[2]])
+  )
+}
+
+quickr_makevars_apply_assignment <- function(variables, assignment) {
+  name <- assignment$name
+  value <- assignment$value
+  command_line_variables <- attr(
+    variables,
+    "quickr_command_line_variables",
+    exact = TRUE
+  )
+  simple_variables <- attr(
+    variables,
+    "quickr_simple_variables",
+    exact = TRUE
+  ) %||%
+    character()
+
+  if (name %in% command_line_variables && !isTRUE(assignment$override)) {
+    return(variables)
+  }
+
+  if (
+    identical(assignment$operator, "?=") &&
+      (name %in%
+        names(variables) ||
+        !is.na(Sys.getenv(name, unset = NA_character_)))
+  ) {
+    return(variables)
+  }
+
+  if (identical(assignment$operator, ":=")) {
+    value <- quickr_expand_makevars_variables(value, variables)
+    simple_variables <- union(simple_variables, name)
+  } else if (!identical(assignment$operator, "+=")) {
+    simple_variables <- setdiff(simple_variables, name)
+  }
+
+  if (identical(assignment$operator, "+=")) {
+    if (name %in% simple_variables) {
+      value <- quickr_expand_makevars_variables(value, variables)
+    }
+    old_value <- quickr_makevars_variable_value(name, variables)
+    if (nzchar(old_value)) {
+      value <- paste(old_value, value)
+    }
+  }
+
+  variables[[name]] <- value
+  attr(variables, "quickr_command_line_variables") <- command_line_variables
+  attr(variables, "quickr_simple_variables") <- simple_variables
+  variables
+}
+
+quickr_makevars_include_paths_from_line <- function(
+  line,
+  variables,
+  makevars_path
+) {
+  match <- regexec(
+    "^(-?include|sinclude)[[:space:]]+(.+)$",
+    line,
+    perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) != 3L) {
+    return(character())
+  }
+
+  spec <- quickr_expand_makevars_variables(parts[[3]], variables)
+  spec <- quickr_expand_makevars_wildcard_functions(spec)
+  paths <- strsplit(trimws(spec), "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  paths <- unlist(
+    lapply(paths, quickr_resolve_makevars_include_path, makevars_path),
+    use.names = FALSE
+  )
+
+  unique(paths)
+}
+
+quickr_strip_make_comment <- function(line) {
+  sub("(^|[^\\\\])#.*$", "\\1", line, perl = TRUE)
+}
+
+quickr_expand_makevars_variables <- function(text, variables) {
+  for (i in seq_len(20L)) {
+    match <- regexpr(
+      "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}|\\$([A-Za-z_])",
+      text,
+      perl = TRUE
+    )
+    if (match[[1]] == -1L) {
+      break
+    }
+
+    token <- regmatches(text, match)
+    name <- quickr_makevars_variable_token_name(token)
+    value <- quickr_makevars_variable_value(name, variables)
+    regmatches(text, match) <- value
+  }
+
+  text
+}
+
+quickr_makevars_variable_token_name <- function(token) {
+  if (grepl("^\\$[({]", token)) {
+    return(sub(
+      "^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$",
+      "\\1",
+      token
+    ))
+  }
+
+  substring(token, 2L)
+}
+
+quickr_expand_makevars_wildcard_functions <- function(text) {
+  for (i in seq_len(20L)) {
+    match <- regexpr(
+      "\\$\\(wildcard[[:space:]]+([^()]*)\\)|\\$\\{wildcard[[:space:]]+([^{}]*)\\}",
+      text,
+      perl = TRUE
+    )
+    if (match[[1]] == -1L) {
+      break
+    }
+
+    token <- regmatches(text, match)
+    spec <- sub(
+      "^\\$\\(wildcard[[:space:]]+([^()]*)\\)$",
+      "\\1",
+      token,
+      perl = TRUE
+    )
+    if (identical(spec, token)) {
+      spec <- sub(
+        "^\\$\\{wildcard[[:space:]]+([^{}]*)\\}$",
+        "\\1",
+        token,
+        perl = TRUE
+      )
+    }
+    regmatches(text, match) <- quickr_makevars_wildcard_value(spec)
+  }
+
+  text
+}
+
+quickr_makevars_wildcard_value <- function(spec) {
+  paths <- strsplit(trimws(spec), "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  matches <- unlist(lapply(paths, Sys.glob), use.names = FALSE)
+  if (!length(matches)) {
+    return("")
+  }
+
+  paste(
+    normalizePath(matches, winslash = "/", mustWork = FALSE),
+    collapse = " "
+  )
+}
+
+quickr_makevars_variable_value <- function(name, variables) {
+  if (name %in% names(variables)) {
+    return(variables[[name]])
+  }
+
+  if (identical(name, "R_HOME")) {
+    return(R.home())
+  }
+  if (identical(name, "CURDIR")) {
+    return(normalizePath(getwd(), winslash = "/", mustWork = TRUE))
+  }
+
+  Sys.getenv(name, unset = "")
+}
+
+quickr_resolve_makevars_include_path <- function(path, makevars_path) {
+  path <- path.expand(path)
+  quickr_expand_makevars_include_globs(path)
+}
+
+quickr_expand_makevars_include_globs <- function(paths) {
+  out <- unlist(
+    lapply(paths, \(path) {
+      matches <- Sys.glob(path)
+      if (length(matches)) {
+        matches
+      } else {
+        path
+      }
+    }),
+    use.names = FALSE
+  )
+
+  normalizePath(out, winslash = "/", mustWork = FALSE)
+}
+
+quickr_makevars_all_paths <- function(config_name = "") {
+  paths <- quickr_makevars_paths()
+  active_paths <- quickr_active_makevars_paths()
+  if (!length(paths) && !length(active_paths)) {
+    return(character())
+  }
+
+  unique(c(paths, quickr_makevars_include_paths(active_paths, config_name)))
+}
+
+quickr_active_makevars_all_paths <- function(config_name = "") {
+  paths <- quickr_active_makevars_paths()
+  if (!length(paths)) {
+    return(character())
+  }
+
+  unique(c(paths, quickr_makevars_include_paths(paths, config_name)))
+}
+
+quickr_makevars_signature <- function(config_name = "") {
+  paths <- quickr_makevars_all_paths(config_name)
+  if (!length(paths)) {
+    return("")
+  }
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
+quickr_makevars_env_signature <- function(config_name = "") {
+  paths <- unique(c(
+    quickr_active_makevars_all_paths(config_name),
+    quickr_makefiles_all_paths(config_name),
+    quickr_makeconf_paths(config_name)
+  ))
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return("")
+  }
+
+  refs <- unique(unlist(
+    lapply(paths, quickr_makevars_variable_refs),
+    use.names = FALSE
+  ))
+  if (!length(refs)) {
+    return("")
+  }
+
+  values <- vapply(refs, quickr_makevars_env_value, character(1))
+  paste(paste(names(values), values, sep = "="), collapse = "\r")
+}
+
+quickr_makevars_has_uncached_functions <- function(config_name = "") {
+  if (quickr_makefiles_has_uncached_functions(config_name)) {
+    return(TRUE)
+  }
+
+  paths <- unique(c(
+    quickr_active_makevars_all_paths(config_name),
+    quickr_makefiles_all_paths(config_name)
+  ))
+  paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
+  if (!length(paths)) {
+    return(FALSE)
+  }
+
+  any(vapply(paths, quickr_file_has_makevars_uncached_function, logical(1)))
+}
+
+quickr_makefiles_has_uncached_functions <- function(config_name = "") {
+  makefiles <- Sys.getenv("MAKEFILES", unset = "")
+  if (!nzchar(makefiles)) {
+    return(FALSE)
+  }
+
+  makefiles <- quickr_expand_makevars_variables(
+    makefiles,
+    quickr_makevars_seed_variables(config_name)
+  )
+  quickr_text_has_makevars_uncached_function(makefiles)
+}
+
+quickr_file_has_makevars_uncached_function <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  lines <- vapply(lines, quickr_strip_make_comment, character(1))
+  quickr_text_has_makevars_uncached_function(lines)
+}
+
+quickr_text_has_makevars_uncached_function <- function(text) {
+  function_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]"
+  substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
+  shell_assignment_pattern <- "^[[:space:]]*(?:(?:export|override|private)[[:space:]]+)*[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]*!="
+  indirect_ref_pattern <- "\\$[({][^)}]*\\$[({]"
+  indirect_conditional_pattern <- "^[[:space:]]*(?:else[[:space:]]+)?ifn?def[[:space:]]+\\$[({]"
+  any(grepl(
+    paste(
+      function_pattern,
+      substitution_pattern,
+      shell_assignment_pattern,
+      indirect_ref_pattern,
+      indirect_conditional_pattern,
+      sep = "|"
+    ),
+    text,
+    perl = TRUE
+  ))
+}
+
+quickr_makevars_variable_refs <- function(path) {
+  lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  lines <- vapply(lines, quickr_strip_make_comment, character(1))
+  unique(c(
+    quickr_makevars_text_variable_refs(paste(lines, collapse = "\n")),
+    quickr_makevars_conditional_variable_refs(lines)
+  ))
+}
+
+quickr_makevars_conditional_variable_refs <- function(lines) {
+  lines <- trimws(lines)
+  refs <- unlist(
+    lapply(lines, \(line) {
+      match <- regexec(
+        "^(?:else[[:space:]]+)?(?:ifdef|ifndef)[[:space:]]+([A-Za-z_][A-Za-z0-9_.-]*)$",
+        line,
+        perl = TRUE
+      )
+      parts <- regmatches(line, match)[[1]]
+      if (length(parts) == 2L) {
+        parts[[2]]
+      } else {
+        character()
+      }
+    }),
+    use.names = FALSE
+  )
+
+  unique(refs)
+}
+
+quickr_makevars_text_variable_refs <- function(text) {
+  matches <- gregexpr(
+    "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}|\\$([A-Za-z_])",
+    text,
+    perl = TRUE
+  )
+  tokens <- regmatches(text, matches)[[1]]
+  if (!length(tokens)) {
+    return(character())
+  }
+
+  unique(vapply(tokens, quickr_makevars_variable_token_name, character(1)))
+}
+
+quickr_makevars_env_value <- function(name) {
+  if (identical(name, "R_HOME")) {
+    return(paste0("set:", R.home()))
+  }
+  if (identical(name, "CURDIR")) {
+    return(paste0(
+      "set:",
+      normalizePath(getwd(), winslash = "/", mustWork = TRUE)
+    ))
+  }
+
+  value <- Sys.getenv(name, unset = NA_character_)
+  if (is.na(value)) {
+    return("unset:")
+  }
+
+  paste0("set:", value)
+}
+
+quickr_makeconf_paths <- function(config_name = "") {
+  path <- quickr_makeconf_path()
+  if (!quickr_regular_file_exists(path)) {
+    return(normalizePath(path, winslash = "/", mustWork = FALSE))
+  }
+
+  variables <- quickr_makevars_seed_variables(config_name)
+  makefiles <- quickr_makefiles_paths(config_name)
+  if (length(makefiles)) {
+    scan <- quickr_makevars_scan_include_paths(
+      makefiles,
+      variables = variables,
+      visited = character()
+    )
+    variables <- scan$variables
+  }
+
+  path <- normalizePath(path, winslash = "/", mustWork = FALSE)
+  scan <- quickr_makevars_scan_include_paths(
+    path,
+    variables = variables,
+    visited = character()
+  )
+  unique(c(path, scan$paths))
+}
+
+quickr_makeconf_signature <- function(config_name = "") {
+  paths <- quickr_makeconf_paths(config_name)
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
+quickr_makefiles_paths <- function(config_name = "") {
+  makefiles <- Sys.getenv("MAKEFILES", unset = "")
+  if (!nzchar(makefiles)) {
+    return(character())
+  }
+
+  makefiles <- quickr_expand_makevars_variables(
+    makefiles,
+    quickr_makevars_seed_variables(config_name)
+  )
+  paths <- strsplit(makefiles, "[[:space:]]+")[[1]]
+  paths <- paths[nzchar(paths)]
+  normalizePath(path.expand(paths), winslash = "/", mustWork = FALSE)
+}
+
+quickr_makefiles_all_paths <- function(config_name = "") {
+  paths <- quickr_makefiles_paths(config_name)
+  if (!length(paths)) {
+    return(character())
+  }
+
+  scan <- quickr_makevars_scan_include_paths(
+    paths,
+    variables = quickr_makevars_seed_variables(config_name),
+    visited = character()
+  )
+  unique(c(paths, scan$paths))
+}
+
+quickr_makefiles_signature <- function(config_name = "") {
+  paths <- quickr_makefiles_all_paths(config_name)
+  if (!length(paths)) {
+    return("")
+  }
+
+  paste(vapply(paths, quickr_file_signature, character(1)), collapse = "\r")
+}
+
+quickr_toolchain_env_signature <- function(config_name = "") {
+  vars <- c(
+    "PATH",
+    "BINPREF",
+    "HOME",
+    "R_USER",
+    "R_ARCH",
+    "R_PLATFORM",
+    "CC",
+    "CXX",
+    "FC",
+    "F77",
+    "CFLAGS",
+    "CXXFLAGS",
+    "FFLAGS",
+    "FCFLAGS",
+    "LDFLAGS",
+    "LIBS",
+    "MAKE",
+    "MAKEFILES",
+    "R_MAKEVARS_SITE",
+    "R_MAKEVARS_USER"
+  )
+  env <- Sys.getenv(vars, unset = NA_character_)
+  paste(
+    c(
+      paste(names(env), env, sep = "="),
+      paste("MAKEVARS", quickr_makevars_signature(config_name), sep = "="),
+      paste(
+        "MAKEVARS_ENV",
+        quickr_makevars_env_signature(config_name),
+        sep = "="
+      ),
+      paste(
+        "MAKEFILES_FILES",
+        quickr_makefiles_signature(config_name),
+        sep = "="
+      ),
+      paste("MAKECONF", quickr_makeconf_signature(config_name), sep = "=")
+    ),
+    collapse = "\r"
+  )
+}
+
+quickr_r_cmd_config_cache_key <- function(name) {
+  paste("r_cmd_config", name, quickr_toolchain_env_signature(name), sep = "\r")
+}
+
+quickr_cached_r_cmd_config_value <- function(
+  name,
+  cache = quickr_compiler_probe_cache
+) {
+  stopifnot(is_string(name), is.environment(cache))
+
+  if (quickr_makevars_has_uncached_functions(name)) {
+    return(quickr_r_cmd_config_probe(name)$value)
+  }
+
+  cache_key <- quickr_r_cmd_config_cache_key(name)
+  cached <- get0(cache_key, envir = cache, inherits = FALSE, ifnotfound = NULL)
+  if (is.null(cached)) {
+    probe <- quickr_r_cmd_config_probe(name)
+    cached <- probe$value
+    if (isTRUE(probe$ok)) {
+      assign(cache_key, cached, envir = cache)
+    }
+  }
+
+  cached
+}
+
 quickr_r_cmd_config_value <- function(
   name,
   r_cmd = quickr_r_cmd(),
   system2 = base::system2
 ) {
+  quickr_r_cmd_config_probe(
+    name = name,
+    r_cmd = r_cmd,
+    system2 = system2
+  )$value
+}
+
+quickr_r_cmd_config_probe <- function(
+  name,
+  r_cmd = quickr_r_cmd(),
+  system2 = base::system2
+) {
+  stopifnot(is_string(name), is_string(r_cmd), is.function(system2))
+
   out <- tryCatch(
     suppressWarnings(system2(
       r_cmd,
@@ -66,17 +1015,21 @@ quickr_r_cmd_config_value <- function(
       stdout = TRUE,
       stderr = FALSE
     )),
-    error = function(e) character()
+    error = function(e) structure(character(), status = 1L)
   )
   status <- attr(out, "status")
   if (!is.null(status)) {
-    return("")
+    return(list(value = "", ok = FALSE))
   }
   value <- trimws(paste(out, collapse = " "))
-  if (!nzchar(value) || grepl("^ERROR:", value)) {
-    return("")
+  if (!nzchar(value)) {
+    return(list(value = "", ok = TRUE))
   }
-  value
+  if (grepl("^ERROR:", value)) {
+    return(list(value = "", ok = FALSE))
+  }
+
+  list(value = value, ok = TRUE)
 }
 
 

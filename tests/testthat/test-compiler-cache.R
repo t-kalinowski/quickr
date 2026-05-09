@@ -1,0 +1,2259 @@
+skip_on_cran()
+
+test_that("quickr_cached_r_cmd_config_value reuses successful lookups", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0(name, "-value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "FC-value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "FC-value-1"
+  )
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries failed lookups", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      if (calls == 1L) {
+        return(list(value = "", ok = FALSE))
+      }
+      list(value = "gfortran", ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    ""
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "gfortran"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "gfortran"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on toolchain env", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  withr::local_envvar(FC = "gfortran")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on explicit Makevars content", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on default Makevars with missing explicit path", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  dir.create(file.path(home, ".R"))
+  makevars <- file.path(home, ".R", "Makevars")
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = NA,
+    R_MAKEVARS_USER = file.path(home, "missing-Makevars")
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makevars-referenced env", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC=$(QUICKR_TEST_FC)", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    QUICKR_TEST_FC = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_TEST_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makevars CURDIR", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  build_a <- withr::local_tempdir()
+  build_b <- withr::local_tempdir()
+  writeLines("FC=$(CURDIR)", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  withr::with_dir(build_a, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-1"
+    )
+  })
+  withr::with_dir(build_a, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-1"
+    )
+  })
+
+  withr::with_dir(build_b, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-2"
+    )
+  })
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value ignores cwd without Makevars cwd dependencies", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  build_a <- withr::local_tempdir()
+  build_b <- withr::local_tempdir()
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  withr::with_dir(build_a, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-1"
+    )
+  })
+  withr::with_dir(build_b, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-1"
+    )
+  })
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on included Makevars content", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  included <- withr::local_tempfile()
+  writeLines(paste("include", included), makevars)
+  writeLines("FC=gfortran", included)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", included)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value applies site variables before user includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  site_makevars <- file.path(root, "Makevars.site")
+  user_makevars <- file.path(root, "Makevars")
+  nested <- file.path(root, "nested.mk")
+  writeLines(paste("DIR =", root), site_makevars)
+  writeLines("include $(DIR)/nested.mk", user_makevars)
+  writeLines("FC=gfortran", nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_SITE = site_makevars,
+    R_MAKEVARS_USER = user_makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value treats empty site Makevars as suppressed", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  ignored_root <- file.path(root, "ignored")
+  dir.create(active_root)
+  dir.create(ignored_root)
+  site_makevars <- file.path(root, "Makevars.site")
+  user_makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(paste("DIR =", ignored_root), site_makevars)
+  writeLines("include $(DIR)/toolchain.mk", user_makevars)
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_default_site_makevars_path = function() site_makevars,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    DIR = active_root,
+    R_MAKEVARS_SITE = "",
+    R_MAKEVARS_USER = user_makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=still-ignored", ignored_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value respects env-defined conditional Makevars variables", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  default_root <- file.path(root, "default")
+  env_root <- file.path(root, "env")
+  dir.create(default_root)
+  dir.create(env_root)
+  makevars <- file.path(root, "Makevars")
+  default_nested <- file.path(default_root, "toolchain.mk")
+  env_nested <- file.path(env_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT ?=", default_root),
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=ignored", default_nested)
+  writeLines("FC=gfortran", env_nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    ROOT = env_root,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", env_nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value distinguishes unset and set env refs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  writeLines(
+    c(
+      "MYFC ?= gfortran",
+      "override FC = $(MYFC)"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MYFC = NA,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(MYFC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on single-character Makevars refs", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC = $F", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    F = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(F = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value preserves env values for append assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  env_include <- file.path(root, "env.mk")
+  local_include <- file.path(root, "local.mk")
+  writeLines(
+    c(
+      paste("INCLUDES +=", local_include),
+      "include $(INCLUDES)"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", env_include)
+  writeLines("FFLAGS=-O2", local_include)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    INCLUDES = env_include,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", env_include)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value propagates variables through includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  included <- file.path(root, "included.mk")
+  nested <- file.path(root, "nested.mk")
+  writeLines(
+    c(
+      paste("DIR =", root),
+      "include $(DIR)/included.mk"
+    ),
+    makevars
+  )
+  writeLines("include $(DIR)/nested.mk", included)
+  writeLines("FC=gfortran", nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value resolves relative includes from cwd", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars_dir <- file.path(root, "makevars")
+  build_dir <- file.path(root, "build")
+  real_root <- file.path(root, "real")
+  makevars_root <- file.path(root, "makevars-root")
+  dir.create(makevars_dir)
+  dir.create(build_dir)
+  dir.create(real_root)
+  dir.create(makevars_root)
+  makevars <- file.path(makevars_dir, "Makevars")
+  build_include <- file.path(build_dir, "local.mk")
+  makevars_include <- file.path(makevars_dir, "local.mk")
+  real_toolchain <- file.path(real_root, "toolchain.mk")
+  makevars_toolchain <- file.path(makevars_root, "toolchain.mk")
+  writeLines(
+    c(
+      "include local.mk",
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines(paste("ROOT =", real_root), build_include)
+  writeLines(paste("ROOT =", makevars_root), makevars_include)
+  writeLines("FC=gfortran", real_toolchain)
+  writeLines("FC=ignored", makevars_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  withr::with_dir(build_dir, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-1"
+    )
+  })
+
+  writeLines("FC=flang", real_toolchain)
+  withr::with_dir(build_dir, {
+    expect_identical(
+      quickr_cached_r_cmd_config_value("FC", cache = cache),
+      "value-2"
+    )
+  })
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value honors immediate Makevars assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  first_root <- file.path(root, "first")
+  second_root <- file.path(root, "second")
+  dir.create(first_root)
+  dir.create(second_root)
+  makevars <- file.path(root, "Makevars")
+  first_toolchain <- file.path(first_root, "toolchain.mk")
+  second_toolchain <- file.path(second_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT =", first_root),
+      "INC := $(ROOT)",
+      paste("ROOT =", second_root),
+      "include $(INC)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", first_toolchain)
+  writeLines("FC=ignored", second_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", first_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value expands appends to immediate variables", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  first_root <- file.path(root, "first")
+  append_root <- file.path(root, "append")
+  late_root <- file.path(root, "late")
+  dir.create(first_root)
+  dir.create(append_root)
+  dir.create(late_root)
+  makevars <- file.path(root, "Makevars")
+  first_toolchain <- file.path(first_root, "first.mk")
+  append_toolchain <- file.path(append_root, "second.mk")
+  late_toolchain <- file.path(late_root, "second.mk")
+  writeLines(
+    c(
+      paste("ROOT =", first_root),
+      "INCLUDES := $(ROOT)/first.mk",
+      paste("ROOT =", append_root),
+      "INCLUDES += $(ROOT)/second.mk",
+      paste("ROOT =", late_root),
+      "include $(INCLUDES)"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", first_toolchain)
+  writeLines("FLIBS=-lappend", append_toolchain)
+  writeLines("FLIBS=-llate", late_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FLIBS=-lflang", append_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on wildcard Makevars includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  snippets <- file.path(root, "snippets")
+  dir.create(snippets)
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(snippets, "toolchain.mk")
+  writeLines(
+    paste0("include $(wildcard ", file.path(snippets, "*.mk"), ")"),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on R_PLATFORM Makevars", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  platform <- "quickr-test-platform"
+  dir.create(file.path(home, ".R"))
+  makevars <- file.path(home, ".R", paste0("Makevars-", platform))
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = NA,
+    R_MAKEVARS_USER = NA,
+    R_OSTYPE = "unix",
+    R_PLATFORM = platform
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value ignores inactive Makevars candidates", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  active_root <- file.path(home, "active")
+  ignored_root <- file.path(home, "ignored")
+  dir.create(file.path(home, ".R"))
+  dir.create(active_root)
+  dir.create(ignored_root)
+  makevars <- file.path(home, ".R", "Makevars")
+  ignored_makevars <- file.path(home, ".R", "Makevars.ucrt")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(paste("ROOT =", ignored_root), ignored_makevars)
+  writeLines(
+    c(
+      paste("ROOT ?=", active_root),
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_MAKEVARS_USER = NA,
+    R_OSTYPE = "unix"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value respects Makevars conditionals", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  inactive_root <- file.path(root, "inactive")
+  dir.create(active_root)
+  dir.create(inactive_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  inactive_toolchain <- file.path(inactive_root, "toolchain.mk")
+  writeLines(
+    c(
+      "ifeq ($(USE_A),1)",
+      paste("ROOT =", active_root),
+      "else",
+      paste("ROOT =", inactive_root),
+      "endif",
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", inactive_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value splits ifeq at the first comma", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  dir.create(active_root)
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(active_root, "toolchain.mk")
+  writeLines(
+    c(
+      "TARGET = x86,arm64",
+      "ifeq ($(TARGET),x86,arm64)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value respects quoted Makevars conditionals", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  inactive_root <- file.path(root, "inactive")
+  dir.create(active_root)
+  dir.create(inactive_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  inactive_toolchain <- file.path(inactive_root, "toolchain.mk")
+  writeLines(
+    c(
+      "ifeq \"$(USE_A)\" \"1\"",
+      paste("ROOT =", active_root),
+      "else",
+      paste("ROOT =", inactive_root),
+      "endif",
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", inactive_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with shell functions", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC = $(shell cat", compiler_file, ")"), makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars shell assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC != cat", compiler_file), makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value parses prefixed Makevars assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  dir.create(active_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("export ROOT =", active_root),
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on ifdef Makevars variables", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "ifdef USE_A",
+      "FC=gfortran",
+      "else",
+      "FC=flang",
+      "endif"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(USE_A = NA)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value expands ifdef variable names", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  dir.create(active_root)
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(active_root, "toolchain.mk")
+  writeLines(
+    c(
+      "FLAG_NAME = USE_A",
+      "USE_A = 1",
+      "ifdef $(FLAG_NAME)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries direct assignments behind indirect ifdef names", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "FLAG_NAME = USE_A",
+      "ifdef $(FLAG_NAME)",
+      "FC=gfortran",
+      "else",
+      "FC=flang",
+      "endif"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(USE_A = NA)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with wildcard assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  compiler_dir <- file.path(root, "compiler")
+  dir.create(compiler_dir)
+  writeLines(
+    paste0("FC = $(wildcard ", file.path(compiler_dir, "gfortran"), ")"),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  file.create(file.path(compiler_dir, "gfortran"))
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with unresolved functions", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC = $(abspath gfortran)", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with indirect refs", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "FC_VAR = QUICKR_FC",
+      "FC = $($(FC_VAR))"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    QUICKR_FC = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with computed refs", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "SUFFIX = A",
+      "FC = $(ROOT_$(SUFFIX))"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    ROOT_A = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(ROOT_A = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on MAKEFILES content", {
+  cache <- new.env(parent = emptyenv())
+  makefile <- withr::local_tempfile()
+  writeLines("FC=gfortran", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = makefile)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makefile)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value expands MAKEFILES entries", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  writeLines("FC=gfortran", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MAKEFILES = "$(ROOT)/global.mk",
+    ROOT = root
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makefile)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries dynamic MAKEFILES entries", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  writeLines("FC=gfortran", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = paste0("$(wildcard ", root, "/*.mk)"))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makefile)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on nested MAKEFILES content", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "top.mk")
+  nested <- file.path(root, "nested.mk")
+  writeLines(paste("include", nested), makefile)
+  writeLines("FC=gfortran", nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = makefile)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on MAKEFILES env refs", {
+  cache <- new.env(parent = emptyenv())
+  makefile <- withr::local_tempfile()
+  writeLines("override FC = $(QUICKR_FC)", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MAKEFILES = makefile,
+    QUICKR_FC = "gfortran"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries dynamic MAKEFILES inputs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("override FC = $(shell cat", compiler_file, ")"), makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = makefile)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with Makeconf", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "toolchain.mk")
+  writeLines("FC=gfortran", makeconf)
+  writeLines(
+    c(
+      "ifeq ($(FC),gfortran)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FLIBS=-lgfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    FC = NA,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FLIBS", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FLIBS=-lflang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FLIBS", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with requested VAR", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "fc.mk")
+  writeLines(
+    c(
+      "ifeq ($(VAR),FC)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makeconf includes", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  nested <- file.path(root, "toolchain.mk")
+  writeLines(paste("include", nested), makeconf)
+  writeLines("FC=gfortran", nested)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", nested)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on Makeconf env refs", {
+  cache <- new.env(parent = emptyenv())
+  makeconf <- withr::local_tempfile()
+  writeLines("FC=$(QUICKR_FC)", makeconf)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(QUICKR_FC = "gfortran")
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(QUICKR_FC = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value caches Makeconf make functions", {
+  cache <- new.env(parent = emptyenv())
+  makeconf <- withr::local_tempfile()
+  writeLines(
+    c(
+      "USE_LLVM =",
+      "CCBASE = $(if $(USE_LLVM),clang,gcc)",
+      "FC = $(CCBASE)"
+    ),
+    makeconf
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on dynamic Makeconf content", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makeconf <- file.path(root, "Makeconf")
+  compiler_file <- file.path(root, "fc")
+  writeLines("gfortran", compiler_file)
+  writeLines(paste("FC = $(shell cat", compiler_file, ")"), makeconf)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines(
+    paste("FC = $(shell cat", compiler_file, ") # changed"),
+    makeconf
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value ignores Makevars recipe assignments", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  ignored_root <- file.path(root, "ignored")
+  dir.create(active_root)
+  dir.create(ignored_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT =", active_root),
+      "target:",
+      paste0("\tROOT = ", ignored_root),
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value ignores Makevars define bodies", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  active_root <- file.path(root, "active")
+  ignored_root <- file.path(root, "ignored")
+  dir.create(active_root)
+  dir.create(ignored_root)
+  makevars <- file.path(root, "Makevars")
+  active_toolchain <- file.path(active_root, "toolchain.mk")
+  ignored_toolchain <- file.path(ignored_root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT =", active_root),
+      "define toolchain_template",
+      paste("ROOT =", ignored_root),
+      "endef",
+      "include $(ROOT)/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", active_toolchain)
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", active_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value preserves Makevars define variables", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "toolchain.mk")
+  writeLines(
+    c(
+      "define TOOLCHAIN",
+      toolchain,
+      "endef",
+      "include $(TOOLCHAIN)"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value preserves command-line VAR", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "fc.mk")
+  writeLines(
+    c(
+      "VAR = FLIBS",
+      "ifeq ($(VAR),FC)",
+      paste("include", toolchain),
+      "endif"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value preserves command-line R_HOME", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  ignored_root <- file.path(root, "ignored-r-home")
+  ignored_etc <- file.path(ignored_root, "etc")
+  dir.create(ignored_etc, recursive = TRUE)
+  makevars <- file.path(root, "Makevars")
+  ignored_toolchain <- file.path(ignored_etc, "toolchain.mk")
+  writeLines(
+    c(
+      paste("R_HOME =", ignored_root),
+      "include $(R_HOME)/etc/toolchain.mk"
+    ),
+    makevars
+  )
+  writeLines("FC=ignored", ignored_toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=still-ignored", ignored_toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_r_cmd_config_value seeds Makevars scan with MAKEFILES", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "toolchain.mk")
+  writeLines(paste("ROOT =", root), makefile)
+  writeLines("include $(ROOT)/toolchain.mk", makevars)
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    MAKEFILES = makefile,
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value retries Makevars with substitution refs", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makevars <- file.path(root, "Makevars")
+  toolchain <- file.path(root, "toolchain.mk")
+  writeLines(
+    c(
+      paste("ROOT =", root),
+      "include $(ROOT:%=%/toolchain.mk)"
+    ),
+    makevars
+  )
+  writeLines("FC=gfortran", toolchain)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_USER = makevars)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", toolchain)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on default HOME Makevars", {
+  cache <- new.env(parent = emptyenv())
+  home_a <- withr::local_tempdir()
+  home_b <- withr::local_tempdir()
+  dir.create(file.path(home_a, ".R"))
+  dir.create(file.path(home_b, ".R"))
+  writeLines("FC=gfortran", file.path(home_a, ".R", "Makevars"))
+  writeLines("FC=flang", file.path(home_b, ".R", "Makevars"))
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home_a,
+    R_USER = NA,
+    R_MAKEVARS_USER = NA
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(HOME = home_b)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value uses HOME Makevars with R_USER set", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  r_user <- withr::local_tempdir()
+  dir.create(file.path(home, ".R"))
+  dir.create(file.path(r_user, ".R"))
+  makevars <- file.path(home, ".R", "Makevars")
+  writeLines("FC=gfortran", makevars)
+  writeLines("FC=ignored", file.path(r_user, ".R", "Makevars"))
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = r_user,
+    R_MAKEVARS_USER = NA
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on platform Makevars", {
+  cache <- new.env(parent = emptyenv())
+  home <- withr::local_tempdir()
+  dir.create(file.path(home, ".R"))
+  makevars <- file.path(home, ".R", quickr_default_makevars_names()[[1]])
+  writeLines("FC=gfortran", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    HOME = home,
+    R_USER = NA,
+    R_MAKEVARS_USER = NA
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on default site Makevars", {
+  cache <- new.env(parent = emptyenv())
+  r_home <- withr::local_tempdir()
+  site_makevars <- file.path(r_home, "etc", "Makevars.site")
+  dir.create(dirname(site_makevars), recursive = TRUE)
+  writeLines("FC=gfortran", site_makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_default_site_makevars_path = function() site_makevars,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(R_MAKEVARS_SITE = NA)
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", site_makevars)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on R_ARCH", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  withr::local_envvar(R_ARCH = "/x64")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(R_ARCH = "/i386")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_flang_available reuses successful probes", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_flang_path = function() "/tmp/flang-new",
+    quickr_flang_available_at_path = function(flang) {
+      calls <<- calls + 1L
+      list(path = flang, available = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang-new")
+  expect_true(result$available)
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang-new")
+  expect_true(result$available)
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_flang_available retries failed probes", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_flang_path = function() "/tmp/flang-new",
+    quickr_flang_available_at_path = function(flang) {
+      calls <<- calls + 1L
+      list(path = flang, available = calls != 1L)
+    },
+    .package = "quickr"
+  )
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang-new")
+  expect_false(result$available)
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang-new")
+  expect_true(result$available)
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_cached_flang_available keys on flang path", {
+  cache <- new.env(parent = emptyenv())
+  calls <- 0L
+  flang <- "/tmp/flang-new"
+  local_mocked_bindings(
+    quickr_flang_path = function() flang,
+    quickr_flang_available_at_path = function(path) {
+      calls <<- calls + 1L
+      list(path = path, available = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang-new")
+
+  flang <- "/tmp/flang"
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang")
+
+  result <- quickr_cached_flang_available(cache = cache)
+  expect_identical(result$path, "/tmp/flang")
+  expect_equal(calls, 2L)
+})
+
+test_that("quickr_r_cmd_config_probe reports command failures", {
+  calls <- 0L
+  system2_stub <- function(command, args, stdout = "", stderr = "", ...) {
+    calls <<- calls + 1L
+    if (calls == 1L) {
+      return(structure(" value ", status = 1L))
+    }
+    "gfortran"
+  }
+
+  expect_identical(
+    quickr_r_cmd_config_probe(
+      "FC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    list(value = "", ok = FALSE)
+  )
+  expect_identical(
+    quickr_r_cmd_config_probe(
+      "FC",
+      r_cmd = "R",
+      system2 = system2_stub
+    ),
+    list(value = "gfortran", ok = TRUE)
+  )
+  expect_equal(calls, 2L)
+})

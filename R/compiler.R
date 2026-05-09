@@ -11,7 +11,12 @@ quickr_flang_path <- function() {
 }
 
 quickr_flang_available <- function() {
-  flang <- quickr_flang_path()
+  quickr_flang_available_at_path(quickr_flang_path())
+}
+
+quickr_flang_available_at_path <- function(flang) {
+  stopifnot(is_string(flang))
+
   if (!nzchar(flang)) {
     return(list(path = "", available = FALSE))
   }
@@ -23,6 +28,26 @@ quickr_flang_available <- function() {
     return(list(path = flang, available = FALSE))
   }
   list(path = flang, available = TRUE)
+}
+
+quickr_cached_flang_available <- function(
+  cache = quickr_compiler_probe_cache
+) {
+  stopifnot(is.environment(cache))
+
+  flang <- quickr_flang_path()
+  cache_key <- paste("flang_available", flang, sep = "\r")
+  cached <- get0(cache_key, envir = cache, inherits = FALSE, ifnotfound = NULL)
+  if (!is.null(cached)) {
+    return(cached)
+  }
+
+  cached <- quickr_flang_available_at_path(flang)
+  if (isTRUE(cached$available)) {
+    assign(cache_key, cached, envir = cache)
+  }
+
+  cached
 }
 
 quickr_flang_state <- local({
@@ -157,7 +182,7 @@ quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
 
   # Best-effort: on macOS, prefer flang if it is available.
   if (sysname == "Darwin") {
-    info <- quickr_flang_available()
+    info <- quickr_cached_flang_available()
     return(isTRUE(info$available))
   }
 
@@ -165,7 +190,7 @@ quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
 }
 
 quickr_default_fortran_makevars_lines <- function(
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   fc <- trimws(config_value("FC"))
   if (!nzchar(fc)) {
@@ -191,7 +216,7 @@ quickr_fcompiler_env <- function(
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
   link_flags = character(),
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
@@ -204,7 +229,7 @@ quickr_fcompiler_env <- function(
   flang_runtime <- character()
   use_flang <- quickr_prefer_flang(sysname = sysname)
   if (use_flang) {
-    flang_info <- quickr_flang_available()
+    flang_info <- quickr_cached_flang_available()
     flang <- flang_info$path
     if (!isTRUE(flang_info$available)) {
       if (isTRUE(explicit_request)) {

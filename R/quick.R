@@ -213,7 +213,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 
   # Link against the same BLAS/LAPACK/Fortran libs as the running R
   # to support generated calls to vendor BLAS (e.g., dgemm, dgesv).
-  cfg <- quickr_r_cmd_config_value
+  cfg <- quickr_cached_r_cmd_config_value
   BLAS_LIBS <- strsplit(cfg("BLAS_LIBS"), "[[:space:]]+")[[1]]
   LAPACK_LIBS <- strsplit(cfg("LAPACK_LIBS"), "[[:space:]]+")[[1]]
   FLIBS <- strsplit(cfg("FLIBS"), "[[:space:]]+")[[1]]
@@ -327,7 +327,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 quickr_windows_add_dll_paths <- function(
   flags,
   os_type = .Platform$OS.type,
-  config_value = quickr_r_cmd_config_value,
+  config_value = quickr_cached_r_cmd_config_value,
   which = Sys.which
 ) {
   if (!identical(os_type, "windows")) {
