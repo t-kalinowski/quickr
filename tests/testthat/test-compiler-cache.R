@@ -2062,10 +2062,7 @@ test_that("quickr_cached_r_cmd_config_value keys on default site Makevars", {
   writeLines("FC=gfortran", site_makevars)
   calls <- 0L
   local_mocked_bindings(
-    R.home = function(...) r_home,
-    .package = "base"
-  )
-  local_mocked_bindings(
+    quickr_default_site_makevars_path = function() site_makevars,
     quickr_r_cmd_config_probe = function(name) {
       calls <<- calls + 1L
       list(value = paste0("value-", calls), ok = TRUE)
