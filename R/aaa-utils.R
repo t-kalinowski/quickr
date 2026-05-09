@@ -710,6 +710,10 @@ quickr_makevars_env_signature <- function(config_name = "") {
 }
 
 quickr_makevars_has_uncached_functions <- function(config_name = "") {
+  if (quickr_makefiles_has_uncached_functions(config_name)) {
+    return(TRUE)
+  }
+
   paths <- unique(c(
     quickr_active_makevars_all_paths(config_name),
     quickr_makefiles_all_paths(config_name),
@@ -723,8 +727,25 @@ quickr_makevars_has_uncached_functions <- function(config_name = "") {
   any(vapply(paths, quickr_file_has_makevars_uncached_function, logical(1)))
 }
 
+quickr_makefiles_has_uncached_functions <- function(config_name = "") {
+  makefiles <- Sys.getenv("MAKEFILES", unset = "")
+  if (!nzchar(makefiles)) {
+    return(FALSE)
+  }
+
+  makefiles <- quickr_expand_makevars_variables(
+    makefiles,
+    quickr_makevars_seed_variables(config_name)
+  )
+  quickr_text_has_makevars_uncached_function(makefiles)
+}
+
 quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
+  quickr_text_has_makevars_uncached_function(lines)
+}
+
+quickr_text_has_makevars_uncached_function <- function(text) {
   function_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*[[:space:]]|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]"
   substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
   shell_assignment_pattern <- "^[[:space:]]*(?:(?:export|override|private)[[:space:]]+)*[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]*!="
@@ -737,7 +758,7 @@ quickr_file_has_makevars_uncached_function <- function(path) {
       indirect_ref_pattern,
       sep = "|"
     ),
-    lines,
+    text,
     perl = TRUE
   ))
 }

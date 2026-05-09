@@ -1269,6 +1269,34 @@ test_that("quickr_cached_r_cmd_config_value expands MAKEFILES entries", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value retries dynamic MAKEFILES entries", {
+  cache <- new.env(parent = emptyenv())
+  root <- withr::local_tempdir()
+  makefile <- file.path(root, "global.mk")
+  writeLines("FC=gfortran", makefile)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(MAKEFILES = paste0("$(wildcard ", root, "/*.mk)"))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines("FC=flang", makefile)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value keys on nested MAKEFILES content", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
