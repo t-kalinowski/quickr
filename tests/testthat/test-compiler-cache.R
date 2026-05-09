@@ -458,6 +458,36 @@ test_that("quickr_cached_r_cmd_config_value distinguishes unset and empty env re
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value keys on single-character Makevars refs", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines("FC = $F", makevars)
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    F = "gfortran",
+    R_MAKEVARS_USER = makevars
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(F = "flang")
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value preserves env values for append assignments", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()

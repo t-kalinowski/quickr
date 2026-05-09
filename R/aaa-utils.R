@@ -548,7 +548,7 @@ quickr_strip_make_comment <- function(line) {
 quickr_expand_makevars_variables <- function(text, variables) {
   for (i in seq_len(20L)) {
     match <- regexpr(
-      "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}",
+      "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}|\\$([A-Za-z_])",
       text,
       perl = TRUE
     )
@@ -557,12 +557,24 @@ quickr_expand_makevars_variables <- function(text, variables) {
     }
 
     token <- regmatches(text, match)
-    name <- sub("^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$", "\\1", token)
+    name <- quickr_makevars_variable_token_name(token)
     value <- quickr_makevars_variable_value(name, variables)
     regmatches(text, match) <- value
   }
 
   text
+}
+
+quickr_makevars_variable_token_name <- function(token) {
+  if (grepl("^\\$[({]", token)) {
+    return(sub(
+      "^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$",
+      "\\1",
+      token
+    ))
+  }
+
+  substring(token, 2L)
 }
 
 quickr_expand_makevars_wildcard_functions <- function(text) {
@@ -764,7 +776,7 @@ quickr_makevars_conditional_variable_refs <- function(lines) {
 
 quickr_makevars_text_variable_refs <- function(text) {
   matches <- gregexpr(
-    "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}",
+    "\\$\\(([A-Za-z_][A-Za-z0-9_.-]*)\\)|\\$\\{([A-Za-z_][A-Za-z0-9_.-]*)\\}|\\$([A-Za-z_])",
     text,
     perl = TRUE
   )
@@ -773,11 +785,7 @@ quickr_makevars_text_variable_refs <- function(text) {
     return(character())
   }
 
-  unique(sub(
-    "^\\$[({]([A-Za-z_][A-Za-z0-9_.-]*)[)}]$",
-    "\\1",
-    tokens
-  ))
+  unique(vapply(tokens, quickr_makevars_variable_token_name, character(1)))
 }
 
 quickr_makevars_env_value <- function(name) {
