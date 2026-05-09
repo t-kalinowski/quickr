@@ -768,12 +768,14 @@ quickr_text_has_makevars_uncached_function <- function(text) {
   substitution_pattern <- "\\$\\([A-Za-z_][A-Za-z0-9_.-]*:[^)]*\\)|\\$\\{[A-Za-z_][A-Za-z0-9_.-]*:[^}]*\\}"
   shell_assignment_pattern <- "^[[:space:]]*(?:(?:export|override|private)[[:space:]]+)*[A-Za-z_][A-Za-z0-9_.-]*[[:space:]]*!="
   indirect_ref_pattern <- "\\$[({][^)}]*\\$[({]"
+  indirect_conditional_pattern <- "^[[:space:]]*(?:else[[:space:]]+)?ifn?def[[:space:]]+\\$[({]"
   any(grepl(
     paste(
       function_pattern,
       substitution_pattern,
       shell_assignment_pattern,
       indirect_ref_pattern,
+      indirect_conditional_pattern,
       sep = "|"
     ),
     text,

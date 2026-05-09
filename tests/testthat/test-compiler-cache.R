@@ -1157,6 +1157,46 @@ test_that("quickr_cached_r_cmd_config_value expands ifdef variable names", {
   expect_equal(calls, 2L)
 })
 
+test_that("quickr_cached_r_cmd_config_value retries direct assignments behind indirect ifdef names", {
+  cache <- new.env(parent = emptyenv())
+  makevars <- withr::local_tempfile()
+  writeLines(
+    c(
+      "FLAG_NAME = USE_A",
+      "ifdef $(FLAG_NAME)",
+      "FC=gfortran",
+      "else",
+      "FC=flang",
+      "endif"
+    ),
+    makevars
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+  withr::local_envvar(c(
+    R_MAKEVARS_USER = makevars,
+    USE_A = "1"
+  ))
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  withr::local_envvar(USE_A = NA)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-2"
+  )
+  expect_equal(calls, 2L)
+})
+
 test_that("quickr_cached_r_cmd_config_value retries Makevars with wildcard assignments", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
