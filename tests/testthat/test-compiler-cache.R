@@ -421,7 +421,7 @@ test_that("quickr_cached_r_cmd_config_value respects env-defined conditional Mak
   expect_equal(calls, 2L)
 })
 
-test_that("quickr_cached_r_cmd_config_value distinguishes unset and empty env refs", {
+test_that("quickr_cached_r_cmd_config_value distinguishes unset and set env refs", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
   makevars <- file.path(root, "Makevars")
@@ -450,7 +450,7 @@ test_that("quickr_cached_r_cmd_config_value distinguishes unset and empty env re
     "value-1"
   )
 
-  withr::local_envvar(MYFC = "")
+  withr::local_envvar(MYFC = "flang")
   expect_identical(
     quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"
@@ -773,6 +773,7 @@ test_that("quickr_cached_r_cmd_config_value keys on R_PLATFORM Makevars", {
     HOME = home,
     R_USER = NA,
     R_MAKEVARS_USER = NA,
+    R_OSTYPE = "unix",
     R_PLATFORM = platform
   ))
 
@@ -825,7 +826,8 @@ test_that("quickr_cached_r_cmd_config_value ignores inactive Makevars candidates
   )
   withr::local_envvar(c(
     HOME = home,
-    R_MAKEVARS_USER = NA
+    R_MAKEVARS_USER = NA,
+    R_OSTYPE = "unix"
   ))
 
   expect_identical(
@@ -2062,7 +2064,7 @@ test_that("quickr_cached_r_cmd_config_value keys on platform Makevars", {
   cache <- new.env(parent = emptyenv())
   home <- withr::local_tempdir()
   dir.create(file.path(home, ".R"))
-  makevars <- file.path(home, ".R", paste0("Makevars-", R.version$platform))
+  makevars <- file.path(home, ".R", quickr_default_makevars_names()[[1]])
   writeLines("FC=gfortran", makevars)
   calls <- 0L
   local_mocked_bindings(
