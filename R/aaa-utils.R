@@ -246,10 +246,11 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   out <- character()
   vars <- variables
   conditional_stack <- list()
-  in_define <- FALSE
+  define_assignment <- NULL
+  define_lines <- character()
 
   for (line in lines) {
-    if (startsWith(line, "\t") && !in_define) {
+    if (startsWith(line, "\t") && is.null(define_assignment)) {
       next
     }
 
@@ -258,9 +259,14 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
       next
     }
 
-    if (in_define) {
+    if (!is.null(define_assignment)) {
       if (quickr_makevars_define_end(line)) {
-        in_define <- FALSE
+        define_assignment$value <- paste(define_lines, collapse = "\n")
+        vars <- quickr_makevars_apply_assignment(vars, define_assignment)
+        define_assignment <- NULL
+        define_lines <- character()
+      } else {
+        define_lines <- c(define_lines, line)
       }
       next
     }
@@ -279,8 +285,9 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
       next
     }
 
-    if (quickr_makevars_define_start(line)) {
-      in_define <- TRUE
+    define_assignment <- quickr_makevars_define_assignment(line)
+    if (!is.null(define_assignment)) {
+      define_lines <- character()
       next
     }
 
@@ -306,11 +313,22 @@ quickr_makevars_scan_one_include_path <- function(path, variables, visited) {
   list(paths = out, variables = vars)
 }
 
-quickr_makevars_define_start <- function(line) {
-  grepl(
-    "^(?:(?:export|override)[[:space:]]+)*define(?:[[:space:]]|$)",
+quickr_makevars_define_assignment <- function(line) {
+  match <- regexec(
+    "^((?:(?:export|override)[[:space:]]+)*)?define[[:space:]]+([A-Za-z_][A-Za-z0-9_.-]*).*$",
     line,
     perl = TRUE
+  )
+  parts <- regmatches(line, match)[[1]]
+  if (length(parts) != 3L) {
+    return(NULL)
+  }
+
+  list(
+    name = parts[[3]],
+    operator = "=",
+    value = "",
+    override = grepl("(^|[[:space:]])override[[:space:]]+", parts[[2]])
   )
 }
 
@@ -373,7 +391,7 @@ quickr_makevars_conditionals_active <- function(stack) {
 
 quickr_makevars_condition_result <- function(line, variables) {
   match <- regexec(
-    "^(ifeq|ifneq)[[:space:]]*\\((.*),(.*)\\)$",
+    "^(ifeq|ifneq)[[:space:]]*\\((.*?),(.*)\\)$",
     line,
     perl = TRUE
   )
