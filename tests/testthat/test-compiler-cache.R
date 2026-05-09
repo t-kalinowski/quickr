@@ -1641,7 +1641,39 @@ test_that("quickr_cached_r_cmd_config_value keys on Makeconf env refs", {
   expect_equal(calls, 2L)
 })
 
-test_that("quickr_cached_r_cmd_config_value retries dynamic Makeconf inputs", {
+test_that("quickr_cached_r_cmd_config_value caches Makeconf make functions", {
+  cache <- new.env(parent = emptyenv())
+  makeconf <- withr::local_tempfile()
+  writeLines(
+    c(
+      "USE_LLVM =",
+      "CCBASE = $(if $(USE_LLVM),clang,gcc)",
+      "FC = $(CCBASE)"
+    ),
+    makeconf
+  )
+  calls <- 0L
+  local_mocked_bindings(
+    quickr_makeconf_path = function() makeconf,
+    quickr_r_cmd_config_probe = function(name) {
+      calls <<- calls + 1L
+      list(value = paste0("value-", calls), ok = TRUE)
+    },
+    .package = "quickr"
+  )
+
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+  expect_equal(calls, 1L)
+})
+
+test_that("quickr_cached_r_cmd_config_value keys on dynamic Makeconf content", {
   cache <- new.env(parent = emptyenv())
   root <- withr::local_tempdir()
   makeconf <- file.path(root, "Makeconf")
@@ -1664,6 +1696,15 @@ test_that("quickr_cached_r_cmd_config_value retries dynamic Makeconf inputs", {
   )
 
   writeLines("flang", compiler_file)
+  expect_identical(
+    quickr_cached_r_cmd_config_value("FC", cache = cache),
+    "value-1"
+  )
+
+  writeLines(
+    paste("FC = $(shell cat", compiler_file, ") # changed"),
+    makeconf
+  )
   expect_identical(
     quickr_cached_r_cmd_config_value("FC", cache = cache),
     "value-2"

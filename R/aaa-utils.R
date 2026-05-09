@@ -734,8 +734,7 @@ quickr_makevars_has_uncached_functions <- function(config_name = "") {
 
   paths <- unique(c(
     quickr_active_makevars_all_paths(config_name),
-    quickr_makefiles_all_paths(config_name),
-    quickr_makeconf_paths(config_name)
+    quickr_makefiles_all_paths(config_name)
   ))
   paths <- paths[vapply(paths, quickr_regular_file_exists, logical(1))]
   if (!length(paths)) {
@@ -760,6 +759,8 @@ quickr_makefiles_has_uncached_functions <- function(config_name = "") {
 
 quickr_file_has_makevars_uncached_function <- function(path) {
   lines <- readLines(path, warn = FALSE)
+  lines <- quickr_join_makevars_continuations(lines)
+  lines <- vapply(lines, quickr_strip_make_comment, character(1))
   quickr_text_has_makevars_uncached_function(lines)
 }
 
