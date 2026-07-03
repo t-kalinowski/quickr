@@ -71,6 +71,26 @@ new_hoist <- function(scope) {
   )
 }
 
+# Hoist `x` into a temporary variable unless it already renders as a bare
+# variable name. Use this whenever the same operand is spliced into generated
+# code more than once: Fortran evaluates intrinsic actual arguments before the
+# call, so repeating an expression duplicates its side effects (e.g. RNG
+# state via runif()).
+hoist_unless_name <- function(x, hoist) {
+  stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
+  code <- trimws(as.character(x))
+  if (!is.null(x@value@name) && identical(code, x@value@name)) {
+    return(x)
+  }
+  tmp <- hoist$declare_tmp(
+    mode = x@value@mode,
+    dims = x@value@dims,
+    logical_as_int = logical_as_int(x@value)
+  )
+  hoist$emit(glue("{tmp@name} = {x}"))
+  Fortran(tmp@name, tmp)
+}
+
 
 # --- Scope Helpers ---
 
