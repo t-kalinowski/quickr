@@ -261,12 +261,13 @@ can_use_output <- function(
   input_names = character(),
   expected_dims = NULL,
   context,
-  allow_alias = character()
+  allow_alias = character(),
+  mode = "double"
 ) {
   if (is.null(dest)) {
     return(FALSE)
   }
-  if (!identical(dest@mode, "double")) {
+  if (!identical(dest@mode, mode)) {
     return(FALSE)
   }
   assert_dest_dims_compatible(dest, expected_dims, context)
@@ -1190,7 +1191,8 @@ lapack_chol2inv <- function(
 diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
   assert_hoist_env(hoist)
 
-  x <- maybe_cast_double(x)
+  # R's diag(<matrix>) preserves the input mode; the copy loop is
+  # mode-agnostic.
   assert_rank2_matrix(x, paste0(context, " expects a matrix input"))
 
   x_dims <- matrix_dims(x)
@@ -1204,14 +1206,15 @@ diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
       dest,
       input_names = x_name,
       expected_dims = list(diag_len),
-      context = context
+      context = context,
+      mode = x@value@mode
     )
   ) {
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
   } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(diag_len))
+    out_var <- hoist$declare_tmp(mode = x@value@mode, dims = list(diag_len))
     out_name <- out_var@name
   }
 
@@ -1241,8 +1244,19 @@ diag_matrix <- function(
 ) {
   assert_hoist_env(hoist)
 
-  x <- maybe_cast_double(x)
+  # R's diag(x, ...) preserves typeof(x). The identity-matrix callers pass
+  # a synthesized 1.0_c_double, which keeps diag(n) double, as in R.
   assert_rank_leq1(x, paste0(context, " expects a vector or scalar input"))
+
+  mode <- x@value@mode
+  zero <- switch(
+    mode,
+    double = "0.0_c_double",
+    integer = "0_c_int",
+    logical = ".false.",
+    complex = "(0.0_c_double, 0.0_c_double)",
+    stop(context, " does not support mode ", mode, call. = FALSE)
+  )
 
   diag_len <- diag_length_expr(nrow, ncol, context)
   x_scalar <- passes_as_scalar(x@value)
@@ -1256,18 +1270,19 @@ diag_matrix <- function(
       dest,
       input_names = x_name,
       expected_dims = list(nrow, ncol),
-      context = context
+      context = context,
+      mode = mode
     )
   ) {
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
   } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(nrow, ncol))
+    out_var <- hoist$declare_tmp(mode = mode, dims = list(nrow, ncol))
     out_name <- out_var@name
   }
 
-  hoist$emit(glue("{out_name} = 0.0_c_double"))
+  hoist$emit(glue("{out_name} = {zero}"))
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
   value_expr <- if (x_scalar) {

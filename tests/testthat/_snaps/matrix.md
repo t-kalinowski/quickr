@@ -231,3 +231,79 @@
         return out;
       }
 
+# t() and diag() preserve integer mode
+
+    Code
+      fn
+    Output
+      function(m) {
+          declare(type(m = integer(3, 3)))
+          out <- diag(m)
+          out
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(m, out) bind(c)
+        use iso_c_binding, only: c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: m(3, 3)
+        integer(c_int), intent(out) :: out(3)
+        ! manifest end
+      
+      
+        block
+          integer(c_int) :: btmp1_
+      
+          do btmp1_ = 1_c_int, int(3, kind=c_int)
+            out(btmp1_) = m(btmp1_, btmp1_)
+          end do
+        end block
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(const int* const m__, int* const out__);
+      
+      SEXP fn_(SEXP _args) {
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != INTSXP) {
+          Rf_error("typeof(m) must be 'integer', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        const int* const m__ = INTEGER(m);
+        const int* const m__dim_ = ({
+        SEXP dim_ = Rf_getAttrib(m, R_DimSymbol);
+        if (Rf_length(dim_) != 2) Rf_error(
+          "m must be a 2D-array, but length(dim(m)) is %i",
+          (int) Rf_length(dim_));
+        INTEGER(dim_);});
+        const int m__dim_1_ = m__dim_[0];
+        const int m__dim_2_ = m__dim_[1];
+        
+        if (m__dim_1_ != 3)
+          Rf_error("dim(m)[1] must be 3, not %0.f",
+                    (double)m__dim_1_);
+        if (m__dim_2_ != 3)
+          Rf_error("dim(m)[2] must be 3, not %0.f",
+                    (double)m__dim_2_);
+        const R_xlen_t out__len_ = 3;
+        SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
+        int* out__ = INTEGER(out);
+        
+        fn(m__, out__);
+        
+        UNPROTECT(1);
+        return out;
+      }
+
