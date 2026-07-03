@@ -175,6 +175,14 @@ register_r2f_handler(
     if (!existing_binding) {
       # The var does not exist -> this is a binding to a new symbol
       # Create a fresh Variable carrying only mode/dims and a new name.
+      if (inherits(value, Fortran) && is.null(value@value)) {
+        stop(
+          "cannot assign `",
+          deparse1(rhs),
+          "`: expression does not produce a value",
+          call. = FALSE
+        )
+      }
       if (!inherits(var, Variable)) {
         src <- value@value
         var <- Variable(mode = src@mode, dims = src@dims)

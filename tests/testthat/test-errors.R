@@ -185,3 +185,16 @@ test_that("reductions reject named arguments like na.rm", {
   }
 })
 
+
+test_that("assigning an expression that produces no value errors cleanly", {
+  fn <- function(x) {
+    declare(type(x = logical(1)))
+    y <- if (x) 1 else 2
+    y
+  }
+  expect_error(
+    quick(fn),
+    "cannot assign `if (x) 1 else 2`: expression does not produce a value",
+    fixed = TRUE
+  )
+})
