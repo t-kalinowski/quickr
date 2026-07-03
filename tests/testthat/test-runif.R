@@ -117,3 +117,28 @@ test_that("runif with min/max", {
     set_seed_and_call(qfn, 20)
   )
 })
+
+test_that("impure runif() bounds are evaluated exactly once", {
+  # `min` is spliced twice into the emitted expression, and the implied-do
+  # for array results would re-evaluate spliced bounds per element; R
+  # evaluates bounds once per call.
+  fn <- function() {
+    out <- runif(2L, runif(1L), 10)
+    out
+  }
+  expect_translation_snapshots(fn)
+  qfn <- quick(fn)
+
+  expect_identical(
+    set_seed_and_call(fn),
+    set_seed_and_call(qfn)
+  )
+
+  set.seed(1)
+  qfn()
+  q_next <- runif(1L)
+  set.seed(1)
+  fn()
+  r_next <- runif(1L)
+  expect_identical(q_next, r_next)
+})
