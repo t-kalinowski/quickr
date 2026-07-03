@@ -7,9 +7,14 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
+    # R: +TRUE is 1L
+    x <- cast_to_mode(x, unary_arith_mode(x), "unary +")
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
+    pair <- promote_arith_pair(left, right, "+")
+    left <- pair$left
+    right <- pair$right
     reshaped <- maybe_reshape_vector_matrix(left, right)
     left <- reshaped$left
     right <- reshaped$right
@@ -21,9 +26,14 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
   # Support both binary and unary minus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
+    # R: -TRUE is -1L
+    x <- cast_to_mode(x, unary_arith_mode(x), "unary -")
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
+    pair <- promote_arith_pair(left, right, "-")
+    left <- pair$left
+    right <- pair$right
     reshaped <- maybe_reshape_vector_matrix(left, right)
     left <- reshaped$left
     right <- reshaped$right
@@ -33,6 +43,9 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  pair <- promote_arith_pair(left, right, "*")
+  left <- pair$left
+  right <- pair$right
   reshaped <- maybe_reshape_vector_matrix(left, right)
   left <- reshaped$left
   right <- reshaped$right
@@ -51,10 +64,26 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ...) {
 
 r2f_handlers[["^"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  # R's ^ always returns double (R_pow), so cast the base. Keep an integer
+  # exponent as integer: Fortran `real ** int` is exact and, unlike
+  # `real ** real`, defined for negative bases -- matching R, which
+  # special-cases whole-number exponents.
+  left <- maybe_cast_double(left)
+  if (identical(right@value@mode, "logical")) {
+    right <- cast_to_mode(right, "integer", "^")
+  }
   reshaped <- maybe_reshape_vector_matrix(left, right)
   left <- reshaped$left
   right <- reshaped$right
-  Fortran(glue("({left} ** {right})"), conform(left@value, right@value))
+  mode <- reduce_promoted_mode(left, right)
+  if (!identical(mode, "complex")) {
+    mode <- "double"
+  }
+  # Parenthesizing the exponent avoids non-standard `** -1_c_int`.
+  Fortran(
+    glue("({left} ** ({right}))"),
+    conform(left@value, right@value, mode = mode)
+  )
 }
 
 
@@ -72,6 +101,14 @@ r2f_handlers[["^"]] <- function(args, scope, ...) {
 
 r2f_handlers[["%%"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  # `modulo` requires same-typed arguments, so cast both operands to the
+  # join (logical joins as integer: R's TRUE %% TRUE is 0L).
+  mode <- reduce_promoted_mode(left, right)
+  if (identical(mode, "logical")) {
+    mode <- "integer"
+  }
+  left <- cast_to_mode(left, mode, "%%")
+  right <- cast_to_mode(right, mode, "%%")
   out_val <- conform(left@value, right@value)
   # MODULO gives result with sign(right) - matches R %% behaviour
   Fortran(glue("modulo({left}, {right})"), out_val)
@@ -79,6 +116,9 @@ r2f_handlers[["%%"]] <- function(args, scope, ...) {
 
 r2f_handlers[["%/%"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
+  pair <- promote_arith_pair(left, right, "%/%")
+  left <- pair$left
+  right <- pair$right
   out_val <- conform(left@value, right@value)
 
   expr <- switch(

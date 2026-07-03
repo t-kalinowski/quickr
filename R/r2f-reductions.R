@@ -68,7 +68,16 @@ register_r2f_handler(
       reduce_arg(args[[1]])
     } else {
       args <- lapply(args, reduce_arg)
+      # Fortran's max/min require uniform argument types; cast every operand
+      # whose mode differs from the join. The + / * spellings for sum/prod
+      # don't strictly need it, but one code path beats two. Logical
+      # operands join as integer (R: max(TRUE, FALSE) is 1L).
       mode <- reduce_promoted_mode(args)
+      if (identical(mode, "logical")) {
+        mode <- "integer"
+      }
+      context <- sprintf("%s()", last(list(...)$calls))
+      args <- lapply(args, cast_to_mode, mode = mode, context = context)
       s <- switch(
         last(list(...)$calls),
         max = glue("max({str_flatten_commas(args)})"),

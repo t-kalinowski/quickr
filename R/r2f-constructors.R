@@ -6,6 +6,12 @@
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
   ff <- lapply(args, r2f, scope, ...)
+  # Fortran array constructors require uniform element types; cast every
+  # element whose mode differs from the promoted mode (R: c(1L, 2.5) is
+  # double, c(TRUE, 2L) is integer).
+  promoted <- promote_operands(ff, context = "c()")
+  ff <- promoted$args
+  mode <- promoted$mode
   s <- glue("[ {str_flatten_commas(ff)} ]")
   lens <- lapply(ff[order(map_int(ff, \(f) f@value@rank))], function(e) {
     rank <- e@value@rank
@@ -17,7 +23,6 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
       stop("all args passed to c() must be scalars or 1-d arrays")
     }
   })
-  mode <- reduce_promoted_mode(ff)
   len <- Reduce(
     \(l1, l2) {
       if (is_scalar_na(l1) || is_scalar_na(l2)) {
