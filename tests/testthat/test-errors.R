@@ -169,3 +169,19 @@ test_that("declare() type() calls validate syntax", {
     fixed = TRUE
   )
 })
+
+test_that("reductions reject named arguments like na.rm", {
+  for (reducer in c("max", "min", "sum", "prod")) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(NA)))
+      out <- .(as.name(reducer))(x, na.rm = TRUE)
+      out
+    }))
+    expect_error(
+      quick(fn),
+      "do not support named arguments",
+      fixed = TRUE
+    )
+  }
+})
+

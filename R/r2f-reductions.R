@@ -13,6 +13,16 @@ register_r2f_handler(
     scope,
     ...
   ) {
+    # Named arguments like `na.rm` would otherwise be treated as data
+    # arguments (e.g. `sum(x, na.rm = TRUE)` -> `(sum(x) + .true.)`).
+    arg_names <- names(args) %||% character()
+    if (length(arg_names) && any(nzchar(arg_names))) {
+      stop(
+        "max()/min()/sum()/prod() do not support named arguments (e.g. `na.rm`)",
+        call. = FALSE
+      )
+    }
+
     intrinsic <- switch(
       last(list(...)$calls),
       max = "maxval",
