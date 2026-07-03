@@ -109,3 +109,11 @@ test_that("new_setter errors for invalid coerce argument", {
     "coerce must be TRUE, FALSE, NULL"
   )
 })
+
+test_that("Variable@dims can be reset to scalar with NULL", {
+  v <- quickr:::Variable("double", list(2L, 3L))
+  expect_identical(v@dims, list(2L, 3L))
+  v@dims <- NULL
+  expect_null(v@dims)
+  expect_true(v@is_scalar)
+})

@@ -240,6 +240,9 @@ Variable := new_class(
       NULL | class_list,
       setter = function(self, value) {
         if (!length(value)) {
+          # reset to scalar (NULL means scalar); assign the attribute
+          # directly to avoid recursing through this setter
+          attr(self, "dims") <- NULL
           return(self)
         }
 
