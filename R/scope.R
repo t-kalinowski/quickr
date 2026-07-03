@@ -69,6 +69,40 @@ check_assignment_compatible <- function(target, value) {
   })
 }
 
+# Reassignment cannot re-type a Fortran variable the way R promotes an R
+# binding, so a value whose mode sits above the variable's on the lattice
+# (logical < integer < double < complex) would be silently truncated by the
+# assignment. Refuse at compile time instead.
+check_reassignment_narrowing <- function(name, target, value) {
+  if (
+    !inherits(target, Variable) ||
+      !inherits(value, Variable) ||
+      is.null(target@mode) ||
+      is.null(value@mode)
+  ) {
+    return()
+  }
+  lattice <- c("logical", "integer", "double", "complex")
+  target_rank <- match(target@mode, lattice)
+  value_rank <- match(value@mode, lattice)
+  if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
+    return()
+  }
+  stop(
+    "cannot reassign `",
+    name,
+    "`: assignment would narrow ",
+    value@mode,
+    " to ",
+    target@mode,
+    "; R would promote `",
+    name,
+    "` to ",
+    value@mode,
+    call. = FALSE
+  )
+}
+
 new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
   class(scope) <- unique(c("quickr_scope", class(scope)))

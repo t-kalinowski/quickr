@@ -175,3 +175,29 @@ test_that("comparisons accept logical operands like R", {
   }
   expect_quick_equal(fn_eq, list(c(TRUE, FALSE, TRUE), c(TRUE, TRUE, FALSE)))
 })
+
+test_that("reassignment that would narrow the mode is a compile error", {
+  fn <- function(x) {
+    declare(type(x = integer(1)))
+    x <- x + 0.5
+    x
+  }
+  # R promotes x to double; Fortran cannot re-type a variable, and the
+  # assignment used to silently truncate (quickr returned 2, R returns 2.5)
+  expect_error(quick(fn), "narrow double to integer")
+
+  fn_lgl <- function(x) {
+    declare(type(x = logical(1)))
+    x <- x + 1L
+    x
+  }
+  expect_error(quick(fn_lgl), "narrow integer to logical")
+
+  # same-mode and widening-safe reassignments still work
+  fn_ok <- function(x) {
+    declare(type(x = double(1)))
+    x <- x + 1L
+    x
+  }
+  expect_quick_equal(fn_ok, list(1.5))
+})

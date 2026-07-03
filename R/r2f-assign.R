@@ -222,6 +222,7 @@ register_r2f_handler(
         var@mode <- value@value@mode
         var@dims <- value@value@dims
       }
+      check_reassignment_narrowing(name, var, value@value)
       check_assignment_compatible(var, value@value)
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track
