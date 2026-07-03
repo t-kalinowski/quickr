@@ -160,3 +160,78 @@
         return out_;
       }
 
+# integer %/% is exact beyond 2^24
+
+    Code
+      fn
+    Output
+      function(a, b) {
+          declare(type(a = integer(1)), type(b = integer(1)))
+          a %/% b
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(a, b, out_) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: a
+        integer(c_int), intent(in) :: b
+        integer(c_int), intent(out) :: out_
+        ! manifest end
+      
+      
+        out_ = int(floor(real(a, kind=c_double) / real(b, kind=c_double)), kind=c_int)
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const a__, 
+        const int* const b__, 
+        int* const out___);
+      
+      SEXP fn_(SEXP _args) {
+        // a
+        _args = CDR(_args);
+        SEXP a = CAR(_args);
+        if (TYPEOF(a) != INTSXP) {
+          Rf_error("typeof(a) must be 'integer', not '%s'", Rf_type2char(TYPEOF(a)));
+        }
+        const int* const a__ = INTEGER(a);
+        const R_xlen_t a__len_ = Rf_xlength(a);
+        
+        // b
+        _args = CDR(_args);
+        SEXP b = CAR(_args);
+        if (TYPEOF(b) != INTSXP) {
+          Rf_error("typeof(b) must be 'integer', not '%s'", Rf_type2char(TYPEOF(b)));
+        }
+        const int* const b__ = INTEGER(b);
+        const R_xlen_t b__len_ = Rf_xlength(b);
+        
+        if (a__len_ != 1)
+          Rf_error("length(a) must be 1, not %0.f",
+                    (double)a__len_);
+        if (b__len_ != 1)
+          Rf_error("length(b) must be 1, not %0.f",
+                    (double)b__len_);
+        const R_xlen_t out___len_ = (1);
+        SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
+        int* out___ = INTEGER(out_);
+        
+        fn(a__, b__, out___);
+        
+        UNPROTECT(1);
+        return out_;
+      }
+
