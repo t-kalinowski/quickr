@@ -53,13 +53,16 @@ register_r2f_handler(
     # Matrix-Vector: use GEMV
     if (left_rank == 2 && right_rank == 1) {
       expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
-      conform <- check_conformable(expected_len, right_dims$rows)
-      if (!conform$ok) {
-        stop("non-conformable arguments in %*%", call. = FALSE)
-      }
-      if (conform$unknown) {
-        warn_conformability_unknown(expected_len, right_dims$rows, "%*%")
-      }
+      guard_conformable_dims(
+        expected_len,
+        right_dims$rows,
+        "non-conformable arguments in %*%",
+        hoist,
+        scope,
+        left = left,
+        right = right,
+        left_axis = if (left_trans == "N") 2L else 1L
+      )
       out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
       return(gemv(
         transA = left_trans,
@@ -79,13 +82,16 @@ register_r2f_handler(
     if (left_rank == 1 && right_rank == 2) {
       transA <- if (right_trans == "N") "T" else "N"
       expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
-      conform <- check_conformable(left_dims$cols, expected_len)
-      if (!conform$ok) {
-        stop("non-conformable arguments in %*%", call. = FALSE)
-      }
-      if (conform$unknown) {
-        warn_conformability_unknown(left_dims$cols, expected_len, "%*%")
-      }
+      guard_conformable_dims(
+        left_dims$cols,
+        expected_len,
+        "non-conformable arguments in %*%",
+        hoist,
+        scope,
+        left = left,
+        right = right,
+        right_axis = if (transA == "N") 2L else 1L
+      )
       out_len <- if (transA == "N") right_dims$rows else right_dims$cols
       return(gemv(
         transA = transA,
@@ -102,13 +108,17 @@ register_r2f_handler(
       ))
     }
 
-    conform <- check_conformable(k, right_eff$rows)
-    if (!conform$ok) {
-      stop("non-conformable arguments in %*%", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(k, right_eff$rows, "%*%")
-    }
+    guard_conformable_dims(
+      k,
+      right_eff$rows,
+      "non-conformable arguments in %*%",
+      hoist,
+      scope,
+      left = left,
+      right = right,
+      left_axis = if (left_trans == "N") 2L else 1L,
+      right_axis = if (right_trans == "N") 1L else 2L
+    )
 
     # Matrix-Matrix
     gemm(
@@ -244,6 +254,9 @@ bind_dim_sum <- function(values, context, label) {
   reduce(values, \(a, b) call("+", a, b))
 }
 
+# Unlike the BLAS conformability checks, unknown dims here stay a compile
+# error: the common dim is needed to declare the cbind/rbind output, and a
+# runtime guard cannot conjure a declaration.
 bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   non_scalar <- which(!scalar_flags)
   if (!length(non_scalar)) {
@@ -916,18 +929,17 @@ crossprod_like <- function(
   x_eff <- effective_dims(x_dims, opA)
   y_eff <- effective_dims(y_dims, opB)
 
-  conform <- check_conformable(x_eff$cols, y_eff$rows)
-  if (!conform$ok) {
-    stop("non-conformable arguments in ", context, call. = FALSE)
-  }
-  if (conform$unknown) {
-    stop(
-      "cannot verify conformability in ",
-      context,
-      " at compile time",
-      call. = FALSE
-    )
-  }
+  guard_conformable_dims(
+    x_eff$cols,
+    y_eff$rows,
+    paste0("non-conformable arguments in ", context),
+    hoist,
+    scope,
+    left = x,
+    right = y,
+    left_axis = if (opA == "N") 2L else 1L,
+    right_axis = if (opB == "N") 1L else 2L
+  )
 
   m <- x_eff$rows
   n <- y_eff$cols
