@@ -46,7 +46,11 @@ seq_like_length_expr <- function(from, to, by = NULL) {
     return(1L)
   }
 
-  if (is_scalar_integerish(from) && is_scalar_integerish(to)) {
+  if (
+    is_scalar_integerish(from) &&
+      is_scalar_integerish(to) &&
+      (is.null(by) || is_scalar_integerish(by)) # symbolic by: length needs it
+  ) {
     from_val <- as.integer(from)
     to_val <- as.integer(to)
     delta <- to_val - from_val
@@ -280,6 +284,19 @@ seq_like_r2f <- function(
       glue("{start}, {end}, {step}")
     }
   } else if (context == "[") {
+    # `:`/`seq` sections are only correct for bounds >= 1 (and a step whose
+    # sign matches); seq_len/seq_along need no check -- their worst case is
+    # a legal zero-length section, which matches R's x[integer(0)].
+    if (kind %in% c(":", "seq")) {
+      check_subscript_range_bounds(
+        info,
+        from,
+        to,
+        by_f = by,
+        hoist = list(...)$hoist,
+        scope = scope
+      )
+    }
     fr <- if (omit_step) {
       glue("{start}:{end}")
     } else {
@@ -295,6 +312,86 @@ seq_like_r2f <- function(
   }
 
   Fortran(fr, val)
+}
+
+# Validate an x[a:b] / x[seq(a, b, by)] index range.
+# In subscript context the emitted section `from:to:sign(1, to-from)` and its
+# claimed length `abs(to - from) + 1` are only correct when both bounds are
+# >= 1: R's x[1:0] drops the 0 (a value-dependent shape quickr cannot
+# produce), and the sign-stride section would read x(0). Statically-bad
+# literal bounds are compile errors; unknown bounds get a statement-level
+# runtime check via emit_quickr_error_if(). An explicit seq() step is
+# handled below (literal-only, plus a runtime wrong-sign check).
+# Used by: seq_like_r2f() (subscript context)
+check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
+  lit <- function(e) {
+    if (is_wholenumber(e)) as.integer(e) else NA_integer_
+  }
+  from_lit <- lit(info$from)
+  to_lit <- lit(info$to)
+  by_lit <- if (is.null(info$by)) 1L else lit(info$by)
+
+  bounds_msg <- "index ranges in x[a:b] must have bounds >= 1"
+  if (isTRUE(from_lit < 1L) || isTRUE(to_lit < 1L)) {
+    stop(
+      bounds_msg,
+      ": ",
+      deparse1(info$from),
+      ", ",
+      deparse1(info$to),
+      call. = FALSE
+    )
+  }
+
+  emit <- function(condition, message) {
+    if (is.null(hoist)) {
+      stop(
+        "cannot emit a runtime subscript-range guard here; ",
+        "use literal bounds >= 1 in x[a:b]",
+        call. = FALSE
+      )
+    }
+    emit_quickr_error_if(condition, message, hoist, scope)
+  }
+
+  checks <- character()
+  if (is.na(from_lit)) {
+    checks <- c(checks, glue("{from} < 1_c_int"))
+  }
+  if (is.na(to_lit)) {
+    checks <- c(checks, glue("{to} < 1_c_int"))
+  }
+  if (length(checks)) {
+    emit(paste(checks, collapse = " .or. "), bounds_msg)
+  }
+
+  # Explicit seq() step. The result length divides by the step, and that
+  # length is evaluated in the C bridge *before* any Fortran guard can run
+  # (a zero step would be a division-by-zero crash there), so a non-literal
+  # step is a compile error, not a guard. With a literal step and symbolic
+  # bounds, R errors when the step's sign opposes the direction -- the
+  # emitted section would be zero-length while the claimed length is not;
+  # that case is checkable at runtime. All-literal ranges were already
+  # validated by seq_like_length_expr() at compile time.
+  if (!is.null(info$by)) {
+    if (is.na(by_lit)) {
+      stop(
+        "seq() in x[...] requires a literal `by` step ",
+        "(the result length depends on it): by = ",
+        deparse1(info$by),
+        call. = FALSE
+      )
+    }
+    if (is.na(from_lit) || is.na(to_lit)) {
+      emit(
+        glue(
+          "(({to} /= {from}) .and. (sign(1_c_int, {by_f}) /= sign(1_c_int, {to} - {from})))"
+        ),
+        "wrong sign in 'by' argument in x[seq(a, b, by)]"
+      )
+    }
+  }
+  invisible(NULL)
 }
 
 # Unwrap a for-loop iterable, handling rev() calls.

@@ -23,6 +23,12 @@ r2f_handlers[["["]] <- function(
   drop <- idx_args$drop %||% TRUE
   idx_args$drop <- NULL
 
+  for (idx in idx_args) {
+    if (!is_missing(idx)) {
+      check_subscript_expr(idx)
+    }
+  }
+
   idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {
@@ -225,4 +231,35 @@ r2f_handlers[["["]] <- function(
     base_name <- var@value@name %||% stop("missing array name for subscripting")
     Fortran(glue("{base_name}({str_flatten_commas(idxs)})"), outval)
   }
+}
+
+# Reject non-positive subscripts at compile time. R's negative subscript
+# means exclusion, so the result's shape depends on the subscript's value --
+# not representable in quickr's static-shape model -- while the generated
+# Fortran would silently read out of bounds. Unary minus on a subscript is
+# unambiguously exclusion syntax in R, so the form is rejected, not just
+# statically-known values. Binary minus (x[n - 1]) is untouched.
+check_subscript_expr <- function(e) {
+  e <- unwrap_parens(e)
+  if (is.numeric(e) && length(e) >= 1L && !anyNA(e) && any(e <= 0)) {
+    stop(
+      "subscripts must be positive; R's negative (exclusion) and zero ",
+      "subscripts are not supported: ",
+      deparse1(e),
+      call. = FALSE
+    )
+  }
+  if (is_call(e, quote(`-`)) && length(e) == 2L) {
+    stop(
+      "negative subscripts (exclusion) are not supported: ",
+      deparse1(e),
+      call. = FALSE
+    )
+  }
+  if (is_call(e, quote(c))) {
+    for (arg in as.list(e)[-1L]) {
+      check_subscript_expr(arg)
+    }
+  }
+  invisible(NULL)
 }
