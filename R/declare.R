@@ -18,6 +18,15 @@
 #' and `OMP_DYNAMIC` (disable/enable runtime adjustment). Set them before
 #' calling a compiled function, e.g. `Sys.setenv(OMP_NUM_THREADS = "4")`.
 #'
+#' When an error is raised inside a parallel loop, quickr cancels the
+#' remaining iterations via OpenMP cancellation, which the OpenMP runtime
+#' only honors when `OMP_CANCELLATION=true` is set before the runtime first
+#' initializes in the process. quickr sets it when the package loads (unless
+#' already set), but this has no effect if another package initialized the
+#' OpenMP runtime first. Early exit is best-effort either way: the error
+#' message is always recorded correctly; without cancellation the remaining
+#' iterations simply run to completion before the error is raised.
+#'
 #' @param ... Declarations, typically calls like `type(x = double(n))`.
 #' @returns `NULL`, invisibly.
 #' @rawNamespace if (getRversion() < "4.4.0") export(declare)
