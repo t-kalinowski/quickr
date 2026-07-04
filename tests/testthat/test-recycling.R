@@ -110,3 +110,54 @@ test_that("guard text is pinned (one snapshot per mechanism)", {
     note = "Symbolic differing lengths emit one statement-level size guard."
   )
 })
+
+test_that("fill constructors spread inside c()", {
+  known <- function(x) {
+    declare(type(x = double(3)))
+    c(numeric(2), x)
+  }
+  expect_quick_identical(known, list(as.double(1:3)))
+
+  symbolic <- function(x, k) {
+    declare(type(x = double(3)), type(k = integer(1)))
+    c(numeric(k), x)
+  }
+  expect_quick_identical(symbolic, list(as.double(1:3), 2L))
+  expect_quick_identical(symbolic, list(as.double(1:3), 0L))
+
+  promoted <- function(x) {
+    declare(type(x = double(1)))
+    c(integer(2), x)
+  }
+  expect_quick_identical(promoted, list(1.5))
+
+  logical_fill <- function(x) {
+    declare(type(x = logical(2)))
+    c(logical(3), x)
+  }
+  expect_quick_identical(logical_fill, list(c(TRUE, FALSE)))
+})
+
+test_that("matrix(scalar, m, n) materializes where an array is required", {
+  reduced <- function() {
+    sum(matrix(2, 2, 3))
+  }
+  expect_quick_identical(reduced, list())
+
+  transposed <- function() {
+    t(matrix(1, 2, 3))
+  }
+  expect_quick_identical(transposed, list())
+})
+
+test_that("matrix(scalar, m, n) keeps the broadcast fast path on assignment", {
+  fn <- function(n, k) {
+    declare(type(n = integer(1)), type(k = integer(1)))
+    m <- matrix(0, n, k)
+    m
+  }
+  fsub <- r2f(fn)
+  # no hoisted temp: the scalar broadcasts straight into the target
+  expect_match(fsub, "m = 0.0_c_double", fixed = TRUE)
+  expect_quick_identical(fn, list(2L, 3L))
+})

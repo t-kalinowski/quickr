@@ -2,6 +2,18 @@
 # Handlers for value constructors: c, logical, integer, double, numeric,
 # character, raw, matrix, array
 
+# --- Helpers ---
+
+# TRUE for calls to the zero-fill constructors: logical(k), integer(k),
+# double(k), numeric(k). These lower to a single scalar literal carrying
+# array dims, so splicing contexts must spread them explicitly.
+# Used by: c(), array()
+is_fill_constructor_call <- function(e) {
+  is.call(e) &&
+    is.symbol(e[[1L]]) &&
+    as.character(e[[1L]]) %in% c("logical", "integer", "double", "numeric")
+}
+
 # --- Handlers ---
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
@@ -12,6 +24,31 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
   promoted <- promote_operands(ff, context = "c()")
   ff <- promoted$args
   mode <- promoted$mode
+  # Fill constructors are one scalar literal claiming length k; spread them
+  # as implied-dos so the emitted element count matches the claimed length.
+  fill_idx <- which(map_lgl(args, is_fill_constructor_call))
+  if (length(fill_idx)) {
+    spread_var <- NULL
+    for (j in fill_idx) {
+      len_f <- dims2f(ff[[j]]@value@dims, scope)
+      if (!nzchar(len_f)) {
+        next # statically length 1: a single spliced scalar is already right
+      }
+      if (grepl(":", len_f, fixed = TRUE)) {
+        stop(
+          "the length of ",
+          deparse1(args[[j]]),
+          " inside c() must be known",
+          call. = FALSE
+        )
+      }
+      spread_var <- spread_var %||% scope_unique_var(scope, "integer")
+      ff[[j]] <- Fortran(
+        glue("({ff[[j]]}, {spread_var}=1, int({len_f}))"),
+        ff[[j]]@value
+      )
+    }
+  }
   s <- glue("[ {str_flatten_commas(ff)} ]")
   lens <- lapply(ff[order(map_int(ff, \(f) f@value@rank))], function(e) {
     rank <- e@value@rank
@@ -117,7 +154,7 @@ register_r2f_handler(
 register_r2f_handler(
   "integer",
   function(args, scope, ...) {
-    Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
+    Fortran("0_c_int", Variable(mode = "integer", dims = r2dims(args, scope)))
   },
   match_fun = FALSE
 )
@@ -125,7 +162,10 @@ register_r2f_handler(
 register_r2f_handler(
   c("double", "numeric"),
   function(args, scope, ...) {
-    Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
+    Fortran(
+      "0.0_c_double",
+      Variable(mode = "double", dims = r2dims(args, scope))
+    )
   },
   match_fun = FALSE
 )
@@ -154,10 +194,22 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   dims <- r2dims(list(args$nrow, args$ncol), scope)
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
-  # Scalars can be broadcast into an array on assignment, so keep them as-is.
+  # A scalar broadcasts natively on direct whole-array assignment, so keep
+  # it as-is there; in any other context (sum(...), %*%, ...) the expression
+  # must be a real rank-2 array, so materialize it into a hoisted temporary.
   if (passes_as_scalar(src@value)) {
-    src@value <- out_val
-    return(src)
+    calls <- list(...)$calls
+    parent_call <- if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+    if (parent_call %in% c("<-", "=", "<<-")) {
+      src@value <- out_val
+      return(src)
+    }
+    if (is.null(hoist)) {
+      stop("internal error: matrix() requires hoist context", call. = FALSE)
+    }
+    tmp <- hoist$declare_tmp(mode = src@value@mode, dims = dims)
+    hoist$emit(glue("{tmp@name} = {src}"))
+    return(Fortran(tmp@name, tmp))
   }
 
   rows <- dims[[1L]]
@@ -282,17 +334,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       }
       shape <- glue("int([{dims_f}])")
 
-      data_r <- args$data
-      is_fill_constructor <-
-        is.call(data_r) &&
-        is.symbol(data_r[[1L]]) &&
-        as.character(data_r[[1L]]) %in%
-          c(
-            "logical",
-            "integer",
-            "double",
-            "numeric"
-          )
+      is_fill_constructor <- is_fill_constructor_call(args$data)
 
       axis_terms <- vapply(
         target_dims,

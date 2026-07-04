@@ -48,7 +48,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         n = size(weights)
         if ((normalize/=0)) then
           weights = ((weights / sum(weights)) * size(weights))
