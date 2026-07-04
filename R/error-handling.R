@@ -112,6 +112,32 @@ quickr_error_fortran_lines <- function(message = NULL, scope = NULL) {
   lines
 }
 
+# Emit a runtime guard: if `condition` holds, record a quickr error and
+# bail out of the subroutine (or cancel the OpenMP loop). Statement-level
+# machinery shared by any handler that needs a runtime check.
+emit_quickr_error_if <- function(
+  condition,
+  message,
+  hoist,
+  scope
+) {
+  stopifnot(
+    is_string(condition),
+    is_string(message),
+    inherits(hoist, "environment"),
+    inherits(scope, "quickr_scope")
+  )
+  mark_scope_uses_errors(scope)
+  err_lines <- quickr_error_fortran_lines(message, scope = scope)
+  hoist$emit(glue(
+    "
+    if ({condition}) then
+    {indent(str_flatten_lines(err_lines))}
+    end if
+    "
+  ))
+}
+
 quickr_error_return_if_set <- function(
   scope,
   openmp_depth = scope_openmp_depth(scope)

@@ -74,29 +74,6 @@ assert_conformable_dims <- function(left, right, context, err_msg) {
   invisible(TRUE)
 }
 
-emit_quickr_error_if <- function(
-  condition,
-  message,
-  hoist,
-  scope
-) {
-  stopifnot(
-    is_string(condition),
-    is_string(message),
-    inherits(hoist, "environment"),
-    inherits(scope, "quickr_scope")
-  )
-  mark_scope_uses_errors(scope)
-  err_lines <- quickr_error_fortran_lines(message, scope = scope)
-  hoist$emit(glue(
-    "
-    if ({condition}) then
-    {indent(str_flatten_lines(err_lines))}
-    end if
-    "
-  ))
-}
-
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
