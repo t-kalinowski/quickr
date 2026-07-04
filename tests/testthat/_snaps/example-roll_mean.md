@@ -24,14 +24,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, weights, normalize, out, weights__len_, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, weights, normalize, out, weights__len_, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
         integer(c_ptrdiff_t), intent(in), value :: weights__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -51,8 +54,25 @@
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)
+          if (size(x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i))) /= size(weights)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
           out(i) = (sum((x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)) * weights)) / real(size(weights), kind=c_double))
         end do
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -68,7 +88,8 @@
         const int* const normalize__, 
         double* const out__, 
         const R_xlen_t weights__len_, 
-        const R_xlen_t x__len_);
+        const R_xlen_t x__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -107,13 +128,21 @@
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           weights__,
           normalize__,
           out__,
           weights__len_,
-          x__len_);
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;

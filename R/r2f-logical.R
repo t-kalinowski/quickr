@@ -5,55 +5,61 @@
 
 # ---- comparison operators ----
 
-r2f_handlers[[">="]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} >= {right})"), var)
 }
 
-r2f_handlers[[">"]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} > {right})"), var)
 }
 
-r2f_handlers[["<"]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} < {right})"), var)
 }
 
-r2f_handlers[["<="]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} <= {right})"), var)
 }
 
-r2f_handlers[["=="]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} == {right})"), var)
 }
 
-r2f_handlers[["!="]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} /= {right})"), var)
@@ -101,8 +107,8 @@ register_r2f_handler(
 #   `merge(1_c_int, 0_c_int, <lgl>)` to cast logical to int.
 register_r2f_handler(
   c("&", "&&", "|", "||"),
-  function(args, scope, ...) {
-    args <- lapply(args, r2f, scope, ...)
+  function(args, scope, ..., hoist = NULL) {
+    args <- lapply(args, r2f, scope, ..., hoist = hoist)
     args <- lapply(args, function(a) {
       if (a@value@mode != "logical") {
         stop("must be logical")
@@ -112,6 +118,7 @@ register_r2f_handler(
     .[left, right] <- args
     left <- booleanize_logical_as_int(left)
     right <- booleanize_logical_as_int(right)
+    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
 
     operator <- switch(
       last(list(...)$calls),
