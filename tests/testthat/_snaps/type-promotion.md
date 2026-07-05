@@ -532,3 +532,65 @@
         return out_;
       }
 
+# abs() and single-arg reductions accept logical operands like R
+
+    Code
+      fn
+    Output
+      function(x) {
+          declare(type(x = logical(n)))
+          abs(x)
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, out_, x__len_) bind(c)
+        use iso_c_binding, only: c_int, c_ptrdiff_t
+        implicit none
+      
+        ! manifest start
+        ! sizes
+        integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! args
+        integer(c_int), intent(in) :: x(x__len_) ! logical
+        integer(c_int), intent(out) :: out_(x__len_)
+        ! manifest end
+      
+      
+        out_ = abs(merge(1_c_int, 0_c_int, (x/=0)))
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const x__, 
+        int* const out___, 
+        const R_xlen_t x__len_);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != LGLSXP) {
+          Rf_error("typeof(x) must be 'logical', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const int* const x__ = LOGICAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        const R_xlen_t out___len_ = x__len_;
+        SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
+        int* out___ = INTEGER(out_);
+        
+        fn(x__, out___, x__len_);
+        
+        UNPROTECT(1);
+        return out_;
+      }
+

@@ -98,10 +98,12 @@ promote_operands <- function(args, context = "operator") {
   )
 }
 
-# Arithmetic mode of a single operand: logical participates as integer.
-# Used by: r2f-arithmetic.R (unary + and -)
-unary_arith_mode <- function(x) {
-  if (identical(x@value@mode, "logical")) "integer" else x@value@mode
+# Lattice join for arithmetic contexts: logical joins as integer (R:
+# TRUE + TRUE is 2L, sum(TRUE) is 1L; Fortran has no logical arithmetic).
+# Used by: r2f-arithmetic.R, r2f-math.R, r2f-reductions.R
+arith_join_mode <- function(...) {
+  mode <- reduce_promoted_mode(...)
+  if (identical(mode, "logical")) "integer" else mode
 }
 
 # Apply R's arithmetic rule for logical operands: they join as integer
@@ -113,10 +115,7 @@ promote_arith_pair <- function(left, right, context = "arithmetic") {
     identical(left@value@mode, "logical") ||
       identical(right@value@mode, "logical")
   ) {
-    mode <- reduce_promoted_mode(left, right)
-    if (identical(mode, "logical")) {
-      mode <- "integer"
-    }
+    mode <- arith_join_mode(left, right)
     left <- cast_to_mode(left, mode, context)
     right <- cast_to_mode(right, mode, context)
   }

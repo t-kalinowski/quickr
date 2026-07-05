@@ -161,6 +161,37 @@ test_that("logical operands participate in arithmetic as integers", {
   expect_quick_equal(fn_pow, list(TRUE, TRUE), list(FALSE, TRUE))
 })
 
+test_that("abs() and single-arg reductions accept logical operands like R", {
+  fn_abs <- function(x) {
+    declare(type(x = logical(n)))
+    abs(x)
+  }
+  # R: abs(logical) is integer; this used to emit abs((x /= 0)), which
+  # gfortran rejects because abs() requires a numeric argument
+  expect_translation_snapshots(fn_abs)
+  expect_quick_identical(fn_abs, list(c(TRUE, FALSE, TRUE)))
+
+  fn_sum <- function(x) {
+    declare(type(x = logical(n)))
+    sum(x)
+  }
+  # likewise sum((x /= 0)) was a gfortran type error; R: sum(logical) is
+  # integer
+  expect_quick_identical(fn_sum, list(c(TRUE, FALSE, TRUE)))
+
+  fn_max <- function(x) {
+    declare(type(x = logical(n)))
+    max(x)
+  }
+  expect_quick_identical(fn_max, list(c(TRUE, FALSE)))
+
+  fn_min <- function(x) {
+    declare(type(x = logical(n)))
+    min(x)
+  }
+  expect_quick_identical(fn_min, list(c(TRUE, FALSE)))
+})
+
 test_that("comparisons accept logical operands like R", {
   fn <- function(x) {
     declare(type(x = logical(n)))

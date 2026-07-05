@@ -8,7 +8,7 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
     # R: +TRUE is 1L
-    x <- cast_to_mode(x, unary_arith_mode(x), "unary +")
+    x <- cast_to_mode(x, arith_join_mode(x), "unary +")
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
@@ -27,7 +27,7 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ...)
     # R: -TRUE is -1L
-    x <- cast_to_mode(x, unary_arith_mode(x), "unary -")
+    x <- cast_to_mode(x, arith_join_mode(x), "unary -")
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
@@ -103,10 +103,7 @@ r2f_handlers[["%%"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # `modulo` requires same-typed arguments, so cast both operands to the
   # join (logical joins as integer: R's TRUE %% TRUE is 0L).
-  mode <- reduce_promoted_mode(left, right)
-  if (identical(mode, "logical")) {
-    mode <- "integer"
-  }
+  mode <- arith_join_mode(left, right)
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
   out_val <- conform(left@value, right@value)

@@ -50,6 +50,13 @@ register_r2f_handler(
           call. = FALSE
         )
       }
+      # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
+      # and Fortran's sum/product/minval/maxval reject logical arrays.
+      x <- cast_to_mode(
+        x,
+        arith_join_mode(x),
+        sprintf("%s()", last(dots$calls))
+      )
       if (x@value@is_scalar) {
         return(x)
       }
@@ -72,10 +79,7 @@ register_r2f_handler(
       # whose mode differs from the join. The + / * spellings for sum/prod
       # don't strictly need it, but one code path beats two. Logical
       # operands join as integer (R: max(TRUE, FALSE) is 1L).
-      mode <- reduce_promoted_mode(args)
-      if (identical(mode, "logical")) {
-        mode <- "integer"
-      }
+      mode <- arith_join_mode(args)
       context <- sprintf("%s()", last(list(...)$calls))
       args <- lapply(args, cast_to_mode, mode = mode, context = context)
       s <- switch(
