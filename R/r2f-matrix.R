@@ -108,6 +108,8 @@ register_r2f_handler(
       ))
     }
 
+    # Vector operands (vector %*% vector reaches here) are rank-1: their
+    # extent is their whole size, not a rank-2 axis.
     guard_conformable_dims(
       k,
       right_eff$rows,
@@ -116,8 +118,10 @@ register_r2f_handler(
       scope,
       left = left,
       right = right,
-      left_axis = if (left_trans == "N") 2L else 1L,
-      right_axis = if (right_trans == "N") 1L else 2L
+      left_axis = if (left_rank == 1) NULL else if (left_trans == "N") 2L else
+        1L,
+      right_axis = if (right_rank == 1) NULL else if (right_trans == "N") 1L
+      else 2L
     )
 
     # Matrix-Matrix

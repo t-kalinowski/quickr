@@ -703,6 +703,12 @@ lapack_solve <- function(
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
+  # solve(a, b) with a rectangular `a` deliberately falls through to the
+  # least-squares branch below -- a divergence from base R (which requires
+  # a square `a`), locked by the "least-squares" tests in
+  # test-matrix-lapack.R. Squareness is a routing decision here, not a
+  # correctness guard: unknown squareness routes to dgels, which solves
+  # square systems exactly too.
   square <- check_conformable(m, n)
   if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))

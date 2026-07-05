@@ -43,6 +43,23 @@ test_that("triangular solve guards squareness and RHS length", {
   )
 })
 
+test_that("vector %*% vector guards unknown lengths as whole sizes", {
+  fn <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    x %*% y
+  }
+  # was: the fallthrough guard hardcoded rank-2 axes, emitting size(x, 2)
+  # on a rank-1 array -- a gfortran error that made a conformable
+  # unknown-length dot product fail to compile at all
+  qfn <- expect_no_warning(quick(fn))
+  expect_equal(qfn(c(1, 2, 3), c(4, 5, 6)), c(1, 2, 3) %*% c(4, 5, 6))
+  expect_error(
+    qfn(c(1, 2), c(4, 5, 6)),
+    "non-conformable arguments in %*%",
+    fixed = TRUE
+  )
+})
+
 test_that("solve() guards an unknown RHS length", {
   fn <- function(a, b) {
     declare(type(a = double(2, 2)), type(b = double(NA)))
@@ -52,6 +69,7 @@ test_that("solve() guards an unknown RHS length", {
   expect_equal(qfn(diag(2), c(1, 2)), c(1, 2))
   expect_error(qfn(diag(2), c(1, 2, 3)), "non-conformable arguments in solve")
 })
+
 
 test_that("solve(a) and chol() guard squareness", {
   inv <- function(a) {
