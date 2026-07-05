@@ -114,8 +114,8 @@ r2f_handlers[["%%"]] <- function(args, scope, ...) {
   Fortran(glue("modulo({left}, {right})"), out_val)
 }
 
-r2f_handlers[["%/%"]] <- function(args, scope, ...) {
-  .[left, right] <- lapply(args, r2f, scope, ...)
+r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   pair <- promote_arith_pair(left, right, "%/%")
   left <- pair$left
   right <- pair$right
@@ -126,7 +126,18 @@ r2f_handlers[["%/%"]] <- function(args, scope, ...) {
     integer = glue(
       "int(floor(real({left}, kind=c_double) / real({right}, kind=c_double)), kind=c_int)"
     ),
-    double = glue("floor({left} / {right})"),
+    double = {
+      # Fortran FLOOR() returns an integer, so a large double quotient
+      # (e.g. 1e20 %/% 3) would silently overflow. Stay in the real domain
+      # as the floor() handler does; the quotient is spliced three times,
+      # so hoist it to evaluate once.
+      q <- hoist_unless_name(
+        Fortran(glue("({left} / {right})"), out_val),
+        hoist
+      )
+      aint <- glue("aint({q})")
+      glue("({aint} - merge(1.0_c_double, 0.0_c_double, ({q} < {aint})))")
+    },
     stop("%/% only implemented for numeric types")
   )
 

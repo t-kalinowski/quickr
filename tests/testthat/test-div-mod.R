@@ -55,3 +55,23 @@ test_that("integer %/% is exact beyond 2^24", {
     list(.Machine$integer.max, 7L)
   )
 })
+
+test_that("double %/% stays exact beyond integer range", {
+  div_dbl_big <- function(a, b) {
+    declare(type(a = double(1)), type(b = double(1)))
+    a %/% b
+  }
+
+  # locks the real-domain flooring: Fortran FLOOR() returns an integer, so
+  # e.g. 1e20 %/% 3 came back as -2147483648 instead of ~3.33e19
+  expect_translation_snapshots(div_dbl_big)
+
+  expect_quick_equal(
+    div_dbl_big,
+    list(1e20, 3),
+    list(-1e20, 3),
+    list(7.5, 2.5),
+    list(-7.5, 2.5),
+    list(-7, 2.5)
+  )
+})
