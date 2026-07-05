@@ -236,8 +236,20 @@ scalarize_matrix <- function(mat) {
 # are compile errors (R-style recycling is not supported; scalar broadcast
 # is native), lengths that cannot be compared statically get a runtime
 # size guard through `hoist`.
+#
+# `scalarize_one_by_one` mirrors R's split over length-1 arrays: arithmetic
+# recycles a 1x1 matrix against a longer vector (deprecated in R but still
+# the behavior), while comparisons and & | error. Strict callers pass FALSE
+# so the 1x1 falls through to the vector-matrix rule and is rejected or
+# guarded like any other 1-row matrix.
 # Used by: r2f-arithmetic.R, r2f-logical.R
-maybe_reshape_vector_matrix <- function(left, right, hoist = NULL, scope = NULL) {
+maybe_reshape_vector_matrix <- function(
+  left,
+  right,
+  hoist = NULL,
+  scope = NULL,
+  scalarize_one_by_one = TRUE
+) {
   if (
     !inherits(left, Fortran) ||
       !inherits(right, Fortran) ||
@@ -252,16 +264,36 @@ maybe_reshape_vector_matrix <- function(left, right, hoist = NULL, scope = NULL)
   left_rank <- if (left_scalar) 0L else left@value@rank
   right_rank <- if (right_scalar) 0L else right@value@rank
 
-  if (left_rank == 2L && right_rank == 1L && is_one_by_one(left)) {
+  # Casts and booleanization wrap operands in expression text that Fortran
+  # cannot index (`real(x, kind=c_double)(1, 1)` is invalid), so hoist
+  # anything that is not a bare name before subscripting it.
+  scalarize_via_hoist <- function(x) {
+    if (!is.null(hoist)) {
+      x <- hoist_unless_name(x, hoist)
+    }
+    scalarize_matrix(x)
+  }
+
+  if (
+    scalarize_one_by_one &&
+      left_rank == 2L &&
+      right_rank == 1L &&
+      is_one_by_one(left)
+  ) {
     right_len <- dim_or_one(right, 1L)
     if (!dim_is_one(right_len)) {
-      left <- scalarize_matrix(left)
+      left <- scalarize_via_hoist(left)
       left_rank <- 0L
     }
-  } else if (left_rank == 1L && right_rank == 2L && is_one_by_one(right)) {
+  } else if (
+    scalarize_one_by_one &&
+      left_rank == 1L &&
+      right_rank == 2L &&
+      is_one_by_one(right)
+  ) {
     left_len <- dim_or_one(left, 1L)
     if (!dim_is_one(left_len)) {
-      right <- scalarize_matrix(right)
+      right <- scalarize_via_hoist(right)
       right_rank <- 0L
     }
   }

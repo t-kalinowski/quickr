@@ -100,6 +100,55 @@ test_that("vector-matrix ops with unknown dims guard instead of rejecting", {
   expect_error(qfn(c(10, 20, 30), mat), "matrix first dimension")
 })
 
+test_that("1x1 matrix operands follow R: arithmetic scalarizes, strict ops reject", {
+  # Arithmetic: R recycles a length-1 array against a longer vector
+  # (deprecated, hence suppressWarnings, but still R's answer). A 1x1
+  # operand that needs a cast used to emit unindexable expression text
+  # (`real(b, kind=c_double)(1, 1)`), a gfortran syntax error; it is now
+  # hoisted to a temporary before subscripting.
+  cast_fn <- function(a, b) {
+    declare(type(a = double(3)), type(b = logical(1, 1)))
+    a + b
+  }
+  qfn <- quick(cast_fn)
+  a <- c(1.5, 2.5, 3.5)
+  b <- matrix(TRUE)
+  expect_identical(qfn(a, b), suppressWarnings(cast_fn(a, b)))
+
+  div_fn <- function(a, b) {
+    declare(type(a = double(3)), type(b = logical(1, 1)))
+    a / b
+  }
+  qdiv <- quick(div_fn)
+  expect_identical(qdiv(a, b), suppressWarnings(div_fn(a, b)))
+
+  # Comparisons and & | do not get R's length-1 array recycling: R errors
+  # ("dims [product 1] do not match the length of object"). Scalarizing
+  # here would answer where R refuses, so the 1x1 is treated as an
+  # ordinary one-row matrix and rejected.
+  cmp_fn <- function(a, b) {
+    declare(type(a = double(3)), type(b = double(1, 1)))
+    a < b
+  }
+  expect_error(quick(cmp_fn), "matrix first dimension")
+
+  and_fn <- function(a, b) {
+    declare(type(a = logical(3)), type(b = logical(1, 1)))
+    a & b
+  }
+  expect_error(quick(and_fn), "matrix first dimension")
+
+  # Unknown vector length against a 1x1: strict ops guard at runtime
+  # (length 1 conforms, like R; anything longer is the R error above)
+  sym_cmp <- function(a, b) {
+    declare(type(a = double(NA)), type(b = double(1, 1)))
+    a < b
+  }
+  qcmp <- quick(sym_cmp)
+  expect_identical(qcmp(3, matrix(5)), 3 < matrix(5))
+  expect_error(qcmp(c(1, 2, 3), matrix(5)), "matrix first dimension")
+})
+
 test_that("guard text is pinned (one snapshot per mechanism)", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(m)))

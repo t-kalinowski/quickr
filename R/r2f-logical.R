@@ -9,7 +9,13 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} >= {right})"), var)
@@ -19,7 +25,13 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} > {right})"), var)
@@ -29,7 +41,13 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} < {right})"), var)
@@ -39,7 +57,13 @@ r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} <= {right})"), var)
@@ -49,7 +73,13 @@ r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} == {right})"), var)
@@ -59,7 +89,13 @@ r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} /= {right})"), var)
@@ -118,7 +154,13 @@ register_r2f_handler(
     .[left, right] <- args
     left <- booleanize_logical_as_int(left)
     right <- booleanize_logical_as_int(right)
-    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+    .[left, right] <- maybe_reshape_vector_matrix(
+      left,
+      right,
+      hoist,
+      scope,
+      scalarize_one_by_one = FALSE
+    )
 
     operator <- switch(
       last(list(...)$calls),
