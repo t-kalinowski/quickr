@@ -260,6 +260,12 @@ register_r2f_handler(
     lhs <- compile_subscript_lhs(target_call, scope, ..., target = "local")
     value <- r2f(args[[2L]], scope, ...)
 
+    # Subassignment cannot re-type the base variable any more than
+    # whole-variable reassignment can: `x[1L] <- 2.5` on an integer `x`
+    # would silently truncate where R promotes `x` to double.
+    base_name <- as.character(target_call[[2L]])
+    check_reassignment_narrowing(base_name, get0(base_name, scope), value@value)
+
     Fortran(str_flatten_lines(lhs$pre, glue("{lhs$lhs} = {value}")))
   }
 )
@@ -314,6 +320,7 @@ register_r2f_handler(
     host_scope[[name]] <- host_var
 
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    check_reassignment_narrowing(name, host_var, value@value)
     check_assignment_compatible(host_var, value@value)
 
     Fortran(glue("{host_var@name} = {value}"))
@@ -367,6 +374,7 @@ register_r2f_handler(
       target = "host"
     )
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    check_reassignment_narrowing(name, host_var, value@value)
     Fortran(glue("{lhs$lhs} = {value}"))
   }
 )

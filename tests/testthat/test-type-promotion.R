@@ -201,3 +201,29 @@ test_that("reassignment that would narrow the mode is a compile error", {
   }
   expect_quick_equal(fn_ok, list(1.5))
 })
+
+test_that("subassignment that would narrow the mode is a compile error", {
+  fn <- function(x) {
+    declare(type(x = integer(3)))
+    x[1L] <- 2.5
+    x
+  }
+  # R promotes the whole vector to double; the emitted element assignment
+  # used to silently truncate (quickr returned c(2L, 2L, 3L))
+  expect_error(quick(fn), "narrow double to integer")
+
+  fn_range <- function(x) {
+    declare(type(x = integer(n)))
+    x[1:2] <- x[1:2] / 2
+    x
+  }
+  expect_error(quick(fn_range), "narrow double to integer")
+
+  # widening-safe subassignment still works
+  fn_ok <- function(x) {
+    declare(type(x = double(3)))
+    x[1L] <- 5L
+    x
+  }
+  expect_quick_equal(fn_ok, list(c(1.5, 2.5, 3.5)))
+})
