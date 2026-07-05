@@ -50,3 +50,31 @@ test_that("ifelse with scalar test and array branch errors cleanly", {
   }
   expect_error(quick(fn), "shape of `test`")
 })
+
+test_that("ifelse with statically mismatched branch lengths is a compile error", {
+  fn <- function(c, a) {
+    declare(type(c = logical(3)), type(a = double(2)))
+    ifelse(c, a, 0)
+  }
+  expect_error(quick(fn), "R-style recycling is not supported")
+})
+
+test_that("ifelse guards unknown branch lengths at runtime", {
+  fn <- function(c, a, b) {
+    declare(type(c = logical(NA)), type(a = double(NA)), type(b = double(NA)))
+    ifelse(c, a, b)
+  }
+  # locks the size guards: a bare merge() with runtime-mismatched
+  # assumed-shape vectors read past the shorter branch (returned garbage
+  # like 4.65e-310 where R recycles)
+  expect_translation_snapshots(fn)
+  qfn <- quick(fn)
+
+  cc <- c(TRUE, FALSE, TRUE)
+  a <- c(10, 20, 30)
+  b <- c(1, 2, 3)
+  expect_identical(qfn(cc, a, b), ifelse(cc, a, b))
+
+  expect_error(qfn(cc, c(10, 20), b), "match the shape of `test`")
+  expect_error(qfn(cc, a, c(1, 2, 3, 4)), "match the shape of `test`")
+})
