@@ -9,7 +9,7 @@ unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
   if (is_call(arg_unwrapped, quote(t)) && length(arg_unwrapped) == 2L) {
     inner_arg <- unwrap_parens(arg_unwrapped[[2L]])
     inner <- r2f(inner_arg, scope, ..., hoist = hoist)
-    inner <- maybe_cast_double(inner)
+    inner <- cast_linalg_double(inner, "%*%")
     if (inner@value@rank == 2L) {
       return(list(value = inner, trans = "T"))
     } else if (inner@value@rank == 1L) {
@@ -26,7 +26,7 @@ unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
     }
   }
   value <- r2f(arg, scope, ..., hoist = hoist)
-  value <- maybe_cast_double(value)
+  value <- cast_linalg_double(value, "%*%")
   list(value = value, trans = "N")
 }
 

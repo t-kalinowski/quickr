@@ -471,8 +471,8 @@ outer_mul <- function(
 ) {
   assert_hoist_env(hoist)
 
-  x <- maybe_cast_double(x)
-  y <- maybe_cast_double(y)
+  x <- cast_linalg_double(x, context)
+  y <- cast_linalg_double(y, context)
 
   if (x@value@rank > 1L || y@value@rank > 1L) {
     stop("outer() only supports vectors or scalars")
@@ -523,8 +523,8 @@ triangular_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
-  B <- maybe_cast_double(B)
+  A <- cast_linalg_double(A, context)
+  B <- cast_linalg_double(B, context)
 
   assert_rank2_matrix(A, "triangular solve expects a matrix")
 
@@ -605,8 +605,8 @@ lapack_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
-  B <- maybe_cast_double(B)
+  A <- cast_linalg_double(A, context)
+  B <- cast_linalg_double(B, context)
 
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
@@ -812,7 +812,7 @@ end do"
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
@@ -886,7 +886,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
 lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   assert_rank2_matrix(A, paste0(context, " expects a matrix"))
 
   a_dims <- matrix_dims(A)
@@ -949,7 +949,7 @@ lapack_chol2inv <- function(
 ) {
   assert_hoist_env(hoist)
 
-  R <- maybe_cast_double(R)
+  R <- cast_linalg_double(R, context)
   assert_rank2_matrix(R, paste0(context, " expects a matrix"))
 
   r_dims <- matrix_dims(R)
@@ -1161,7 +1161,7 @@ lapack_svd <- function(
   assert_hoist_env(hoist)
   stopifnot(inherits(d, Variable), inherits(u, Variable), inherits(v, Variable))
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   dims <- svd_dims(A, context = context)
   m <- dims$m
   n <- dims$n

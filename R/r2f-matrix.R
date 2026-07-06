@@ -627,7 +627,10 @@ register_r2f_handler(
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- maybe_cast_double(r2f(tol_arg, scope, ..., hoist = hoist))
+      tol <- cast_linalg_double(
+        r2f(tol_arg, scope, ..., hoist = hoist),
+        "qr.solve"
+      )
       if (tol@value@rank != 0L) {
         stop("qr.solve() expects a scalar `tol`", call. = FALSE)
       }
@@ -916,7 +919,7 @@ crossprod_like <- function(
   context
 ) {
   x <- r2f(x_arg, scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
+  x <- cast_linalg_double(x, context)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -929,7 +932,7 @@ crossprod_like <- function(
     ))
   }
 
-  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
+  y <- cast_linalg_double(r2f(y_arg, scope, ..., hoist = hoist), context)
 
   x_dims <- matrix_dims(x)
   y_dims <- matrix_dims(y)

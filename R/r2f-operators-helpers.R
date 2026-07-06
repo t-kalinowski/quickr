@@ -85,6 +85,24 @@ maybe_cast_double <- function(x) {
   }
 }
 
+# Cast a linear-algebra operand to double for the real BLAS/LAPACK
+# lowerings (dgemm, dgesv, ...). Complex operands are refused: the d*
+# routines would read complex storage as reals and return a plausible
+# wrong answer, and quickr has no z* lowerings. R supports complex
+# linear algebra, so the message names the divergence.
+# Used by: r2f-matrix.R, r2f-matrix-parse.R, r2f-matrix-blas.R
+cast_linalg_double <- function(x, context) {
+  if (identical(x@value@mode, "complex")) {
+    stop(
+      context,
+      " does not support complex operands; ",
+      "linear algebra in quickr is double-only",
+      call. = FALSE
+    )
+  }
+  maybe_cast_double(x)
+}
+
 # Promote a list of operands to their common (lattice-join) mode, casting
 # each one whose mode differs. For contexts where Fortran requires uniform
 # argument types: array constructors (c()), min/max, merge, modulo.
