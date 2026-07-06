@@ -643,13 +643,12 @@ lapack_solve <- function(
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
-  # solve(a, b) with a rectangular `a` deliberately falls through to the
-  # least-squares branch below -- a divergence from base R (which requires
-  # a square `a`), locked by the "least-squares" tests in
-  # test-matrix-lapack.R. Squareness is a routing decision here, not a
-  # correctness guard: unknown squareness routes to dgels, which solves
-  # square systems exactly too.
-  if (dims_match(m, n) && !identical(context, "qr.solve")) {
+  # R's solve() requires a square `a`; least squares is qr.solve()'s job.
+  # Statically rectangular `a` is a compile error, symbolic dims get a
+  # runtime guard before the dgesv call. (A rectangular `a` used to fall
+  # through to a dgels least-squares solve -- an answer where R errors.)
+  if (!identical(context, "qr.solve")) {
+    assert_square_matrix(a_dims, A, context, hoist, scope)
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
@@ -671,7 +670,17 @@ lapack_solve <- function(
       out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
       out_name <- out_var@name
     }
-    hoist$emit(glue("{out_name} = {B_input_name}"))
+    # The output length follows ncol(a) (R's contract) while `b` follows
+    # nrow(a); the two are only runtime-equal. When ncol is statically 1
+    # the output declares as a scalar, so a symbolic-length `b` must be
+    # copied elementwise, not by whole-array assignment.
+    b_src <- if (passes_as_scalar(out_var) && !passes_as_scalar(B@value)) {
+      subs <- str_flatten_commas(rep("1", b_rank))
+      glue("{B_input_name}({subs})")
+    } else {
+      B_input_name
+    }
+    hoist$emit(glue("{out_name} = {b_src}"))
 
     ipiv <- hoist$declare_tmp(mode = "integer", dims = list(m))
     info <- hoist$declare_tmp(mode = "integer", dims = NULL)
@@ -813,121 +822,6 @@ end do"
     }
     return(out)
   }
-
-  A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
-  hoist$emit(glue("{A_work@name} = {A_name}"))
-
-  max_mn <- call("max", m, n)
-
-  B_work <- hoist$declare_tmp(mode = "double", dims = list(max_mn, nrhs))
-  m_f <- dims2f(list(m), scope)
-  if (!nzchar(m_f)) {
-    m_f <- "1"
-  }
-  n_f <- dims2f(list(n), scope)
-  if (!nzchar(n_f)) {
-    n_f <- "1"
-  }
-  nrhs_f <- dims2f(list(nrhs), scope)
-  if (!nzchar(nrhs_f)) {
-    nrhs_f <- "1"
-  }
-  hoist$emit(glue("{B_work@name} = 0.0_c_double"))
-  if (b_rank == 1L) {
-    hoist$emit(glue("{B_work@name}(1:{m_f}, 1) = {B_input_name}"))
-  } else {
-    hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
-  }
-
-  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-  mn <- call("min", m, n)
-  if (identical(context, "qr.solve")) {
-    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
-    hoist$emit(glue("{jpvt@name} = 0_c_int"))
-
-    rcond <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
-    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-    lwork <- call(
-      "max",
-      1L,
-      call("+", mn, call("max", mn, nrhs)),
-      call("+", call("*", 2L, mn), call("*", 64L, call("+", n, 1L))),
-      call("+", mn, call("*", 2L, n))
-    )
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgelsy({blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {jpvt@name}, {rcond}, {rank@name}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgelsy: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{info@name} > 0_c_int"),
-      message = "Lapack routine dgelsy failed to converge",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{rank@name} < {blas_int(n)}"),
-      message = "rank deficient matrix in qr.solve",
-      hoist = hoist,
-      scope = scope
-    )
-  } else {
-    lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgels: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-  }
-
-  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, B_input_name),
-      expected_dims = expected_dims,
-      context = context,
-      allow_alias = B_input_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-    out_name <- out_var@name
-  }
-
-  if (b_rank == 1L) {
-    if (passes_as_scalar(out_var)) {
-      hoist$emit(glue("{out_name} = {B_work@name}(1, 1)"))
-    } else {
-      hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1)"))
-    }
-  } else {
-    hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1:{nrhs_f})"))
-  }
-
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
 }
 
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {

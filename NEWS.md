@@ -32,6 +32,13 @@
   build even in arithmetic, and a symbolic-length `x + m` returned a plain
   vector where R returns a `1x1` matrix.
 
+- `solve(a, b)` now requires a square `a`, matching R. A rectangular `a`
+  previously fell through to a least-squares solve (dgels), returning an
+  answer where R raises `'a' (m x n) must be square`. Statically
+  rectangular systems are now a compile-time error; when squareness is not
+  known at compile time it is checked at run time. Use `qr.solve()` for
+  least-squares solutions of rectangular systems (unchanged).
+
 # quickr 0.3.0
 
 This release adds major new support for linear algebra, local functions,

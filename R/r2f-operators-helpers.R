@@ -149,7 +149,7 @@ is_one_by_one <- function(x) {
 # check_elementwise_lengths(): no zero-length policy, no symbol
 # normalization -- callers use it for routing/declaration decisions, not
 # for the conformability contract.
-# Used by: r2f-matrix.R (bind_common_dim), r2f-matrix-blas.R (solve routing)
+# Used by: r2f-matrix.R (bind_common_dim)
 dims_match <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     return(identical(as.integer(left), as.integer(right)))
