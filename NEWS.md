@@ -48,6 +48,13 @@
   known at compile time it is checked at run time. Use `qr.solve()` for
   least-squares solutions of rectangular systems (unchanged).
 
+- Complex operands in linear algebra (`%*%`, `crossprod()`, `solve()`,
+  `chol()`, ...) are now a compile-time error. quickr's lowerings use the
+  real (double-only) BLAS/LAPACK routines, which previously read complex
+  storage as reals and returned a plausible but wrong real result where R
+  returns a complex one. Elementwise complex arithmetic and the
+  mode-preserving `t()`/`diag()` are unaffected.
+
 # quickr 0.3.0
 
 This release adds major new support for linear algebra, local functions,
