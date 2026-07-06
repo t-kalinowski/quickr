@@ -1389,6 +1389,16 @@ compile_subset_designator <- function(
     is_bool(allow_logical_vector_subscripts)
   )
 
+  # Same validation as the read-side `[` handler: assignment subscripts
+  # would otherwise lower R's exclusion/zero/out-of-range subscripts into
+  # silent out-of-bounds Fortran writes.
+  extents <- subscript_axis_extents(base_var, length(idx_args))
+  for (i in seq_along(idx_args)) {
+    if (!is_missing(idx_args[[i]])) {
+      check_subscript_expr(idx_args[[i]], extent = extents[[i]])
+    }
+  }
+
   idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {

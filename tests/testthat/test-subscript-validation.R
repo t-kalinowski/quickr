@@ -41,6 +41,110 @@ test_that("negative and zero subscripts are rejected at compile time", {
   expect_error(quick(fnm), "negative subscripts|subscripts must be positive")
 })
 
+test_that("literal subscripts beyond a known extent are compile errors", {
+  # R pads out-of-range reads with NA; quickr refuses at compile time
+  fn <- function(x) {
+    declare(type(x = double(3)))
+    x[4L]
+  }
+  expect_error(quick(fn), "exceeds its dimension's extent \\(3\\)")
+
+  frange <- function(x) {
+    declare(type(x = double(3)))
+    x[2:4]
+  }
+  expect_error(quick(frange), "exceeds its dimension's extent \\(3\\)")
+
+  fc <- function(x) {
+    declare(type(x = double(3)))
+    x[c(1L, 4L)]
+  }
+  expect_error(quick(fc), "exceeds its dimension's extent \\(3\\)")
+
+  fmat <- function(m) {
+    declare(type(m = double(2, 3)))
+    m[1L, 5L]
+  }
+  expect_error(quick(fmat), "exceeds its dimension's extent \\(3\\)")
+
+  # linear indexing on a matrix checks against the total size
+  flin <- function(m) {
+    declare(type(m = double(2, 3)))
+    m[7L]
+  }
+  expect_error(quick(flin), "exceeds its dimension's extent \\(6\\)")
+
+  # in-range literals and symbolic subscripts/extents are untouched
+  fok <- function(x) {
+    declare(type(x = double(3)))
+    x[3L] + x[1:3][1L]
+  }
+  expect_quick_identical(fok, list(as.double(1:3)))
+
+  fsym <- function(x, i) {
+    declare(type(x = double(3)), type(i = integer(1)))
+    x[i]
+  }
+  expect_no_error(quick(fsym))
+
+  fna <- function(x) {
+    declare(type(x = double(NA)))
+    x[5L]
+  }
+  expect_no_error(quick(fna))
+})
+
+test_that("assignment subscripts get the same validation as reads", {
+  # x[-1L] <- 9 compiled into a silent out-of-bounds Fortran write
+  fneg <- function(x) {
+    declare(type(x = double(3)))
+    x[-1L] <- 9
+    x
+  }
+  expect_error(quick(fneg), "subscripts must be positive")
+
+  fzero <- function(x) {
+    declare(type(x = double(3)))
+    x[0L] <- 1
+    x
+  }
+  expect_error(quick(fzero), "subscripts must be positive")
+
+  foob <- function(x) {
+    declare(type(x = double(3)))
+    x[4L] <- 1
+    x
+  }
+  expect_error(quick(foob), "exceeds its dimension's extent \\(3\\)")
+
+  fmat <- function(m) {
+    declare(type(m = double(2, 3)))
+    m[3L, 1L] <- 1
+    m
+  }
+  expect_error(quick(fmat), "exceeds its dimension's extent \\(2\\)")
+
+  # superassignment from a local closure shares the path
+  fsuper <- function(x) {
+    declare(type(x = double(3)))
+    bump <- function() {
+      x[4L] <<- 1
+    }
+    bump()
+    x
+  }
+  expect_error(quick(fsuper), "exceeds its dimension's extent \\(3\\)")
+
+  # valid writes still compile and match R
+  fok <- function(m) {
+    declare(type(m = double(2, 3)))
+    m[2L, 3L] <- 1
+    m[, 2L] <- 0
+    m
+  }
+  expect_quick_identical(fok, list(matrix(as.double(1:6), 2, 3)))
+})
+
 test_that("x[a:b] guards against non-positive bounds at runtime", {
   fn <- function(x, n) {
     declare(type(x = double(NA)), type(n = integer(1)))
