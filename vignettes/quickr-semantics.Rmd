@@ -45,9 +45,11 @@ logical < integer < double < complex
 ```
 
 Character values are not supported (declaring a `character` argument is
-a compile error). Complex values support arithmetic and equality
-comparisons; order comparisons (`<`, `<=`, `>`, `>=`) and `%%` are
-errors, exactly as they are in R.
+a compile error). Complex values support elementwise arithmetic and
+equality comparisons; order comparisons (`<`, `<=`, `>`, `>=`) and `%%`
+are errors, exactly as they are in R. Outside elementwise operations,
+complex support is narrower than the lattice suggests — see
+[complex values](#complex) under the differences below.
 
 An operation's result type is the "join" of its operands' types — the
 highest type among them — except where R fixes the result type, which
@@ -56,15 +58,15 @@ quickr then matches:
 | Operation | Result type |
 |---|---|
 | `+` `-` `*` (and unary `+` `-`) | join of the operand types; logicals count as integers (in R, `TRUE + TRUE` is `2L`) |
-| `/` | always double |
-| `^` | always double (see note below) |
+| `/` | double (complex when an operand is complex, as in R) |
+| `^` | double (complex when an operand is complex, as in R; see note below) |
 | `%%`, `%/%` | join of the operand types; logicals count as integers |
 | `<` `<=` `>` `>=` `==` `!=` | logical |
 | `&`, `|`, `!`, `&&`, `||` | logical (see [logical operators](#logical-operators) below) |
 | `c()`, and multi-argument `min()` / `max()` / `sum()` / `prod()` | join of all argument types |
 | single-argument reductions (`sum(x)`, ...), `abs()` | type of `x`; logical counts as integer |
 | `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
-| `%*%`, `crossprod()`, `solve()`, and other linear algebra | always double, as in R |
+| `%*%`, `crossprod()`, `solve()`, and other linear algebra | always double, as in R; complex operands are a compile error (see [complex values](#complex)) |
 | `t(x)`, `diag(x)` | same type as `x`; the identity forms `diag(n)` are double, as in R |
 | `cbind()` / `rbind()` | join of all argument types |
 
@@ -237,17 +239,37 @@ error instead.
 
 R arithmetic with a zero-length operand returns a zero-length result
 regardless of the other operand's length: `numeric(0) + 1:3` is
-`numeric(0)`. In quickr, a zero length is a length like any other: an
-operand *known* at compile time to be zero-length is a compile error,
-and at run time a zero-length operand errors unless the other operand's
-length is also zero (two zero-length operands produce a zero-length
-result, as in R).
+`numeric(0)`. In quickr, a zero length is a length like any other. An
+operand *known* at compile time to be zero-length combines only with a
+scalar (`double(0) + 1` is `numeric(0)`, matching R); combining it with
+any other vector — even another known-zero-length one — is a compile
+error. When lengths are only known at run time, a zero-length operand
+errors unless the other operand's length is also zero (two zero-length
+operands produce a zero-length result, as in R).
 
 ### A variable's type cannot change
 
 `x <- x + 0.5` on an integer `x` is a compile-time error, as described
 under [Types](#reassignment-cannot-narrow-a-type). R instead promotes
 the variable to double.
+
+### Complex values are elementwise-only {#complex}
+
+Elementwise arithmetic and equality comparisons handle complex values
+natively, including mixed operands: `complex + double` promotes to
+complex, as in R. Everything else refuses:
+
+- **Type joins.** `c()`, `ifelse()`, and `cbind()`/`rbind()` do not mix
+  complex with other types — `c(x, y)` with a complex `x` and a double
+  `y` is a compile error where R returns a complex vector.
+- **Linear algebra.** `%*%`, `crossprod()`, `solve()`, `chol()`, and the
+  rest of the linear-algebra surface refuse complex operands at compile
+  time; quickr's lowerings are double-only, where R computes complex
+  results.
+
+(`t(x)` and `diag(x)` are mode-preserving and keep working on complex
+values; order comparisons and `%%` on complex values are errors in R
+itself, so refusing them is not a divergence.)
 
 ### Subscript bounds are only partially checked
 
@@ -258,7 +280,8 @@ defeat the purpose of compiling, so quickr's contract is:
 
 - Subscripts that are provably out of range at compile time (literal
   values, ranges provably outside a known extent) are compile errors.
-  Zero and negative literal subscripts are rejected.
+  Zero and negative literal subscripts are rejected. Read and write
+  subscripts (`x[i]` and `x[i] <- v`) get the same validation.
 - A subscript whose value is only known at run time — a scalar `x[i]`,
   or a range `x[a:b]` with symbolic bounds — is **not** checked,
   matching Fortran's own contract: reading or writing out of bounds is
