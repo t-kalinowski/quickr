@@ -143,28 +143,58 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 
+# Compile a zero-fill constructor call: a single scalar literal carrying
+# array dims. Whole-array assignment broadcasts that correctly, and
+# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
+# the scalar form. Any other consumer (elementwise ops, reductions, ...)
+# needs a real array expression -- an expression like `numeric(2) + 1`
+# would otherwise contribute one element where its dims claim two -- so
+# materialize the fill into a hoisted temporary there.
+fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
+  var <- Variable(mode = mode, dims = r2dims(args, scope))
+  out <- Fortran(literal, var)
+  if (passes_as_scalar(var)) {
+    return(out)
+  }
+  calls <- list(...)$calls
+  parent_call <- if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
+    return(out)
+  }
+  if (is.null(hoist)) {
+    stop("internal error: fill constructor requires hoist context", call. = FALSE)
+  }
+  tmp <- hoist$declare_tmp(mode = mode, dims = var@dims)
+  hoist$emit(glue("{tmp@name} = {literal}"))
+  Fortran(tmp@name, tmp)
+}
+
 register_r2f_handler(
   "logical",
-  function(args, scope, ...) {
-    Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(".false.", "logical", args, scope, ..., hoist = hoist)
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   "integer",
-  function(args, scope, ...) {
-    Fortran("0_c_int", Variable(mode = "integer", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value("0_c_int", "integer", args, scope, ..., hoist = hoist)
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   c("double", "numeric"),
-  function(args, scope, ...) {
-    Fortran(
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
       "0.0_c_double",
-      Variable(mode = "double", dims = r2dims(args, scope))
+      "double",
+      args,
+      scope,
+      ...,
+      hoist = hoist
     )
   },
   match_fun = FALSE

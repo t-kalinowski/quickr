@@ -187,6 +187,30 @@ test_that("fill constructors spread inside c()", {
   expect_quick_identical(logical_fill, list(c(TRUE, FALSE)))
 })
 
+test_that("fill constructors materialize where an array is required", {
+  # A fill reaching c() through an expression is a real array, not a
+  # scalar literal with claimed dims (which emitted one element where the
+  # length arithmetic counted two).
+  through_op <- function(x) {
+    declare(type(x = double(2)))
+    c(numeric(2) + 1, x)
+  }
+  expect_quick_identical(through_op, list(c(5, 6)))
+
+  # Same leak as a silent wrong answer: sum() over a fill expression saw
+  # one scalar instead of the filled length.
+  reduced <- function() {
+    sum(numeric(2) + 3)
+  }
+  expect_quick_identical(reduced, list())
+
+  symbolic <- function(x, k) {
+    declare(type(x = double(2)), type(k = integer(1)))
+    c(integer(k) + 1L, x)
+  }
+  expect_quick_identical(symbolic, list(c(5, 6), 3L))
+})
+
 test_that("matrix(scalar, m, n) materializes where an array is required", {
   reduced <- function() {
     sum(matrix(2, 2, 3))
