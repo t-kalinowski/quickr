@@ -1,0 +1,306 @@
+---
+title: "quickr semantics: types, shapes, and differences from R"
+output: rmarkdown::html_vignette
+vignette: >
+  %\VignetteIndexEntry{quickr semantics: types, shapes, and differences from R}
+  %\VignetteEngine{knitr::rmarkdown}
+  %\VignetteEncoding{UTF-8}
+---
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  eval = FALSE
+)
+```
+
+quickr compiles a subset of R. This vignette documents the semantics of
+that subset: what type a result has, when shapes are checked, and every
+place where a compiled function deliberately behaves differently from R.
+All differences take the same form — an error where R would return a
+value — never a different value.
+
+## The contract
+
+> `quick(f)(x)` either returns exactly what `f(x)` returns — same values,
+> same `typeof()`, same shape — or raises an error. Never a third thing.
+
+When quickr cannot reproduce R's behavior, it refuses. It prefers to
+refuse at compile time, when `quick()` is called; when the decision
+depends on values only known at run time (for example, sizes declared as
+`NA` or as symbolic constraints like `double(n)`), the compiled function
+performs a cheap runtime check and raises an error on mismatch. The text
+of these error messages differs from R's.
+
+The rest of this vignette is that contract in detail: first result
+*types*, then operand *shapes*, then the list of deliberate divergences.
+
+## Types
+
+Value types follow R's promotion order for the supported atomic modes:
+
+```
+logical < integer < double < complex
+```
+
+An operation's result type is the "join" of its operands' types — the
+highest type among them — except where R fixes the result type, which
+quickr then matches:
+
+| Operation | Result type |
+|---|---|
+| `+` `-` `*` (and unary `+` `-`) | join of the operand types; logicals count as integers (in R, `TRUE + TRUE` is `2L`) |
+| `/` | always double |
+| `^` | always double (see note below) |
+| `%%`, `%/%` | join of the operand types; logicals count as integers |
+| `<` `<=` `>` `>=` `==` `!=` | logical |
+| `&`, `|`, `!` | logical |
+| `c()`, and multi-argument `min()` / `max()` / `sum()` / `prod()` | join of all argument types |
+| single-argument reductions (`sum(x)`, ...), `abs()` | type of `x`; logical counts as integer |
+| `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
+| `%*%`, `crossprod()`, `solve()`, and other linear algebra | always double, as in R |
+| `t(x)`, `diag(x)` | same type as `x`; the identity forms `diag(n)` are double, as in R |
+| `cbind()` / `rbind()` | join of all argument types |
+
+For example, mixing integer and double promotes:
+
+```{r}
+f <- quick(function(x, y) {
+  declare(type(x = integer(1)), type(y = integer(1)))
+  x / y
+})
+f(5L, 2L)
+#> [1] 2.5
+```
+
+and logical arithmetic produces integers, as in R:
+
+```{r}
+f <- quick(function(x, y) {
+  declare(type(x = logical(1)), type(y = logical(1)))
+  x + y
+})
+r <- f(TRUE, TRUE)
+r
+#> [1] 2
+typeof(r)
+#> [1] "integer"
+```
+
+**A note on `^`:** the result is always double, as in R, but when the
+exponent is a whole number quickr computes the power with an integer
+exponent. This is exact, and well-defined for negative bases:
+`(-2) ^ 3L` is exactly `-8`.
+
+### Reassignment cannot narrow a type
+
+R happily re-binds a name to a value of a wider type: after
+`x <- x + 0.5`, an integer `x` becomes double. Compiled code cannot
+re-type a variable, and silently truncating the value would change
+results, so quickr makes this a compile-time error:
+
+```{r}
+quick(function(x) {
+  declare(type(x = integer(1)))
+  x <- x + 0.5
+  x
+})
+#> Error: cannot reassign `x`: assignment would narrow double to integer;
+#>   R would promote `x` to double
+```
+
+The same check applies to subassignment (`x[i] <- ...`) and
+superassignment (`x <<- ...`, `x[i] <<- ...`). Widening in the other
+direction (assigning an integer value to a double variable) is fine and
+inserts the conversion R would perform.
+
+## Shapes
+
+Every operation that combines two or more values checks that their
+shapes are compatible. A shape question has one of three answers, and
+each answer has a fixed consequence:
+
+- **Provably compatible** at compile time — allowed, no check emitted.
+- **Provably incompatible** at compile time — compile error.
+- **Unknown** at compile time (sizes declared `NA`, or symbolic sizes
+  that cannot be proven equal) — the compiled function checks at run
+  time and raises an error on mismatch.
+
+There is no case where a mismatch is silently accepted.
+
+For elementwise operations (arithmetic, comparisons, `&`, `|`),
+"compatible" means:
+
+| Operands | Behavior |
+|---|---|
+| scalar with anything | allowed; the scalar is broadcast |
+| identical shapes | allowed |
+| vector with matrix, `length(vec) == nrow(mat)` | allowed; the vector is recycled column-wise, exactly as in R |
+| a `1x1` matrix in *arithmetic* | treated as a scalar (R allows this, with a deprecation warning) |
+| a `1x1` matrix in comparisons and `&` / `|` | treated as a one-row matrix; mismatched shapes are rejected, and R errors here too |
+| anything else — unequal lengths, even when one divides the other | **error**: R-style recycling is not supported |
+
+The last row is the important one. In R, `1:6 + c(10, 20)` recycles the
+shorter vector. quickr never does this:
+
+```{r}
+quick(function(x, y) {
+  declare(type(x = double(4)), type(y = double(2)))
+  x + y
+})
+#> Error: elementwise vector operations require equal lengths or a scalar
+#>   operand; R-style recycling is not supported
+```
+
+When lengths are not known at compile time, the same rule is enforced at
+run time:
+
+```{r}
+f <- quick(function(x, y) {
+  declare(type(x = double(n)), type(y = double(m)))
+  x + y
+})
+f(c(1, 2), c(3, 4))
+#> [1] 4 6
+f(c(1, 2, 3), c(1, 2))
+#> Error: elementwise vector operations require equal lengths or a scalar
+#>   operand; R-style recycling is not supported
+```
+
+The two recycling forms that quickr *does* support — scalars, and a
+vector spanning the rows of a matrix — are exactly the ones with an
+exact, non-partial interpretation:
+
+```{r}
+f <- quick(function(x, m) {
+  declare(type(x = double(3)), type(m = double(3, 2)))
+  x * m
+})
+f(c(1, 10, 100), matrix(as.double(1:6), 3, 2))
+#>      [,1] [,2]
+#> [1,]    1    4
+#> [2,]   20   50
+#> [3,]  300  600
+```
+
+### Matrix multiplication and linear algebra
+
+`%*%`, `crossprod()`, `tcrossprod()`, `solve()`, and the triangular
+solvers check conformability like R does. Dimensions known at compile
+time are checked at compile time; unknown dimensions are checked at run
+time before the underlying BLAS/LAPACK routine is called:
+
+```{r}
+f <- quick(function(a, b) {
+  declare(type(a = double(n, k)), type(b = double(m, j)))
+  a %*% b
+})
+f(matrix(1, 2, 3), matrix(1, 2, 2))
+#> Error: non-conformable arguments in %*%
+```
+
+## Differences from R
+
+Everything listed here is an *error* divergence: a compiled function
+refuses where plain R would produce a value. If you find a case where a
+compiled function silently returns something different from R, that is a
+bug — please report it.
+
+### No `NA`
+
+`NA` values are not supported, in inputs or as literals. quickr does not
+implement R's missing-value semantics, and compiled code does not detect
+`NA` in inputs — passing `NA` produces undefined results. (For doubles,
+`NaN` and `Inf` flow through arithmetic per IEEE rules as they do in R,
+but no guarantees are made for code that branches on them.)
+
+### No partial recycling
+
+As described above: operand lengths must match exactly or one operand
+must be a scalar (or a vector spanning a matrix's rows). R's general
+recycling rule — including the case where one length divides the other,
+which R accepts without a warning — is a compile-time error or a runtime
+error instead.
+
+### Zero-length operands do not recycle to zero-length results
+
+R arithmetic with a zero-length operand returns a zero-length result
+regardless of the other operand's length: `numeric(0) + 1:3` is
+`numeric(0)`. In quickr, a zero length is a length like any other: an
+operand *known* at compile time to be zero-length is a compile error,
+and at run time a zero-length operand errors unless the other operand's
+length is also zero (two zero-length operands produce a zero-length
+result, as in R).
+
+### A variable's type cannot change
+
+`x <- x + 0.5` on an integer `x` is a compile-time error, as described
+under [Types](#reassignment-cannot-narrow-a-type). R instead promotes
+the variable to double.
+
+### Subscript bounds are only partially checked
+
+R validates every subscript: `x[0]` drops elements, negative subscripts
+exclude, and out-of-range reads pad with `NA`. None of those have a
+Fortran equivalent, and per-element bounds checks inside hot loops would
+defeat the purpose of compiling, so quickr's contract is:
+
+- Subscripts that are provably out of range at compile time (literal
+  values, ranges provably outside a known extent) are compile errors.
+  Zero and negative literal subscripts are rejected.
+- A subscript whose value is only known at run time — a scalar `x[i]`,
+  or a range `x[a:b]` with symbolic bounds — is **not** checked,
+  matching Fortran's own contract: reading or writing out of bounds is
+  undefined behavior, as in C. It will not return `NA`-padded results
+  the way R does.
+
+If you need R's bounds behavior, validate indices before the loop.
+
+### `ifelse()` {#ifelse}
+
+Three differences:
+
+- **Result type.** In R, `ifelse()`'s result type can depend on which
+  branches are actually reached at run time:
+  `ifelse(c(TRUE, TRUE), 1:2, c(0.5, 0.5))` is integer, because the `no`
+  branch never materializes. quickr always promotes to the join of both
+  branch types (double here), regardless of `test`'s values.
+- **Result shape.** The result takes the shape of `test`, as in R. A
+  scalar `test` with array-valued branches (where R would return a
+  length-1 result sliced out of the array) is a compile error.
+- **Branch lengths.** Branches shorter than `test` are recycled by R;
+  quickr requires each branch to be a scalar or match `test`'s length
+  (checked at run time when lengths are unknown). A branch known to be
+  zero-length is a compile error.
+
+```{r}
+quick(function(t, a, b) {
+  declare(type(t = logical(1)), type(a = double(3)), type(b = double(3)))
+  ifelse(t, a, b)
+})
+#> Error: ifelse() result takes the shape of `test`; array-valued yes/no
+#>   with scalar test is not supported
+```
+
+### `solve(a, b)` with a rectangular `a` solves least squares
+
+R's `solve()` requires a square matrix. When `a`'s squareness is not
+known at compile time, quickr lowers `solve(a, b)` to a solver that
+handles both the square case (like R's `solve()`) and the rectangular
+case as a least-squares problem (like R's `qr.solve()`). So for
+rectangular `a`, `solve(a, b)` returns the least-squares solution where
+R raises `'a' (3 x 2) must be square`.
+
+### Closure arguments are evaluated eagerly
+
+R evaluates function arguments lazily. Local closures inside compiled
+functions (including functions passed to `sapply()`) evaluate their
+arguments eagerly. Code that relies on an argument never being evaluated
+will behave differently.
+
+### Deprecation warnings are not reproduced
+
+Where R accepts an operation but warns — recycling a `1x1` matrix in
+arithmetic is the one such case in the supported subset — quickr
+performs the operation without a warning.
