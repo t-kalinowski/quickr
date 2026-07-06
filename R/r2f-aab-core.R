@@ -77,14 +77,18 @@ new_hoist <- function(scope) {
 }
 
 # Hoist `x` into a temporary variable unless it already renders as a bare
-# variable name. Use this whenever the same operand is spliced into generated
-# code more than once: Fortran evaluates intrinsic actual arguments before the
-# call, so repeating an expression duplicates its side effects (e.g. RNG
-# state via runif()).
+# variable name or a literal constant. Use this whenever the same operand is
+# spliced into generated code more than once: Fortran evaluates intrinsic
+# actual arguments before the call, so repeating an expression duplicates
+# its side effects (e.g. RNG state via runif()) -- which names and literals
+# don't have.
 hoist_unless_name <- function(x, hoist) {
   stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
   code <- trimws(as.character(x))
   if (!is.null(x@value@name) && identical(code, x@value@name)) {
+    return(x)
+  }
+  if (grepl("^-?[0-9]+(\\.[0-9]+)?(_c_(int|double))?$", code)) {
     return(x)
   }
   tmp <- hoist$declare_tmp(

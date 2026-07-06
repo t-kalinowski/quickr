@@ -309,3 +309,59 @@ test_that("matrix(scalar, m, n) keeps the broadcast fast path on assignment", {
   expect_match(fsub, "m = 0.0_c_double", fixed = TRUE)
   expect_quick_identical(fn, list(2L, 3L))
 })
+
+test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
+  # Against a genuine rank-2 array the fill compiles to its scalar --
+  # no O(m*n) temporary is materialized.
+  broadcast <- function(x, n) {
+    declare(type(x = double(n, n)), type(n = integer(1)))
+    x + matrix(1, n, n)
+  }
+  expect_false(grepl("allocate", r2f(broadcast), fixed = TRUE))
+  expect_quick_identical(broadcast, list(matrix(as.double(1:4), 2, 2), 2L))
+
+  scalar_var_data <- function(x, s, n) {
+    declare(type(x = double(n, n)), type(s = double(1)), type(n = integer(1)))
+    x * matrix(s, n, n)
+  }
+  expect_quick_identical(
+    scalar_var_data,
+    list(matrix(as.double(1:4), 2, 2), 3, 2L)
+  )
+
+  # The claimed dims still participate in the conformability contract.
+  static_mismatch <- function(x) {
+    declare(type(x = double(2, 2)))
+    x + matrix(1, 3, 3)
+  }
+  expect_error(quick(static_mismatch), "matching dimensions")
+
+  symbolic <- function(x, k) {
+    declare(type(x = double(2, 2)), type(k = integer(1)))
+    x + matrix(1, k, k)
+  }
+  q_symbolic <- quick(symbolic)
+  expect_error(
+    q_symbolic(matrix(as.double(1:4), 2, 2), 3L),
+    "matching dimensions"
+  )
+  expect_identical(
+    q_symbolic(matrix(as.double(1:4), 2, 2), 2L),
+    symbolic(matrix(as.double(1:4), 2, 2), 2L)
+  )
+
+  # Two fills meeting each other still materialize (no scalar result
+  # with claimed array dims may escape).
+  both_fills <- function(n) {
+    declare(type(n = integer(1)))
+    sum(matrix(2, n, n) + matrix(3, n, n))
+  }
+  expect_quick_identical(both_fills, list(2L))
+
+  # A vector operand keeps the vector-matrix reshape rule.
+  vec_operand <- function(v) {
+    declare(type(v = double(2)))
+    v + matrix(1, 2, 3)
+  }
+  expect_quick_identical(vec_operand, list(c(1, 2)))
+})

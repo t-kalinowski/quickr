@@ -286,10 +286,10 @@
       
       
       extern void fn(
-        const double* const x__, 
-        const double* const y__, 
-        const double* const z__, 
-        const double* const a__, 
+        const double* const x__,
+        const double* const y__,
+        const double* const z__,
+        const double* const a__,
         double* const out__);
       
       SEXP fn_(SEXP _args) {

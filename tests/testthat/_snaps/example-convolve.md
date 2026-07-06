@@ -56,10 +56,10 @@
       
       
       extern void slow_convolve(
-        const double* const a__, 
-        const double* const b__, 
-        double* const ab__, 
-        const R_xlen_t a__len_, 
+        const double* const a__,
+        const double* const b__,
+        double* const ab__,
+        const R_xlen_t a__len_,
         const R_xlen_t b__len_);
       
       SEXP slow_convolve_(SEXP _args) {

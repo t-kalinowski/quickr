@@ -17,7 +17,7 @@ check_ordered_operands <- function(left, right) {
 }
 
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
@@ -34,7 +34,7 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
@@ -51,7 +51,7 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
@@ -68,7 +68,7 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
@@ -85,7 +85,7 @@ r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -101,7 +101,7 @@ r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -158,7 +158,7 @@ register_r2f_handler(
 register_r2f_handler(
   c("&", "|"),
   function(args, scope, ..., hoist = NULL) {
-    args <- lapply(args, r2f, scope, ..., hoist = hoist)
+    args <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
     op <- last(list(...)$calls)
     args <- lapply(args, function(a) {
       if (a@value@mode != "logical") {

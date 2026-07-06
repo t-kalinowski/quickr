@@ -138,14 +138,14 @@
       
       
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
         const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {
@@ -353,14 +353,14 @@
       
       
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
         const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {

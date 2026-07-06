@@ -11,7 +11,12 @@ r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
     x <- cast_to_mode(x, arith_join_mode(x), "unary +")
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
-    .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+    .[left, right] <- lower_elementwise_operands(
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
     .[left, right] <- promote_arith_pair(left, right, "+")
     .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
     Fortran(glue("({left} + {right})"), conform(left@value, right@value))
@@ -26,7 +31,12 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
     x <- cast_to_mode(x, arith_join_mode(x), "unary -")
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
-    .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+    .[left, right] <- lower_elementwise_operands(
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
     .[left, right] <- promote_arith_pair(left, right, "-")
     .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
     Fortran(glue("({left} - {right})"), conform(left@value, right@value))
@@ -34,14 +44,14 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "*")
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   Fortran(glue("({left} * {right})"), conform(left@value, right@value))
 }
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
@@ -49,7 +59,7 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
 }
 
 r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R's ^ always returns double (R_pow), so cast the base. Keep an integer
   # exponent as integer: Fortran `real ** int` is exact and, unlike
   # `real ** real`, defined for negative bases -- matching R, which
@@ -84,7 +94,7 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
 #   - AINT(x)       : truncation toward 0       (real)
 
 r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # `modulo` requires same-typed arguments, so cast both operands to the
   # join (logical joins as integer: R's TRUE %% TRUE is 0L).
   mode <- arith_join_mode(left, right)
@@ -101,7 +111,7 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "%/%")
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   out_val <- conform(left@value, right@value)

@@ -140,6 +140,94 @@ promote_arith_pair <- function(left, right, context = "arithmetic") {
   list(left = left, right = right)
 }
 
+# Match `matrix(<scalar>, nrow, ncol)`: data a length-1 literal or a
+# declared scalar, no byrow/dimnames. Returns the matched arguments or
+# NULL. Used by lower_elementwise_operands() to lower the fill to a native
+# scalar broadcast instead of the O(nrow * ncol) temporary the matrix()
+# handler would otherwise materialize.
+match_scalar_matrix_fill <- function(e, scope) {
+  if (!is.call(e) || !identical(e[[1L]], quote(matrix))) {
+    return(NULL)
+  }
+  mc <- tryCatch(match.call(matrix, e), error = function(...) NULL)
+  if (is.null(mc)) {
+    return(NULL)
+  }
+  margs <- as.list(mc)[-1L]
+  if (
+    !setequal(names(margs), c("data", "nrow", "ncol")) ||
+      any(map_lgl(margs, is_missing))
+  ) {
+    return(NULL)
+  }
+  data <- margs$data
+  data_is_scalar <- (is.atomic(data) && length(data) == 1L && !is.na(data)) ||
+    (is.symbol(data) &&
+      {
+        var <- get0(as.character(data), scope)
+        inherits(var, Variable) && passes_as_scalar(var)
+      })
+  if (!data_is_scalar) {
+    return(NULL)
+  }
+  margs
+}
+
+# Compile the two operands of an elementwise binary op. The one special
+# case: `matrix(scalar, m, n)` against a genuine rank-2 array broadcasts
+# natively -- compile just the scalar and enforce the claimed dims against
+# the other operand (compile error when statically wrong, runtime guard
+# when symbolic, spelled from the dim expressions since the fill has no
+# array to size()). Everything else compiles as written.
+# Used by: r2f-arithmetic.R, r2f-logical.R
+lower_elementwise_operands <- function(args, scope, ..., hoist = NULL) {
+  fills <- lapply(args, match_scalar_matrix_fill, scope = scope)
+  fill_idx <- which(!map_lgl(fills, is.null))
+
+  if (length(fill_idx) == 1L && !is.null(hoist)) {
+    j <- fill_idx
+    other <- r2f(args[[3L - j]], scope, ..., hoist = hoist)
+    fill_dims <- r2dims(list(fills[[j]]$nrow, fills[[j]]$ncol), scope)
+    fill_dims_f <- map_chr(fill_dims, \(d) dims2f(list(d), scope))
+    broadcastable <- inherits(other, Fortran) &&
+      !is.null(other@value) &&
+      other@value@rank == 2L &&
+      !passes_as_scalar(other@value) &&
+      !any(map_lgl(fill_dims, is_scalar_na)) &&
+      all(nzchar(fill_dims_f)) &&
+      !any(grepl(":", fill_dims_f, fixed = TRUE))
+    if (broadcastable) {
+      other_dims <- matrix_dims(other)
+      for (axis in 1:2) {
+        other_dim <- if (axis == 1L) other_dims$rows else other_dims$cols
+        verdict <- check_elementwise_lengths(fill_dims[[axis]], other_dim)
+        if (!verdict$ok) {
+          stop(
+            "elementwise matrix operations require matching dimensions",
+            call. = FALSE
+          )
+        }
+        if (verdict$unknown) {
+          emit_quickr_error_if(
+            glue("({fill_dims_f[[axis]]}) /= size({other}, {axis})"),
+            "elementwise matrix operations require matching dimensions",
+            hoist,
+            scope
+          )
+        }
+      }
+      fill <- r2f(fills[[j]]$data, scope, ..., hoist = hoist)
+      out <- list(fill, other)
+      return(if (j == 1L) out else rev(out))
+    }
+    fallback <- r2f(args[[j]], scope, ..., hoist = hoist)
+    out <- list(fallback, other)
+    return(if (j == 1L) out else rev(out))
+  }
+
+  lapply(args, r2f, scope, ..., hoist = hoist)
+}
+
 # Check if a dimension expression equals 1.
 # Used by: r2f-arithmetic.R, r2f-logical.R
 dim_is_one <- function(x) {

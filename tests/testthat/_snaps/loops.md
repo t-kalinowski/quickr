@@ -437,8 +437,8 @@
       
       
       extern void fn(
-        const int* const x__, 
-        int* const out___, 
+        const int* const x__,
+        int* const out___,
         const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
