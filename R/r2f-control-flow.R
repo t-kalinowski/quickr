@@ -63,13 +63,31 @@ r2f_handlers[["next"]] <- function(args, scope, ...) {
 }
 
 # ---- while ----
-r2f_handlers[["while"]] <- function(args, scope, ...) {
+r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 2L)
-  cond <- r2f(args[[1]], scope, ...)
-  body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  # The condition is re-evaluated every iteration, so any statements its
+  # translation hoists (e.g. the conditional lowering of `&&`/`||`) must
+  # re-run inside the loop -- the enclosing statement's hoist would
+  # evaluate them once, before the loop. Collect them separately and, when
+  # present, lower to an explicit exit check at the top of the loop body.
+  cond_hoist <- new_hoist(scope)
+  cond <- r2f(args[[1]], scope, ..., hoist = cond_hoist)
+  body <- r2f(args[[2]], scope, ..., hoist = hoist)
   check_pending_parallel_consumed(scope)
+  exit_check <- glue("if (.not. ({cond})) exit")
+  cond_code <- cond_hoist$render(exit_check)
+  if (identical(as.character(cond_code), as.character(exit_check))) {
+    # nothing hoisted: keep the plain do-while form
+    return(Fortran(glue(
+      "do while ({cond})
+      {indent(body)}
+      end do
+      "
+    )))
+  }
   Fortran(glue(
-    "do while ({cond})
+    "do
+    {indent(cond_code)}
     {indent(body)}
     end do
     "
