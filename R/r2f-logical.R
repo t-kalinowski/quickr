@@ -6,8 +6,19 @@
 
 # ---- comparison operators ----
 
+# R supports equality on complex values but refuses ordering. Refuse it
+# here rather than handing gfortran an invalid comparison; shared by the
+# four ordering handlers below (== and /= stay legal, as in R).
+check_ordered_operands <- function(left, right) {
+  if ("complex" %in% c(left@value@mode, right@value@mode)) {
+    stop("invalid comparison with complex values", call. = FALSE)
+  }
+  invisible(TRUE)
+}
+
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -24,6 +35,7 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -40,6 +52,7 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -56,6 +69,7 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
+  check_ordered_operands(left, right)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
@@ -145,9 +159,10 @@ register_r2f_handler(
   c("&", "|"),
   function(args, scope, ..., hoist = NULL) {
     args <- lapply(args, r2f, scope, ..., hoist = hoist)
+    op <- last(list(...)$calls)
     args <- lapply(args, function(a) {
       if (a@value@mode != "logical") {
-        stop("must be logical")
+        stop("`", op, "` requires logical operands", call. = FALSE)
       }
       a
     })
@@ -162,7 +177,7 @@ register_r2f_handler(
       scalarize_one_by_one = FALSE
     )
 
-    operator <- switch(last(list(...)$calls), `&` = ".and.", `|` = ".or.")
+    operator <- switch(op, `&` = ".and.", `|` = ".or.")
 
     s <- glue("{left} {operator} {right}")
     val <- conform(left@value, right@value)

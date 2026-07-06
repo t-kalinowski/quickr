@@ -198,3 +198,28 @@ test_that("assigning an expression that produces no value errors cleanly", {
     fixed = TRUE
   )
 })
+
+test_that("unsupported complex operations are refused with R's messages", {
+  # Order comparisons on complex values: R errors, so must quickr -- with
+  # a clean message, not a raw gfortran failure.
+  complex_lt <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x < y
+  }
+  expect_error(quick(complex_lt), "invalid comparison with complex values")
+
+  # Equality is supported, as in R.
+  complex_eq <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x == y
+  }
+  expect_quick_identical(complex_eq, list(1i, 1i))
+  expect_quick_identical(complex_eq, list(1i, 2i))
+
+  # modulo() has no complex form in Fortran; R refuses too.
+  complex_mod <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x %% y
+  }
+  expect_error(quick(complex_mod), "unimplemented complex operation")
+})

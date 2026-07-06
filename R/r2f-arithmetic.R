@@ -88,6 +88,10 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
   # `modulo` requires same-typed arguments, so cast both operands to the
   # join (logical joins as integer: R's TRUE %% TRUE is 0L).
   mode <- arith_join_mode(left, right)
+  if (identical(mode, "complex")) {
+    # Fortran modulo() has no complex form; R refuses too.
+    stop("unimplemented complex operation", call. = FALSE)
+  }
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
