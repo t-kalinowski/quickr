@@ -44,6 +44,11 @@ Value types follow R's promotion order for the supported atomic modes:
 logical < integer < double < complex
 ```
 
+Character values are not supported (declaring a `character` argument is
+a compile error). Complex values support arithmetic and equality
+comparisons; order comparisons (`<`, `<=`, `>`, `>=`) and `%%` are
+errors, exactly as they are in R.
+
 An operation's result type is the "join" of its operands' types — the
 highest type among them — except where R fixes the result type, which
 quickr then matches:
@@ -55,7 +60,7 @@ quickr then matches:
 | `^` | always double (see note below) |
 | `%%`, `%/%` | join of the operand types; logicals count as integers |
 | `<` `<=` `>` `>=` `==` `!=` | logical |
-| `&`, `|`, `!` | logical |
+| `&`, `|`, `!`, `&&`, `||` | logical (see [logical operators](#logical-operators) below) |
 | `c()`, and multi-argument `min()` / `max()` / `sum()` / `prod()` | join of all argument types |
 | single-argument reductions (`sum(x)`, ...), `abs()` | type of `x`; logical counts as integer |
 | `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
@@ -200,6 +205,11 @@ f(matrix(1, 2, 3), matrix(1, 2, 2))
 #> Error: non-conformable arguments in %*%
 ```
 
+`solve(a, b)` requires a square `a`, as in R: a statically rectangular
+system is a compile error, and when squareness depends on runtime sizes
+it is checked before the solve. Use `qr.solve()` for least-squares
+solutions of rectangular systems.
+
 ## Differences from R
 
 Everything listed here is an *error* divergence: a compiled function
@@ -283,14 +293,18 @@ quick(function(t, a, b) {
 #>   with scalar test is not supported
 ```
 
-### `solve(a, b)` with a rectangular `a` solves least squares
+### Logical operators require logical operands {#logical-operators}
 
-R's `solve()` requires a square matrix. When `a`'s squareness is not
-known at compile time, quickr lowers `solve(a, b)` to a solver that
-handles both the square case (like R's `solve()`) and the rectangular
-case as a least-squares problem (like R's `qr.solve()`). So for
-rectangular `a`, `solve(a, b)` returns the least-squares solution where
-R raises `'a' (3 x 2) must be square`.
+R coerces numeric operands to logical (`1 & 2` is `TRUE`); quickr
+requires the operands of `&`, `|`, `&&`, and `||` to already be logical
+and errors otherwise.
+
+`&&` and `||` otherwise follow R's scalar semantics: operands must be
+length 1 (a compile error in quickr; R raises the equivalent error at
+run time), and they short-circuit — the right operand is evaluated only
+when the left side does not decide the answer, so a guarded access like
+`i <= n && x[i] > 0` never evaluates `x[i]` out of range. For
+elementwise logic over vectors, use `&` and `|`.
 
 ### Closure arguments are evaluated eagerly
 
