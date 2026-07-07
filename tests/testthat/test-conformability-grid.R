@@ -173,11 +173,13 @@ grid_pair_args <- function(
 }
 
 # Length a `sym` operand must have to conform with its partner shape.
+# For a matrix partner that is the vector-matrix rule's nrow -- including
+# the 1x1 matrix, whose symbolic-vector cells guard on length 1.
 grid_sym_ok_len <- function(partner) {
   p <- grid_shapes[[partner]]
   if (p$kind == "vec" && !is.na(p$len)) {
     p$len
-  } else if (p$kind == "mat" && !all(p$dims == 1L)) {
+  } else if (p$kind == "mat") {
     p$dims[1L]
   } else {
     3L
@@ -285,10 +287,14 @@ make_grid_cell_fn <- function(sa, sb, op, ma, mb) {
 #   4. known mismatch (incl. length 0)       -> compile error
 #   5. not statically decidable (NA dims)    -> runtime guard
 # One op-class split, mirroring R: *arithmetic* recycles a 1x1 matrix
-# against a vector (deprecated in R but still its answer, so quickr
-# scalarizes), while comparisons and & | error there -- for those the 1x1
-# is an ordinary one-row matrix and the vector-matrix rule applies (the
-# runtime-guard flavor is pinned in test-recycling.R).
+# against a vector of statically known length != 1 (deprecated in R but
+# still its answer, so quickr scalarizes), while comparisons and & | error
+# there -- for those the 1x1 is an ordinary one-row matrix and the
+# vector-matrix rule applies. A *symbolic* vector length takes the
+# vector-matrix rule for every op class: the result's shape depends on the
+# runtime length (R keeps the 1x1 dims only for a length-1 vector), so a
+# runtime guard requires length 1 and longer vectors error where R would
+# recycle (both flavors are pinned in test-recycling.R).
 
 grid_strict_ops <- c("lt", "eq", "and", "or")
 
@@ -304,9 +310,6 @@ grid_cell_verdict <- function(sa, sb, opname) {
     return(ok)
   }
   if ((is_1x1(A) && B$kind == "vec") || (is_1x1(B) && A$kind == "vec")) {
-    if (!(opname %in% grid_strict_ops)) {
-      return(ok) # scalarized 1x1: R's length-1 array recycling
-    }
     vec <- if (A$kind == "vec") A else B
     if (is.na(vec$len)) {
       return(guard("matrix first dimension"))
@@ -314,7 +317,10 @@ grid_cell_verdict <- function(sa, sb, opname) {
     if (vec$len == 1L) {
       return(ok)
     }
-    return(err("matrix first dimension"))
+    if (opname %in% grid_strict_ops) {
+      return(err("matrix first dimension"))
+    }
+    return(ok) # scalarized 1x1: R's length-1 array recycling
   }
   if (A$kind == "vec" && B$kind == "vec") {
     if (is.na(A$len) || is.na(B$len)) {
