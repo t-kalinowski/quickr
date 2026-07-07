@@ -191,29 +191,25 @@ assert_square_matrix <- function(dims, operand, context, hoist, scope) {
 
 # ---- BLAS emitters ----
 
-# Check that destination dimensions match expected output dimensions.
-assert_dest_dims_compatible <- function(dest, expected_dims, context) {
-  if (is.null(dest) || is.null(expected_dims)) {
-    return(invisible(TRUE))
+# TRUE when the destination's declared shape is *proven* to match the
+# expected output shape: rank equal and every extent proven equal
+# (dims_proven_equal()). Anything unproven -- symbolic dims that merely
+# fail to be refuted, NA dims -- is FALSE: the emitter then routes
+# through a hoisted temporary and the assignment shape check guards (or
+# refuses) the copy. Accepting an unproven dest passed wrong leading
+# dimensions to the BLAS call and could write past the allocation.
+dest_dims_proven <- function(dest, expected_dims) {
+  if (is.null(expected_dims)) {
+    return(FALSE)
   }
-  expected_rank <- length(expected_dims)
-  if (dest@rank != expected_rank) {
-    stop("assignment target has incompatible rank for ", context, call. = FALSE)
+  if (dest@rank != length(expected_dims)) {
+    return(FALSE)
   }
-  for (i in seq_len(expected_rank)) {
-    dest_dim <- dest@dims[[i]]
-    expected_dim <- expected_dims[[i]]
-    if (is_wholenumber(dest_dim) && is_wholenumber(expected_dim)) {
-      if (!identical(as.integer(dest_dim), as.integer(expected_dim))) {
-        stop(
-          "assignment target has incompatible dimensions for ",
-          context,
-          call. = FALSE
-        )
-      }
-    }
-  }
-  invisible(TRUE)
+  all(vapply(
+    seq_along(expected_dims),
+    function(i) dims_proven_equal(dest@dims[[i]], expected_dims[[i]]),
+    logical(1)
+  ))
 }
 
 # Determine if output can safely write into dest without aliasing.
@@ -239,7 +235,9 @@ can_use_output <- function(
   if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
-  assert_dest_dims_compatible(dest, expected_dims, context)
+  if (!dest_dims_proven(dest, expected_dims)) {
+    return(FALSE)
+  }
   output_name <- dest@name
   if (is.null(output_name) || !nzchar(output_name)) {
     return(FALSE)

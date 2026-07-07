@@ -263,6 +263,23 @@ dims_match <- function(left, right) {
   identical(left, right)
 }
 
+# Check if two dimension expressions are *proven* equal: both known and
+# equal, or structurally identical after symbol normalization. NA dims
+# are never proven (two unknown lengths are not the same quantity).
+# Stronger than dims_match() (normalizes symbols), stricter than
+# check_elementwise_lengths() (an incomparable pair is FALSE, not a
+# deferred runtime guard).
+# Used by: r2f-matrix-blas.R (dest_dims_proven)
+dims_proven_equal <- function(left, right) {
+  if (is_scalar_na(left) || is_scalar_na(right)) {
+    return(FALSE)
+  }
+  if (is_wholenumber(left) && is_wholenumber(right)) {
+    return(identical(as.integer(left), as.integer(right)))
+  }
+  identical(fortranize_expr_symbols(left), fortranize_expr_symbols(right))
+}
+
 # Three-valued conformability verdict for one axis of an elementwise op:
 # ok+known (no guard needed), not-ok+known (compile error at the caller),
 # or unknown (caller emits a runtime guard). Known lengths must be equal
@@ -628,6 +645,7 @@ check_assignment_compatible <- function(
       call. = FALSE
     )
   }
+  emitted <- character()
   for (axis in seq_len(target@rank)) {
     t_dim <- target@dims[[axis]]
     v_dim <- value@dims[[axis]]
@@ -668,10 +686,17 @@ check_assignment_compatible <- function(
     ) {
       next
     }
+    condition <- glue(
+      "({dims2f(list(t_dim), scope)}) /= ({dims2f(list(v_dim), scope)})"
+    )
+    # Different axes can spell the same guard (e.g. a square dest vs a
+    # square result, m/=k on both axes); emit each condition once.
+    if (condition %in% emitted) {
+      next
+    }
+    emitted <- c(emitted, condition)
     emit_quickr_error_if(
-      glue(
-        "({dims2f(list(t_dim), scope)}) /= ({dims2f(list(v_dim), scope)})"
-      ),
+      condition,
       sprintf("reassignment must preserve the shape of `%s`", name),
       hoist,
       scope
