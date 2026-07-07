@@ -275,6 +275,17 @@ maybe_reshape_vector_matrix <- function(left, right) {
   list(left = left, right = right)
 }
 
+# R's promotion order for the supported atomic modes, lowest to highest.
+# The one place the lattice is spelled: promotion joins take the highest
+# rank present; the narrowing check refuses assignments that move down.
+mode_lattice <- c("logical", "integer", "double", "complex")
+
+# Rank of a mode on the lattice (NA for modes outside it, e.g. character).
+# Used by: reduce_promoted_mode(), scope.R (check_reassignment_narrowing)
+mode_rank <- function(mode) {
+  match(mode, mode_lattice)
+}
+
 # Determine the promoted mode from a list of Fortran values.
 # Used by: r2f-arithmetic.R, r2f-constructors.R
 reduce_promoted_mode <- function(...) {
@@ -291,16 +302,11 @@ reduce_promoted_mode <- function(...) {
   }
   modes <- unique(unlist(getmode(list(...))))
 
-  if ("complex" %in% modes) {
-    "complex"
-  } else if ("double" %in% modes) {
-    "double"
-  } else if ("integer" %in% modes) {
-    "integer"
-  } else if ("logical" %in% modes) {
-    "logical"
-  } else {
+  ranks <- mode_rank(modes)
+  if (!length(ranks) || all(is.na(ranks))) {
     NULL
+  } else {
+    mode_lattice[[max(ranks, na.rm = TRUE)]]
   }
 }
 

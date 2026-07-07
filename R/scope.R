@@ -82,9 +82,8 @@ check_reassignment_narrowing <- function(name, target, value) {
   ) {
     return()
   }
-  lattice <- c("logical", "integer", "double", "complex")
-  target_rank <- match(target@mode, lattice)
-  value_rank <- match(value@mode, lattice)
+  target_rank <- mode_rank(target@mode)
+  value_rank <- mode_rank(value@mode)
   if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
     return()
   }
