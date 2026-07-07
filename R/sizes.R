@@ -296,6 +296,26 @@ get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {
   }
 }
 
+# TRUE when any of `var`'s dims is its own self-size symbol
+# (`a__dim_1_`, `a__len_`), i.e. the variable was declared with unknown
+# (NA) sizes that substitute_declared_sizes() rewrote. External
+# variables receive those sizes as dummies; for locals they are
+# phantoms, so the manifest declares such locals deferred-shape and
+# relies on implicit allocation.
+# Used by: manifest.R, check_assignment_compatible()
+has_self_size_dims <- function(var) {
+  stopifnot(inherits(var, Variable))
+  any(vapply(
+    seq_along(var@dims),
+    function(i) {
+      d <- var@dims[[i]]
+      is.symbol(d) &&
+        identical(as.character(d), get_size_name(var, axis = i))
+    },
+    logical(1)
+  ))
+}
+
 # TODO: allow syntax like:
 #   declare(type(a, b, c = integer(1)))
 # or:

@@ -550,20 +550,134 @@ mode_rank <- function(mode) {
   match(mode, mode_lattice)
 }
 
-# Sanity-check that an assignment's value can be stored in its target
-# (rank matches unless one side is scalar).
-# Used by: r2f-assign.R, scope.R
-check_assignment_compatible <- function(target, value) {
-  if (is.null(value)) {
-    return()
+# A dim expression can be spelled in a runtime guard only if every
+# self-size symbol it references (`foo__len_`, `foo__dim_1_`) belongs
+# to an external variable -- those arrive as size dummies; a local's
+# self-sizes are phantoms backing implicit allocation and do not exist
+# in the generated Fortran.
+# Used by: check_assignment_compatible()
+dim_guard_spellable <- function(dim, scope) {
+  if (!is.language(dim)) {
+    return(TRUE)
   }
-  stopifnot(exprs = {
-    inherits(target, Variable)
-    inherits(value, Variable)
-    passes_as_scalar(target) ||
-      passes_as_scalar(value) ||
-      target@rank == value@rank
-  })
+  if (is.null(scope)) {
+    return(FALSE)
+  }
+  matches <- regmatches(
+    syms <- all.vars(dim),
+    regexec("^(.*)__(dim_[0-9]+|len)_$", syms)
+  )
+  all(vapply(
+    matches,
+    function(match) {
+      if (!length(match)) {
+        return(TRUE) # not a self-size symbol
+      }
+      var <- get0(match[[2L]], scope)
+      inherits(var, Variable) && var@is_external
+    },
+    logical(1)
+  ))
+}
+
+# Reassignment cannot re-declare a Fortran variable to a new shape the
+# way R rebinds a symbol, so rank and every extent must stay
+# compatible. Scalars broadcast natively into an array target (an
+# existing divergence: R rebinds the symbol to the scalar), and a
+# deferred-shape local (declared with NA dims) reallocates on
+# whole-array assignment, matching R, so it is exempt. Per axis, the
+# conformability policy applies: a statically known mismatch is a
+# compile error, dims that cannot be compared statically get a
+# statement-level runtime guard through `hoist` (spelled from the dim
+# expressions, when spellable), and provably equal dims need nothing.
+# Callers with no statement context (no hoist) get the static checks
+# only.
+# Used by: r2f-assign.R, scope.R
+check_assignment_compatible <- function(
+  name,
+  target,
+  value,
+  hoist = NULL,
+  scope = NULL
+) {
+  if (
+    is.null(value) ||
+      !inherits(target, Variable) ||
+      !inherits(value, Variable)
+  ) {
+    return(invisible())
+  }
+  if (passes_as_scalar(target) || passes_as_scalar(value)) {
+    return(invisible())
+  }
+  if (!target@is_external && has_self_size_dims(target)) {
+    # deferred-shape local: implicit (re)allocation matches R's rebind
+    return(invisible())
+  }
+  if (target@rank != value@rank) {
+    stop(
+      "cannot reassign `",
+      name,
+      "`: replacement rank (",
+      value@rank,
+      ") differs from the declared rank (",
+      target@rank,
+      "); R would rebind `",
+      name,
+      "` to the new shape",
+      call. = FALSE
+    )
+  }
+  for (axis in seq_len(target@rank)) {
+    t_dim <- target@dims[[axis]]
+    v_dim <- value@dims[[axis]]
+    if (is_scalar_na(t_dim) || is_scalar_na(v_dim)) {
+      next
+    }
+    if (is_wholenumber(t_dim) && is_wholenumber(v_dim)) {
+      if (!identical(as.integer(t_dim), as.integer(v_dim))) {
+        stop(
+          "cannot reassign `",
+          name,
+          "`: dimension ",
+          axis,
+          " would change from ",
+          as.integer(t_dim),
+          " to ",
+          as.integer(v_dim),
+          "; R would rebind `",
+          name,
+          "` to the new shape",
+          call. = FALSE
+        )
+      }
+      next
+    }
+    if (
+      identical(
+        fortranize_expr_symbols(t_dim),
+        fortranize_expr_symbols(v_dim)
+      )
+    ) {
+      next
+    }
+    if (
+      is.null(hoist) ||
+        !dim_guard_spellable(t_dim, scope) ||
+        !dim_guard_spellable(v_dim, scope)
+    ) {
+      next
+    }
+    emit_quickr_error_if(
+      glue(
+        "({dims2f(list(t_dim), scope)}) /= ({dims2f(list(v_dim), scope)})"
+      ),
+      sprintf("reassignment must preserve the shape of `%s`", name),
+      hoist,
+      scope
+    )
+  }
+  invisible()
 }
 
 # Reassignment cannot re-type a Fortran variable the way R promotes an R

@@ -109,21 +109,7 @@ subroutine_local_allocatable <- function(
   # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
   # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
   # explicit allocation, so treat these as implicitly-sized locals.
-  self_size_names <- vapply(
-    seq_along(var@dims),
-    function(i) get_size_name(var, axis = as.integer(i)),
-    character(1)
-  )
-  if (
-    any(vapply(
-      seq_along(var@dims),
-      function(i) {
-        d <- var@dims[[i]]
-        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
-      },
-      logical(1)
-    ))
-  ) {
+  if (has_self_size_dims(var)) {
     return(FALSE)
   }
 
@@ -401,19 +387,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
 
     # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
     # are emitted as deferred-shape allocatables and rely on implicit allocation.
-    if (
-      is.null(intent) &&
-        !is.null(dims) &&
-        any(vapply(
-          seq_along(var@dims),
-          function(i) {
-            d <- var@dims[[i]]
-            is.symbol(d) &&
-              identical(as.character(d), get_size_name(var, axis = i))
-          },
-          logical(1)
-        ))
-    ) {
+    if (is.null(intent) && !is.null(dims) && has_self_size_dims(var)) {
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
     }
 

@@ -6,6 +6,16 @@
 
 * Successful flang availability checks are now reused for the rest of the R
   session. Restart R after changing the flang toolchain.
+- Reassigning a variable now requires the new value's shape to be
+  compatible with the declared shape, extending the existing rank check
+  to every dimension: quickr cannot re-declare a Fortran variable the
+  way R rebinds a symbol. A statically known mismatch (e.g.
+  `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
+  dimensions that cannot be compared at compile time are checked at run
+  time. Previously such reassignments silently kept the old shape or
+  produced invalid Fortran. Assigning a scalar into an array variable
+  (native Fortran broadcast) is unchanged, as are locals declared with
+  unknown (`NA`) dims, which reallocate on assignment like R.
 
 - Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
   operand lengths to match, unless one operand is a scalar or a vector is

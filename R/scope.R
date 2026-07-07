@@ -101,7 +101,7 @@ new_scope <- function(closure, parent = emptyenv()) {
     name <- as.character(name)
     existing <- get0(name, scope)
     if (inherits(existing, Variable)) {
-      check_assignment_compatible(existing, value)
+      check_assignment_compatible(name, existing, value)
     }
     value@name <- name
     assign(name, value, scope)

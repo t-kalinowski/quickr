@@ -220,7 +220,13 @@ register_r2f_handler(
         var@dims <- value@value@dims
       }
       check_reassignment_narrowing(name, var, value@value)
-      check_assignment_compatible(var, value@value)
+      check_assignment_compatible(
+        name,
+        var,
+        value@value,
+        hoist = hoist,
+        scope = scope
+      )
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track
       # if the var populated by declare is identical at the end (e.g., perhaps by
@@ -328,7 +334,13 @@ register_r2f_handler(
 
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
-    check_assignment_compatible(host_var, value@value)
+    check_assignment_compatible(
+      name,
+      host_var,
+      value@value,
+      hoist = hoist,
+      scope = scope
+    )
 
     Fortran(glue("{host_var@name} = {value}"))
   }
