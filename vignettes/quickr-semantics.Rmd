@@ -63,7 +63,8 @@ quickr then matches:
 | `%%`, `%/%` | join of the operand types; logicals count as integers |
 | `<` `<=` `>` `>=` `==` `!=` | logical |
 | `&`, `|`, `!`, `&&`, `||` | logical (see [logical operators](#logical-operators) below) |
-| `c()`, and multi-argument `min()` / `max()` / `sum()` / `prod()` | join of all argument types |
+| `c()` | join of all argument types (`c(TRUE, FALSE)` stays logical, as in R) |
+| multi-argument `min()` / `max()` / `sum()` / `prod()` | join of all argument types; logicals count as integers (in R, `sum(TRUE, TRUE)` is `2L`) |
 | single-argument reductions (`sum(x)`, ...), `abs()` | type of `x`; logical counts as integer |
 | `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
 | `%*%`, `crossprod()`, `solve()`, and other linear algebra | always double, as in R; complex operands are a compile error (see [complex values](#complex)) |
