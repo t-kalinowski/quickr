@@ -139,6 +139,39 @@ effective_dims <- function(dims, trans) {
   }
 }
 
+# Effective operand and result shapes for %*%. `left_dims`/`right_dims`
+# come from matrix_dims*() with vectors oriented as a row (left) or
+# column (right) vector; transposes apply to matrix operands only (a
+# transposed vector is already reoriented by its dims). The result is
+# left_eff$rows x right_eff$cols in every case -- the gemv cases keep
+# their literal 1 extent from the vector orientation. Shared by the
+# %*% handler and infer_dest_matmul() so lowering and dest inference
+# cannot drift.
+matmul_shapes <- function(
+  left_rank,
+  left_dims,
+  left_trans,
+  right_rank,
+  right_dims,
+  right_trans
+) {
+  left_eff <- if (left_rank == 2L) {
+    effective_dims(left_dims, left_trans)
+  } else {
+    left_dims
+  }
+  right_eff <- if (right_rank == 2L) {
+    effective_dims(right_dims, right_trans)
+  } else {
+    right_dims
+  }
+  list(
+    left_eff = left_eff,
+    right_eff = right_eff,
+    out_dims = list(left_eff$rows, right_eff$cols)
+  )
+}
+
 # Enforce that `dims` describe a square matrix: a known mismatch is a
 # compile error; unverifiable dims get a runtime guard on the operand's
 # actual extents.

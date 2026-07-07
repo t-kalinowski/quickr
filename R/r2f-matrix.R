@@ -29,16 +29,16 @@ register_r2f_handler(
       orientation = if (right_rank == 1) "colvec" else "matrix"
     )
 
-    left_eff <- if (left_rank == 2) {
-      effective_dims(left_dims, left_trans)
-    } else {
-      left_dims
-    }
-    right_eff <- if (right_rank == 2) {
-      effective_dims(right_dims, right_trans)
-    } else {
-      right_dims
-    }
+    shapes <- matmul_shapes(
+      left_rank,
+      left_dims,
+      left_trans,
+      right_rank,
+      right_dims,
+      right_trans
+    )
+    left_eff <- shapes$left_eff
+    right_eff <- shapes$right_eff
 
     # Compute effective shapes
     m <- left_eff$rows
@@ -52,9 +52,8 @@ register_r2f_handler(
 
     # Matrix-Vector: use GEMV
     if (left_rank == 2 && right_rank == 1) {
-      expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
       guard_conformable_dims(
-        expected_len,
+        left_eff$cols,
         right_dims$rows,
         "non-conformable arguments in %*%",
         hoist,
@@ -63,7 +62,6 @@ register_r2f_handler(
         right = right,
         left_axis = if (left_trans == "N") 2L else 1L
       )
-      out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
       return(gemv(
         transA = left_trans,
         A = left,
@@ -71,7 +69,7 @@ register_r2f_handler(
         m = left_dims$rows,
         n = left_dims$cols,
         lda = left_dims$rows,
-        out_dims = list(out_len, 1L),
+        out_dims = shapes$out_dims,
         scope = scope,
         hoist = hoist,
         dest = dest,
@@ -81,10 +79,9 @@ register_r2f_handler(
     # Vector-Matrix: use GEMV with transpose
     if (left_rank == 1 && right_rank == 2) {
       transA <- if (right_trans == "N") "T" else "N"
-      expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
       guard_conformable_dims(
         left_dims$cols,
-        expected_len,
+        right_eff$rows,
         "non-conformable arguments in %*%",
         hoist,
         scope,
@@ -92,7 +89,6 @@ register_r2f_handler(
         right = right,
         right_axis = if (transA == "N") 2L else 1L
       )
-      out_len <- if (transA == "N") right_dims$rows else right_dims$cols
       return(gemv(
         transA = transA,
         A = right,
@@ -100,7 +96,7 @@ register_r2f_handler(
         m = right_dims$rows,
         n = right_dims$cols,
         lda = right_dims$rows,
-        out_dims = list(1L, out_len),
+        out_dims = shapes$out_dims,
         scope = scope,
         hoist = hoist,
         dest = dest,

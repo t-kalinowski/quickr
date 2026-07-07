@@ -72,28 +72,15 @@ infer_dest_matmul <- function(args, scope) {
     orientation = if (right_rank == 1L) "colvec" else "matrix"
   )
 
-  left_eff <- if (left_rank == 2L) {
-    effective_dims(left_dims, left_trans)
-  } else {
-    left_dims
-  }
-  right_eff <- if (right_rank == 2L) {
-    effective_dims(right_dims, right_trans)
-  } else {
-    right_dims
-  }
-
-  if (left_rank == 2L && right_rank == 1L) {
-    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
-    return(Variable("double", list(out_len, 1L)))
-  }
-  if (left_rank == 1L && right_rank == 2L) {
-    transA <- if (right_trans == "N") "T" else "N"
-    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
-    return(Variable("double", list(1L, out_len)))
-  }
-
-  Variable("double", list(left_eff$rows, right_eff$cols))
+  shapes <- matmul_shapes(
+    left_rank,
+    left_dims,
+    left_trans,
+    right_rank,
+    right_dims,
+    right_trans
+  )
+  Variable("double", shapes$out_dims)
 }
 
 # Shared inference for crossprod/tcrossprod destination sizes.
