@@ -145,9 +145,18 @@ For elementwise operations (arithmetic, comparisons, `&`, `|`),
 | scalar with anything | allowed; the scalar is broadcast |
 | identical shapes | allowed |
 | vector with matrix, `length(vec) == nrow(mat)` | allowed; the vector is recycled column-wise, exactly as in R |
-| a `1x1` matrix in *arithmetic* | treated as a scalar (R allows this, with a deprecation warning) |
+| a `1x1` matrix in *arithmetic* with a vector of statically known length other than 1 | recycled; the result is a plain vector without dims, exactly as in R (which warns that this recycling is deprecated) |
 | a `1x1` matrix in comparisons and `&` / `|` | treated as a one-row matrix; mismatched shapes are rejected, and R errors here too |
 | anything else — unequal lengths, even when one divides the other | **error**: R-style recycling is not supported |
+
+A `1x1` matrix meeting a vector whose length is only known at run time
+is the one place where R's *result shape* depends on a runtime value: R
+keeps the `1x1` dims when the vector has length 1 and drops them for
+any other length. A compiled function's result shape cannot depend on a
+value, so quickr treats the `1x1` as a one-row matrix there instead:
+the compiled function checks that the vector has length 1 and returns a
+`1x1` matrix — matching R exactly — and errors on a longer vector,
+where R would perform the deprecated recycling.
 
 The last row is the important one. In R, `1:6 + c(10, 20)` recycles the
 shorter vector. quickr never does this:
@@ -234,7 +243,10 @@ As described above: operand lengths must match exactly or one operand
 must be a scalar (or a vector spanning a matrix's rows). R's general
 recycling rule — including the case where one length divides the other,
 which R accepts without a warning — is a compile-time error or a runtime
-error instead.
+error instead. This also covers a `1x1` matrix in arithmetic with a
+vector whose length is only known at run time: the compiled function
+requires length 1 (returning a `1x1` matrix, as R does) and errors on a
+longer vector, where R would recycle with a deprecation warning.
 
 ### Zero-length operands do not recycle to zero-length results
 
