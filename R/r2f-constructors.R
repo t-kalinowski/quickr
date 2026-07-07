@@ -14,6 +14,26 @@ is_fill_constructor_call <- function(e) {
     as.character(e[[1L]]) %in% c("logical", "integer", "double", "numeric")
 }
 
+# Name of the call one frame above the current handler ("" at top level).
+# The materialization decisions below branch on it: a fill constructor or
+# matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
+# spreads, or pads it.
+parent_call_name <- function(calls) {
+  if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+}
+
+# Materialize `code` into a hoisted temporary and return the temporary.
+# `what` names the construct for the internal-error message when no hoist
+# context is available.
+materialize_via_hoist <- function(code, mode, dims, hoist, what) {
+  if (is.null(hoist)) {
+    stop("internal error: ", what, " requires hoist context", call. = FALSE)
+  }
+  tmp <- hoist$declare_tmp(mode = mode, dims = dims)
+  hoist$emit(glue("{tmp@name} = {code}"))
+  Fortran(tmp@name, tmp)
+}
+
 # --- Handlers ---
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
@@ -156,17 +176,11 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   if (passes_as_scalar(var)) {
     return(out)
   }
-  calls <- list(...)$calls
-  parent_call <- if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+  parent_call <- parent_call_name(list(...)$calls)
   if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
     return(out)
   }
-  if (is.null(hoist)) {
-    stop("internal error: fill constructor requires hoist context", call. = FALSE)
-  }
-  tmp <- hoist$declare_tmp(mode = mode, dims = var@dims)
-  hoist$emit(glue("{tmp@name} = {literal}"))
-  Fortran(tmp@name, tmp)
+  materialize_via_hoist(literal, mode, var@dims, hoist, "fill constructor")
 }
 
 register_r2f_handler(
@@ -228,18 +242,11 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   # it as-is there; in any other context (sum(...), %*%, ...) the expression
   # must be a real rank-2 array, so materialize it into a hoisted temporary.
   if (passes_as_scalar(src@value)) {
-    calls <- list(...)$calls
-    parent_call <- if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
-    if (parent_call %in% c("<-", "=", "<<-")) {
+    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
       src@value <- out_val
       return(src)
     }
-    if (is.null(hoist)) {
-      stop("internal error: matrix() requires hoist context", call. = FALSE)
-    }
-    tmp <- hoist$declare_tmp(mode = src@value@mode, dims = dims)
-    hoist$emit(glue("{tmp@name} = {src}"))
-    return(Fortran(tmp@name, tmp))
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist, "matrix()"))
   }
 
   rows <- dims[[1L]]
