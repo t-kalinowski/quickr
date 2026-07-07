@@ -316,23 +316,43 @@ r2f_handlers[["character"]] <- r2f_handlers[["raw"]] <-
   .r2f_handler_not_implemented_yet
 
 
-r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
-  args$data %||% stop("matrix(data=) must be provided, cannot be NA")
+# Validate matrix()'s matched arguments once for every consumer: the
+# matrix() handler and the elementwise scalar-fill fast path
+# (match_scalar_matrix_fill() in r2f-operators-helpers.R), so the two cannot
+# drift as more vectorization contexts are added. The shared policy:
+# data is required, byrow=TRUE and dimnames are unsupported, and
+# nrow/ncol are both required. (R can infer one dimension, but quickr's
+# lowering keeps this strict to avoid surprising recycling rules.)
+# Returns list(data, nrow, ncol) or stops.
+matrix_call_args <- function(args) {
+  data <- args$data
+  if (is.null(data) || is_missing(data)) {
+    stop("matrix(data=) must be provided, cannot be NA", call. = FALSE)
+  }
   if (!is.null(args$byrow) && !is_missing(args$byrow) && !isFALSE(args$byrow)) {
     stop("matrix(byrow=TRUE) is not supported", call. = FALSE)
   }
-
-  # Require explicit dims for now. (R can infer one dimension, but quickr's
-  # lowering keeps this strict to avoid surprising recycling rules.)
+  if (
+    !is.null(args$dimnames) &&
+      !is_missing(args$dimnames) &&
+      !identical(args$dimnames, quote(NULL))
+  ) {
+    stop("matrix(dimnames=) not supported", call. = FALSE)
+  }
   if (is.null(args$nrow) || is_missing(args$nrow)) {
     stop("matrix(nrow=) must be provided", call. = FALSE)
   }
   if (is.null(args$ncol) || is_missing(args$ncol)) {
     stop("matrix(ncol=) must be provided", call. = FALSE)
   }
+  list(data = data, nrow = args$nrow, ncol = args$ncol)
+}
 
-  src <- r2f(args$data, scope, ..., hoist = hoist)
-  dims <- r2dims(list(args$nrow, args$ncol), scope)
+r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
+  margs <- matrix_call_args(args)
+
+  src <- r2f(margs$data, scope, ..., hoist = hoist)
+  dims <- r2dims(list(margs$nrow, margs$ncol), scope)
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
   # A scalar broadcasts natively on direct whole-array assignment, so keep

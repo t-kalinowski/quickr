@@ -126,7 +126,7 @@ hoist_unless_name <- function(x, hoist) {
 # Materialization decisions branch on it: a fill constructor or
 # matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
 # spreads, or pads it.
-# Used by: r2f-constructors.R, r2f-operators.R
+# Used by: r2f-constructors.R
 parent_call_name <- function(calls) {
   if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
 }
