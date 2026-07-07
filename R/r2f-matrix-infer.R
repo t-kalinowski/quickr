@@ -200,7 +200,8 @@ infer_dest_solve <- function(args, scope) {
   NULL
 }
 
-# Infer destination dimensions for chol().
+# Infer destination dimensions for chol() and chol2inv(): both return a
+# square double matrix shaped like `x`.
 infer_dest_chol <- function(args, scope) {
   x_arg <- args$x %||% args[[1L]]
   if (is.null(x_arg)) {
@@ -214,19 +215,7 @@ infer_dest_chol <- function(args, scope) {
   Variable("double", list(x_dims$rows, x_dims$cols))
 }
 
-# Infer destination dimensions for chol2inv().
-infer_dest_chol2inv <- function(args, scope) {
-  x_arg <- args$x %||% args[[1L]]
-  if (is.null(x_arg)) {
-    return(NULL)
-  }
-  X <- infer_symbol_var(x_arg, scope)
-  if (is.null(X) || X@rank != 2L) {
-    return(NULL)
-  }
-  x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
-}
+infer_dest_chol2inv <- infer_dest_chol
 
 # Helper to infer a size from a literal or symbol.
 infer_size <- function(arg, scope) {
@@ -255,10 +244,11 @@ infer_size <- function(arg, scope) {
   NULL
 }
 
-# Infer destination dimensions for diag().
-infer_dest_diag <- function(args, scope) {
-  # R signature: diag(x = 1, nrow, ncol, names = TRUE)
-  # Handle both named and positional arguments
+# Match diag()'s x/nrow/ncol arguments, named or positional.
+# R signature: diag(x = 1, nrow, ncol, names = TRUE). Shared by the
+# diag() handler and infer_dest_diag() so lowering and dest inference
+# cannot drift. The returned `x` is never the missing arg (NULL instead).
+diag_call_args <- function(args) {
   arg_names <- names(args)
   if (is.null(arg_names)) {
     arg_names <- rep("", length(args))
@@ -288,11 +278,26 @@ infer_dest_diag <- function(args, scope) {
     ncol_arg <- args[[unnamed_idx[[3L]]]]
   }
 
-  has_nrow <- !is.null(nrow_arg) && !is_missing(nrow_arg)
-  has_ncol <- !is.null(ncol_arg) && !is_missing(ncol_arg)
+  list(
+    x = x_arg,
+    nrow = nrow_arg,
+    ncol = ncol_arg,
+    has_nrow = !is.null(nrow_arg) && !is_missing(nrow_arg),
+    has_ncol = !is.null(ncol_arg) && !is_missing(ncol_arg)
+  )
+}
+
+# Infer destination dimensions for diag().
+infer_dest_diag <- function(args, scope) {
+  margs <- diag_call_args(args)
+  x_arg <- margs$x
+  nrow_arg <- margs$nrow
+  ncol_arg <- margs$ncol
+  has_nrow <- margs$has_nrow
+  has_ncol <- margs$has_ncol
 
   # Case: no x, just nrow (identity matrix)
-  if (is.null(x_arg) || is_missing(x_arg)) {
+  if (is.null(x_arg)) {
     if (!has_nrow) {
       return(NULL)
     }

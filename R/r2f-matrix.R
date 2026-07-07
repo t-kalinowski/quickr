@@ -215,6 +215,9 @@ register_r2f_handler(
   }
 )
 
+# Join the input modes for cbind/rbind. Hand-rolled rather than
+# reduce_promoted_mode(): binds also support "raw" (not on the mode
+# lattice) and refuse mixing complex with other modes.
 bind_output_mode <- function(values, context) {
   modes <- unique(vapply(
     values,
@@ -321,14 +324,22 @@ bind_dim_int <- function(dim) {
   paste0("int(", bind_dim_string(dim), ")")
 }
 
-bind_col_matrix_expr <- function(value, rows, is_scalar, context) {
-  rows_int <- bind_dim_int(rows)
+# Reshape one cbind/rbind input to a matrix piece along the bind axis:
+# scalars spread to the common dim, vectors reshape to a single column
+# (cbind) or row (rbind), matrices pass through.
+bind_piece_expr <- function(value, common, is_scalar, context, direction) {
+  common_int <- bind_dim_int(common)
+  shape <- if (direction == "cbind") {
+    glue("[{common_int}, 1]")
+  } else {
+    glue("[1, {common_int}]")
+  }
   if (is_scalar) {
-    vec <- glue("spread({value}, 1, {rows_int})")
-    return(glue("reshape({vec}, [{rows_int}, 1])"))
+    vec <- glue("spread({value}, 1, {common_int})")
+    return(glue("reshape({vec}, {shape})"))
   }
   if (value@value@rank == 1L) {
-    return(glue("reshape({value}, [{rows_int}, 1])"))
+    return(glue("reshape({value}, {shape})"))
   }
   if (value@value@rank == 2L) {
     return(as.character(value))
@@ -336,135 +347,84 @@ bind_col_matrix_expr <- function(value, rows, is_scalar, context) {
   stop(context, " only supports rank 0-2 inputs", call. = FALSE)
 }
 
-bind_row_matrix_expr <- function(value, cols, is_scalar, context) {
-  cols_int <- bind_dim_int(cols)
-  if (is_scalar) {
-    vec <- glue("spread({value}, 1, {cols_int})")
-    return(glue("reshape({vec}, [1, {cols_int}])"))
+# cbind()/rbind() share one skeleton: clean the args, join input modes,
+# require a known common dim (bind_common_dim) and sum the other, then
+# assemble the pieces. Only the orientation differs; rbind builds the
+# transpose and flips it at the end so the array constructor still fills
+# column-major.
+compile_bind <- function(args, scope, ..., hoist = NULL) {
+  direction <- last(list(...)$calls)
+  context <- paste0(direction, "()")
+
+  if (!is.null(args$deparse.level) && !is_missing(args$deparse.level)) {
+    args$deparse.level <- NULL
   }
-  if (value@value@rank == 1L) {
-    return(glue("reshape({value}, [1, {cols_int}])"))
-  }
-  if (value@value@rank == 2L) {
-    return(as.character(value))
-  }
-  stop(context, " only supports rank 0-2 inputs", call. = FALSE)
-}
-
-register_r2f_handler(
-  "cbind",
-  function(args, scope, ..., hoist = NULL) {
-    context <- "cbind()"
-    if (!is.null(args$deparse.level) && !is_missing(args$deparse.level)) {
-      args$deparse.level <- NULL
-    }
-    args <- args[!vapply(args, is_missing, logical(1))]
-    args <- args[
-      !vapply(
-        args,
-        \(x) is.null(x) || identical(x, quote(NULL)),
-        logical(1)
-      )
-    ]
-    if (!length(args)) {
-      stop("cbind() requires at least one argument", call. = FALSE)
-    }
-
-    values <- lapply(args, r2f, scope, ..., hoist = hoist)
-    for (val in values) {
-      if (is.null(val@value) || is.null(val@value@mode)) {
-        stop(context, " inputs must have a value", call. = FALSE)
-      }
-      assert_rank_leq2(val, paste0(context, " only supports rank 0-2 inputs"))
-    }
-
-    mode <- bind_output_mode(values, context)
-    values <- lapply(values, cast_to_mode, mode = mode, context = context)
-
-    dims <- lapply(values, matrix_dims, orientation = "colvec")
-    scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
-    row_sizes <- lapply(dims, `[[`, "rows")
-    col_sizes <- lapply(dims, `[[`, "cols")
-
-    rows <- bind_common_dim(row_sizes, scalar_flags, context, "row")
-    cols <- bind_dim_sum(col_sizes, context, "column")
-
-    col_exprs <- vector("list", length(values))
-    for (i in seq_along(values)) {
-      col_exprs[[i]] <- bind_col_matrix_expr(
-        value = values[[i]],
-        rows = rows,
-        is_scalar = scalar_flags[[i]],
-        context = context
-      )
-    }
-
-    data_expr <- glue("[{str_flatten_commas(col_exprs)}]")
-    out_expr <- glue(
-      "reshape({data_expr}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])"
+  args <- args[!vapply(args, is_missing, logical(1))]
+  args <- args[
+    !vapply(
+      args,
+      \(x) is.null(x) || identical(x, quote(NULL)),
+      logical(1)
     )
-    Fortran(out_expr, Variable(mode, list(rows, cols)))
+  ]
+  if (!length(args)) {
+    stop(context, " requires at least one argument", call. = FALSE)
   }
-)
 
-register_r2f_handler(
-  "rbind",
-  function(args, scope, ..., hoist = NULL) {
-    context <- "rbind()"
-    if (!is.null(args$deparse.level) && !is_missing(args$deparse.level)) {
-      args$deparse.level <- NULL
+  values <- lapply(args, r2f, scope, ..., hoist = hoist)
+  for (val in values) {
+    if (is.null(val@value) || is.null(val@value@mode)) {
+      stop(context, " inputs must have a value", call. = FALSE)
     }
-    args <- args[!vapply(args, is_missing, logical(1))]
-    args <- args[
-      !vapply(
-        args,
-        \(x) is.null(x) || identical(x, quote(NULL)),
-        logical(1)
-      )
-    ]
-    if (!length(args)) {
-      stop("rbind() requires at least one argument", call. = FALSE)
-    }
+    assert_rank_leq2(val, paste0(context, " only supports rank 0-2 inputs"))
+  }
 
-    values <- lapply(args, r2f, scope, ..., hoist = hoist)
-    for (val in values) {
-      if (is.null(val@value) || is.null(val@value@mode)) {
-        stop(context, " inputs must have a value", call. = FALSE)
-      }
-      assert_rank_leq2(val, paste0(context, " only supports rank 0-2 inputs"))
-    }
+  mode <- bind_output_mode(values, context)
+  values <- lapply(values, cast_to_mode, mode = mode, context = context)
 
-    mode <- bind_output_mode(values, context)
-    values <- lapply(values, cast_to_mode, mode = mode, context = context)
+  orientation <- if (direction == "cbind") "colvec" else "rowvec"
+  dims <- lapply(values, matrix_dims, orientation = orientation)
+  scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
+  row_sizes <- lapply(dims, `[[`, "rows")
+  col_sizes <- lapply(dims, `[[`, "cols")
 
-    dims <- lapply(values, matrix_dims, orientation = "rowvec")
-    scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
-    row_sizes <- lapply(dims, `[[`, "rows")
-    col_sizes <- lapply(dims, `[[`, "cols")
-
-    cols <- bind_common_dim(col_sizes, scalar_flags, context, "column")
+  if (direction == "cbind") {
+    common <- bind_common_dim(row_sizes, scalar_flags, context, "row")
+    rows <- common
+    cols <- bind_dim_sum(col_sizes, context, "column")
+  } else {
+    common <- bind_common_dim(col_sizes, scalar_flags, context, "column")
+    cols <- common
     rows <- bind_dim_sum(row_sizes, context, "row")
+  }
 
-    row_exprs <- vector("list", length(values))
-    for (i in seq_along(values)) {
-      row_exprs[[i]] <- bind_row_matrix_expr(
-        value = values[[i]],
-        cols = cols,
-        is_scalar = scalar_flags[[i]],
-        context = context
-      )
-    }
-    transposed <- lapply(row_exprs, \(expr) glue("transpose({expr})"))
+  pieces <- vector("list", length(values))
+  for (i in seq_along(values)) {
+    pieces[[i]] <- bind_piece_expr(
+      value = values[[i]],
+      common = common,
+      is_scalar = scalar_flags[[i]],
+      context = context,
+      direction = direction
+    )
+  }
 
+  out_expr <- if (direction == "cbind") {
+    data_expr <- glue("[{str_flatten_commas(pieces)}]")
+    glue("reshape({data_expr}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}])")
+  } else {
+    transposed <- lapply(pieces, \(expr) glue("transpose({expr})"))
     data_expr <- glue("[{str_flatten_commas(transposed)}]")
     combined <- glue(
       "reshape({data_expr}, [{bind_dim_int(cols)}, {bind_dim_int(rows)}])"
     )
-    out_expr <- glue("transpose({combined})")
-
-    Fortran(out_expr, Variable(mode, list(rows, cols)))
+    glue("transpose({combined})")
   }
-)
+
+  Fortran(out_expr, Variable(mode, list(rows, cols)))
+}
+
+register_r2f_handler(c("cbind", "rbind"), compile_bind)
 
 
 # Handle crossprod(), using SYRK for single-arg and GEMM for two-arg forms.
@@ -480,9 +440,7 @@ register_r2f_handler(
       ...,
       hoist = hoist,
       dest = dest,
-      trans_single = "T",
-      opA = "T",
-      opB = "N",
+      trans = "T",
       context = "crossprod"
     )
   },
@@ -504,9 +462,7 @@ register_r2f_handler(
       ...,
       hoist = hoist,
       dest = dest,
-      trans_single = "N",
-      opA = "N",
-      opB = "T",
+      trans = "N",
       context = "tcrossprod"
     )
   },
@@ -705,49 +661,19 @@ register_r2f_handler(
 register_r2f_handler(
   "diag",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
-    # R signature: diag(x = 1, nrow, ncol, names = TRUE)
-    # Handle both named and positional arguments
-    arg_names <- names(args)
-    if (is.null(arg_names)) {
-      arg_names <- rep("", length(args))
-    }
-    unnamed_idx <- which(!nzchar(arg_names) | is.na(arg_names))
-
-    # Extract x (named or position 1)
-    x_arg <- NULL
-    if (!is.null(args$x) && !is_missing(args$x)) {
-      x_arg <- args$x
-    } else if (length(unnamed_idx) >= 1L) {
-      candidate <- args[[unnamed_idx[[1L]]]]
-      if (!is_missing(candidate)) {
-        x_arg <- candidate
-      }
-    }
-
-    # Extract nrow (named or position 2)
-    nrow_arg <- args$nrow
-    if (is.null(nrow_arg) && length(unnamed_idx) >= 2L) {
-      nrow_arg <- args[[unnamed_idx[[2L]]]]
-    }
-
-    # Extract ncol (named or position 3)
-    ncol_arg <- args$ncol
-    if (is.null(ncol_arg) && length(unnamed_idx) >= 3L) {
-      ncol_arg <- args[[unnamed_idx[[3L]]]]
-    }
+    margs <- diag_call_args(args)
+    x_arg <- margs$x
+    nrow_arg <- margs$nrow
+    ncol_arg <- margs$ncol
+    has_nrow <- margs$has_nrow
+    has_ncol <- margs$has_ncol
 
     if (!is.null(args$names) && !is_missing(args$names)) {
       logical_arg_or_default(args, "names", TRUE, "diag()")
     }
 
-    has_nrow <- !is.null(nrow_arg) && !is_missing(nrow_arg)
-    has_ncol <- !is.null(ncol_arg) && !is_missing(ncol_arg)
-
-    if (is.null(x_arg) || is_missing(x_arg)) {
-      if (!has_nrow && !has_ncol) {
-        stop("argument \"nrow\" is missing, with no default", call. = FALSE)
-      }
-      if (!has_nrow && has_ncol) {
+    if (is.null(x_arg)) {
+      if (!has_nrow) {
         stop("argument \"nrow\" is missing, with no default", call. = FALSE)
       }
       x_val <- Fortran("1.0_c_double", Variable("double"))
@@ -906,6 +832,9 @@ register_r2f_handler(
 )
 
 # Shared crossprod/tcrossprod logic for one- and two-argument forms.
+# `trans` says which side of the product is transposed: "T" for
+# crossprod (t(x) %*% y), "N" for tcrossprod (x %*% t(y)); it fully
+# determines the syrk form and both gemm op flags.
 crossprod_like <- function(
   x_arg,
   y_arg,
@@ -913,17 +842,18 @@ crossprod_like <- function(
   ...,
   hoist,
   dest,
-  trans_single,
-  opA,
-  opB,
+  trans,
   context
 ) {
+  opA <- trans
+  opB <- if (identical(trans, "T")) "N" else "T"
+
   x <- r2f(x_arg, scope, ..., hoist = hoist)
   x <- cast_linalg_double(x, context)
 
   if (is.null(y_arg)) {
     return(syrk(
-      trans = trans_single,
+      trans = trans,
       X = x,
       scope = scope,
       hoist = hoist,
