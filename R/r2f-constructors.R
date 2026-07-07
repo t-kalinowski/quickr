@@ -120,6 +120,10 @@ known_dims_prod <- function(dims) {
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
   ff <- lapply(args, r2f, scope, ...)
+  # R's c() flattens matrix/array arguments column-major; drop their dims
+  # to a rank-1 view before joining (fill constructors are already
+  # rank-1, so they pass through untouched for the spread below).
+  ff <- lapply(ff, flatten_to_vector, scope = scope)
   # Fortran array constructors require uniform element types; cast every
   # element whose mode differs from the promoted mode (R: c(1L, 2.5) is
   # double, c(TRUE, 2L) is integer).

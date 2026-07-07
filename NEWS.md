@@ -6,6 +6,12 @@
 
 * Successful flang availability checks are now reused for the rest of the R
   session. Restart R after changing the flang toolchain.
+- `c()` now accepts matrix and array arguments, flattening them in
+  column-major order like R (previously `c(m)` for a matrix `m` errored
+  with "all args passed to c() must be scalars or 1-d arrays"). `as.vector()`
+  is now supported: it drops dimensions (mode `"any"`, the default,
+  preserves the type; `mode = "double"`/`"integer"`/`"numeric"` coerce).
+
 - Reassigning a variable now requires the new value's shape to be
   compatible with the declared shape, extending the existing rank check
   to every dimension: quickr cannot re-declare a Fortran variable the

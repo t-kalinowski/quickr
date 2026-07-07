@@ -624,7 +624,7 @@ test_that("c() grid: symbolic lengths are constructive (no guard)", {
   expect_grid_cells_match(qfn, fn, args, context = "c()/sym")
 })
 
-test_that("c() rejects rank-2 args (R would flatten: error divergence)", {
+test_that("c() flattens rank-2 args column-major, like R", {
   fn <- eval(parse(
     text = paste0(
       "function(a) {\n",
@@ -632,7 +632,7 @@ test_that("c() rejects rank-2 args (R would flatten: error divergence)", {
       "  c(a, 1.0)\n}"
     )
   )[[1L]])
-  expect_error(quick(fn), "scalars or 1-d arrays", fixed = TRUE)
+  expect_quick_identical(fn, list(matrix(as.double(1:6), 3, 2)))
 })
 
 # --- Multi-arg min()/max()/sum(): join across args, shapes independent ----
