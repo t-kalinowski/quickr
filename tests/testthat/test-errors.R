@@ -159,13 +159,36 @@ test_that("declare() type() calls validate syntax", {
     fixed = TRUE
   )
 
-  bad_mode <- function(x) {
+  # A bare atomic mode symbol is a form error (dims are missing), not a
+  # mode error; the old check fired "only atomic modes are supported"
+  # precisely when the mode *was* atomic.
+  missing_dims <- function(x) {
     declare(type(x = double))
     x
   }
   expect_error(
-    quick(bad_mode),
-    "only atomic modes are supported",
+    quick(missing_dims),
+    "the mode must be a call with dimensions, as in: type(x = double(<dims>))",
+    fixed = TRUE
+  )
+
+  bad_mode_call <- function(x) {
+    declare(type(x = foo(1)))
+    x
+  }
+  expect_error(
+    quick(bad_mode_call),
+    "only atomic modes are supported, not: foo",
+    fixed = TRUE
+  )
+
+  bad_mode_symbol <- function(x) {
+    declare(type(x = foo))
+    x
+  }
+  expect_error(
+    quick(bad_mode_symbol),
+    "only atomic modes are supported, not: foo",
     fixed = TRUE
   )
 })

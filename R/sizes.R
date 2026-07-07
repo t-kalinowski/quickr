@@ -6,8 +6,22 @@ check_type_call <- function(cl) {
   if (length(names(args)) != 1) {
     stop("name must be provided as: type(<name> = <mode>(<<dims>>)")
   }
-  if (!is.call(args[[1]]) && as.character(args[[1]]) %in% .atomic_type_names) {
-    stop("only atomic modes are supported")
+  mode_expr <- args[[1]]
+  mode_sym <- if (is.call(mode_expr)) mode_expr[[1L]] else mode_expr
+  if (
+    !is.symbol(mode_sym) ||
+      !as.character(mode_sym) %in% .atomic_type_names
+  ) {
+    stop("only atomic modes are supported, not: ", deparse1(mode_sym))
+  }
+  if (!is.call(mode_expr)) {
+    stop(
+      "the mode must be a call with dimensions, as in: type(",
+      names(args),
+      " = ",
+      as.character(mode_sym),
+      "(<dims>))"
+    )
   }
 }
 
