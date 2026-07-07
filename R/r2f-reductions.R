@@ -51,23 +51,7 @@ register_r2f_handler(
 
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      # Nested reductions (e.g., min(max(...), ...)) can thread an existing
-      # hoist_mask through `...`. We always want a single mask hoister per
-      # reduction context, so we ignore any inherited one and install ours.
-      dots <- list(...)
-      x <- r2f(
-        arg,
-        scope,
-        calls = dots$calls,
-        hoist = dots$hoist,
-        hoist_mask = mask_hoist$try_set
-      )
-      if (mask_hoist$has_conflict()) {
-        stop(
-          "reduction expressions only support a single logical mask",
-          call. = FALSE
-        )
-      }
+      x <- reduce_arg_with_mask(arg, scope, mask_hoist, list(...))
       # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
       # and Fortran's sum/product/minval/maxval reject logical arrays.
       x <- cast_to_mode(x, arith_join_mode(x), sprintf("%s()", call_name))
@@ -145,13 +129,7 @@ register_r2f_handler(
 
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
-      if (mask_hoist$has_conflict()) {
-        stop(
-          "reduction expressions only support a single logical mask",
-          call. = FALSE
-        )
-      }
+      x <- reduce_arg_with_mask(arg, scope, mask_hoist, list(...))
 
       if (!identical(x@value@mode, "logical")) {
         stop("any()/all() only implemented for logical", call. = FALSE)
