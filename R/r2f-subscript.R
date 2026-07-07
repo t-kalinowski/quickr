@@ -123,9 +123,12 @@ r2f_handlers[["["]] <- function(
   ) {
     # Hoist array expressions before subscripting (no invalid (expr)(i)).
     if (!passes_as_scalar(var@value) && is.null(var@value@name)) {
-      tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
-      hoist$emit(glue("{tmp@name} = {var}"))
-      var <- Fortran(tmp@name, tmp)
+      var <- materialize_via_hoist(
+        var,
+        mode = var@value@mode,
+        dims = var@value@dims,
+        hoist = hoist
+      )
     }
 
     base_name <- var@value@name %||% stop("missing array name for subscripting")
@@ -231,9 +234,12 @@ r2f_handlers[["["]] <- function(
     !passes_as_scalar(var@value) &&
       is.null(var@value@name)
   ) {
-    tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
-    hoist$emit(glue("{tmp@name} = {var}"))
-    var <- Fortran(tmp@name, tmp)
+    var <- materialize_via_hoist(
+      var,
+      mode = var@value@mode,
+      dims = var@value@dims,
+      hoist = hoist
+    )
   }
 
   # External logicals are passed as integer storage (0/1) and are "booleanized"

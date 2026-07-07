@@ -102,6 +102,41 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 # ---- for ----
+
+# Compile a `for` body in its own per-statement hoist (see the `while`
+# handler: forwarding the enclosing statement's hoist would emit a
+# single-statement body's hoisted code once, before the loop), entering
+# an OpenMP scope around the compile when the loop is parallel. Returns
+# the compiled body together with the loop's OpenMP directives and
+# post-loop error check, which must be computed while the OpenMP scope is
+# still entered.
+compile_for_body <- function(body, scope, ..., parallel, private = NULL) {
+  if (!is.null(parallel)) {
+    previous_openmp <- enter_openmp_scope(scope)
+    on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+  }
+  body <- r2f(body, scope, ..., hoist = NULL)
+  check_pending_parallel_consumed(scope)
+
+  directives <- openmp_directives(parallel, private = private)
+  if (!is.null(parallel)) {
+    mark_openmp_used(scope)
+  }
+  error_check_after <- if (!is.null(parallel)) {
+    quickr_error_return_if_set(
+      scope,
+      openmp_depth = scope_openmp_depth(scope) - 1L
+    )
+  } else {
+    ""
+  }
+  list(
+    body = body,
+    directives = directives,
+    error_check_after = error_check_after
+  )
+}
+
 r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   .[var, iterable, body] <- args
   stopifnot(is.symbol(var))
@@ -195,16 +230,17 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
       }
     }
 
-    if (!is.null(parallel)) {
-      previous_openmp <- enter_openmp_scope(scope)
-      on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
-    }
-    # The body is a distinct execution region and needs its own hoist target.
-    # Otherwise a single-expression body reuses the enclosing statement's
-    # target and emits loop-dependent setup before the loop.
-    body <- r2f(body, scope, ..., hoist = NULL)
-    check_pending_parallel_consumed(scope)
-    loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
+    compiled <- compile_for_body(
+      body,
+      scope,
+      ...,
+      parallel = parallel,
+      private = var_name
+    )
+    loop_stmts <- str_flatten_lines(
+      glue("{var_name} = {element_expr}"),
+      compiled$body
+    )
 
     loop_header <- if (iterable_reversed) {
       glue("do {idx@name} = {end}, 1_c_int, -1_c_int")
@@ -212,25 +248,13 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
-    directives <- openmp_directives(parallel, private = var_name)
-    if (!is.null(parallel)) {
-      mark_openmp_used(scope)
-    }
-    error_check_after <- if (!is.null(parallel)) {
-      quickr_error_return_if_set(
-        scope,
-        openmp_depth = scope_openmp_depth(scope) - 1L
-      )
-    } else {
-      ""
-    }
     return(Fortran(glue(
       "
       {iterable_tmp_assign}
-      {str_flatten_lines(directives$prefix, loop_header)}
+      {str_flatten_lines(compiled$directives$prefix, loop_header)}
       {indent(loop_stmts)}
       end do
-      {str_flatten_lines(directives$suffix, error_check_after)}
+      {str_flatten_lines(compiled$directives$suffix, compiled$error_check_after)}
       "
     )))
   }
@@ -243,33 +267,14 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   scope[[var]] <- loop_var
 
   iterable <- r2f_for_iterable(iterable, scope, ..., hoist = hoist)
-  if (!is.null(parallel)) {
-    previous_openmp <- enter_openmp_scope(scope)
-    on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
-  }
-  # See the value-iteration path above: body-local setup must run inside the
-  # loop even when the R body is not wrapped in braces.
-  body <- r2f(body, scope, ..., hoist = NULL)
-  check_pending_parallel_consumed(scope)
+  compiled <- compile_for_body(body, scope, ..., parallel = parallel)
 
-  directives <- openmp_directives(parallel)
-  if (!is.null(parallel)) {
-    mark_openmp_used(scope)
-  }
-  error_check_after <- if (!is.null(parallel)) {
-    quickr_error_return_if_set(
-      scope,
-      openmp_depth = scope_openmp_depth(scope) - 1L
-    )
-  } else {
-    ""
-  }
   loop_header <- glue("do {var_name} = {iterable}")
   Fortran(glue(
-    "{str_flatten_lines(directives$prefix, loop_header)}
-    {indent(body)}
+    "{str_flatten_lines(compiled$directives$prefix, loop_header)}
+    {indent(compiled$body)}
     end do
-    {str_flatten_lines(directives$suffix, error_check_after)}
+    {str_flatten_lines(compiled$directives$suffix, compiled$error_check_after)}
     "
   ))
 }

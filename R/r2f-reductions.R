@@ -4,6 +4,23 @@
 # - logical: any, all
 # - index: which.max, which.min
 
+# --- Helpers ---
+
+# A c(TRUE)-style literal lowers to a rank-1 Fortran array constructor
+# ("[ ... ]") even when its value passes as a scalar; any()/all() must
+# wrap such values to reduce them back to a scalar expression.
+# Used by: any/all handler
+renders_as_array_ctor <- function(f) {
+  startsWith(trimws(as.character(f)), "[")
+}
+
+# TRUE for values declared length-1 (rank-1, dims list(1L)): scalar in
+# the ABI, but not a Fortran scalar expression.
+# Used by: any/all handler
+is_declared_len1 <- function(f) {
+  !is.null(f@value) && identical(f@value@dims, list(1L))
+}
+
 # --- Handlers ---
 
 register_r2f_handler(
@@ -23,8 +40,9 @@ register_r2f_handler(
       )
     }
 
+    call_name <- last(list(...)$calls)
     intrinsic <- switch(
-      last(list(...)$calls),
+      call_name,
       max = "maxval",
       min = "minval",
       sum = "sum",
@@ -52,11 +70,7 @@ register_r2f_handler(
       }
       # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
       # and Fortran's sum/product/minval/maxval reject logical arrays.
-      x <- cast_to_mode(
-        x,
-        arith_join_mode(x),
-        sprintf("%s()", last(dots$calls))
-      )
+      x <- cast_to_mode(x, arith_join_mode(x), sprintf("%s()", call_name))
       if (x@value@is_scalar) {
         return(x)
       }
@@ -80,10 +94,14 @@ register_r2f_handler(
       # don't strictly need it, but one code path beats two. Logical
       # operands join as integer (R: max(TRUE, FALSE) is 1L).
       mode <- arith_join_mode(args)
-      context <- sprintf("%s()", last(list(...)$calls))
-      args <- lapply(args, cast_to_mode, mode = mode, context = context)
+      args <- lapply(
+        args,
+        cast_to_mode,
+        mode = mode,
+        context = sprintf("%s()", call_name)
+      )
       s <- switch(
-        last(list(...)$calls),
+        call_name,
         max = glue("max({str_flatten_commas(args)})"),
         min = glue("min({str_flatten_commas(args)})"),
         sum = glue("({str_flatten(args, ' + ')})"),
@@ -146,8 +164,7 @@ register_r2f_handler(
         if (is.null(hoisted_mask)) {
           # `c(FALSE)` lowers to a 1-element Fortran array constructor
           # (`[.false.]`) but any()/all() must still return scalars.
-          x_code <- trimws(as.character(x))
-          if (startsWith(x_code, "[")) {
+          if (renders_as_array_ctor(x)) {
             return(Fortran(glue("{intrinsic}({x})"), Variable("logical")))
           }
           return(x)
@@ -161,16 +178,12 @@ register_r2f_handler(
         #
         # Conversely, literal masks like `c(FALSE)` compile to array constructors
         # (e.g. `[ .false. ]`) and must be reduced to a scalar condition.
-        mask_code <- trimws(as.character(hoisted_mask))
-        is_array_ctor <- startsWith(mask_code, "[")
         mask_is_scalar <-
           !is.null(hoisted_mask@value) &&
           passes_as_scalar(hoisted_mask@value) &&
-          !is_array_ctor
+          !renders_as_array_ctor(hoisted_mask)
 
-        mask_len1 <-
-          !is.null(hoisted_mask@value) &&
-          identical(hoisted_mask@value@dims, list(1L))
+        mask_len1 <- is_declared_len1(hoisted_mask)
 
         if (!mask_is_scalar && !mask_len1) {
           stop(
@@ -190,8 +203,7 @@ register_r2f_handler(
         # - any(logical(0)) == FALSE
         # - all(logical(0)) == TRUE
         identity <- if (identical(call_name, "any")) ".false." else ".true."
-        x_code <- trimws(as.character(x))
-        x_scalar <- if (startsWith(x_code, "[")) {
+        x_scalar <- if (renders_as_array_ctor(x)) {
           glue("{intrinsic}({x})")
         } else {
           glue("{x}")
@@ -213,12 +225,8 @@ register_r2f_handler(
         # Note: A length-1 mask constructor like `c(TRUE)` compiles to a rank-1
         # array constructor (`[ .true. ]`). In R, this is recycled as a scalar
         # mask, so we must scalarize it to keep elementwise ops conformable.
-        mask_code <- trimws(as.character(hoisted_mask))
-        mask_is_array_ctor <- startsWith(mask_code, "[")
         mask_ctor_len1 <-
-          mask_is_array_ctor &&
-          !is.null(hoisted_mask@value) &&
-          identical(hoisted_mask@value@dims, list(1L))
+          renders_as_array_ctor(hoisted_mask) && is_declared_len1(hoisted_mask)
         mask_expr <- if (mask_ctor_len1) {
           glue("any({hoisted_mask})")
         } else {
@@ -248,6 +256,7 @@ register_r2f_handler(
 r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
   function(args, scope = NULL, ...) {
     stopifnot(length(args) == 1)
+    call_name <- last(list(...)$calls)
     x <- r2f(args[[1L]], scope, ...)
     stopifnot(
       "Values passed to which.max()/which.min() must be 1d arrays" = x@value@rank ==
@@ -273,8 +282,6 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
       #   while retaining early-exit.
       # Results are compiler/runtime dependent; the relative pattern was stable.
       #
-      call_name <- last(list(...)$calls)
-
       has_var_name <- inherits(x@value, Variable) && !is.null(x@value@name)
       use_lgl_storage <- has_var_name && !logical_as_int(x@value)
       int_backed_expr <-
@@ -302,7 +309,7 @@ r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
       f <- glue("max(1_c_int, {loc})")
     } else {
       intrinsic <- switch(
-        last(list(...)$calls),
+        call_name,
         which.max = "maxloc",
         which.min = "minloc"
       )

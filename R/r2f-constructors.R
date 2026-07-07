@@ -14,22 +14,106 @@ is_fill_constructor_call <- function(e) {
     as.character(e[[1L]]) %in% c("logical", "integer", "double", "numeric")
 }
 
-# Name of the call one frame above the current handler ("" at top level).
-# The materialization decisions below branch on it: a fill constructor or
-# matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
-# spreads, or pads it.
-parent_call_name <- function(calls) {
-  if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+# (parent_call_name() and materialize_via_hoist(), which the handlers
+# below build on, live with the hoisting infrastructure in
+# r2f-aab-core.R.)
+
+# Parse array(dim=)'s argument to a dims list: literal vectors, literal
+# `a:b` sequences, and symbols bound to a known literal vector; anything
+# else falls through to r2dims().
+# Used by: array()
+array_dim_to_dims <- function(dim_arg, scope) {
+  if (
+    is.atomic(dim_arg) &&
+      typeof(dim_arg) %in% c("integer", "double")
+  ) {
+    if (!length(dim_arg) || anyNA(dim_arg)) {
+      stop(
+        "array(dim=) must be non-empty and must not contain NA",
+        call. = FALSE
+      )
+    }
+    dim_arg <- vapply(
+      dim_arg,
+      function(x) {
+        if (!is_wholenumber(x)) {
+          stop(
+            "array(dim=) must be whole numbers, found: ",
+            x,
+            call. = FALSE
+          )
+        }
+        as.integer(x)
+      },
+      integer(1L)
+    )
+    return(as.list(dim_arg))
+  }
+
+  if (is.call(dim_arg) && is.symbol(dim_arg[[1L]])) {
+    op <- as.character(dim_arg[[1L]])
+    if (op == ":") {
+      if (length(dim_arg) != 3L) {
+        stop("bad dim sequence", call. = FALSE)
+      }
+      from <- dim_arg[[2L]]
+      to <- dim_arg[[3L]]
+      if (
+        !(is.atomic(from) && length(from) == 1L && is_wholenumber(from)) ||
+          !(is.atomic(to) && length(to) == 1L && is_wholenumber(to))
+      ) {
+        stop(
+          "array(dim=) only supports literal sequences like 2:4",
+          call. = FALSE
+        )
+      }
+      return(as.list(seq.int(as.integer(from), as.integer(to))))
+    }
+  }
+
+  if (is.symbol(dim_arg)) {
+    var <- get0(as.character(dim_arg), scope)
+    if (
+      inherits(var, Variable) &&
+        var@mode %in% c("integer", "double") &&
+        var@rank == 1L &&
+        (is.language(var@r) || is.atomic(var@r)) &&
+        !identical(var@r, dim_arg)
+    ) {
+      return(array_dim_to_dims(var@r, scope))
+    }
+  }
+
+  r2dims(dim_arg, scope)
 }
 
-# Materialize `code` into a hoisted temporary and return the temporary.
-# `hoist` is always available in a handler: r2f() opens one per statement
-# before dispatching, and the constructor handlers forward what they got.
-materialize_via_hoist <- function(code, mode, dims, hoist) {
-  stopifnot(is.environment(hoist))
-  tmp <- hoist$declare_tmp(mode = mode, dims = dims)
-  hoist$emit(glue("{tmp@name} = {code}"))
-  Fortran(tmp@name, tmp)
+# Product of a dims list when every dim is a known whole number, NA_real_
+# otherwise (in double to dodge integer overflow on large dims).
+# Used by: array()
+known_dims_prod <- function(dims) {
+  if (is.null(dims) || !length(dims)) {
+    return(1)
+  }
+  vals <- vapply(
+    dims,
+    function(d) {
+      if (
+        is.atomic(d) &&
+          length(d) == 1L &&
+          !is.na(d) &&
+          is_wholenumber(d)
+      ) {
+        as.double(d)
+      } else {
+        NA_real_
+      }
+    },
+    double(1L)
+  )
+  if (anyNA(vals)) {
+    return(NA_real_)
+  }
+  prod(vals)
 }
 
 # --- Handlers ---
@@ -262,17 +346,12 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
-  rows <- dims[[1L]]
-  cols <- dims[[2L]]
-
-  # Avoid double-evaluating non-trivial expressions when used in both the
-  # `source` and `pad` args.
-  source <- glue("{hoist_unless_name(src, hoist)}")
-  Fortran(
-    glue(
-      "reshape({source}, [{bind_dim_int(rows)}, {bind_dim_int(cols)}], pad = {source})"
-    ),
-    out_val
+  # reshape_vector_for_matrix() splices its source into both the `source`
+  # and `pad` args; hoist non-trivial expressions so they evaluate once.
+  reshape_vector_for_matrix(
+    hoist_unless_name(src, hoist),
+    dims[[1L]],
+    dims[[2L]]
   )
 }
 
@@ -285,73 +364,8 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     stop("array(dimnames=) not supported")
   }
 
-  dim_to_dims <- function(dim_arg) {
-    if (
-      is.atomic(dim_arg) &&
-        typeof(dim_arg) %in% c("integer", "double")
-    ) {
-      if (!length(dim_arg) || anyNA(dim_arg)) {
-        stop(
-          "array(dim=) must be non-empty and must not contain NA",
-          call. = FALSE
-        )
-      }
-      dim_arg <- vapply(
-        dim_arg,
-        function(x) {
-          if (!is_wholenumber(x)) {
-            stop(
-              "array(dim=) must be whole numbers, found: ",
-              x,
-              call. = FALSE
-            )
-          }
-          as.integer(x)
-        },
-        integer(1L)
-      )
-      return(as.list(dim_arg))
-    }
-
-    if (is.call(dim_arg) && is.symbol(dim_arg[[1L]])) {
-      op <- as.character(dim_arg[[1L]])
-      if (op == ":") {
-        if (length(dim_arg) != 3L) {
-          stop("bad dim sequence", call. = FALSE)
-        }
-        from <- dim_arg[[2L]]
-        to <- dim_arg[[3L]]
-        if (
-          !(is.atomic(from) && length(from) == 1L && is_wholenumber(from)) ||
-            !(is.atomic(to) && length(to) == 1L && is_wholenumber(to))
-        ) {
-          stop(
-            "array(dim=) only supports literal sequences like 2:4",
-            call. = FALSE
-          )
-        }
-        return(as.list(seq.int(as.integer(from), as.integer(to))))
-      }
-    }
-
-    if (is.symbol(dim_arg)) {
-      var <- get0(as.character(dim_arg), scope)
-      if (
-        inherits(var, Variable) &&
-          var@mode %in% c("integer", "double") &&
-          var@rank == 1L &&
-          (is.language(var@r) || is.atomic(var@r)) &&
-          !identical(var@r, dim_arg)
-      ) {
-        return(dim_to_dims(var@r))
-      }
-    }
-
-    r2dims(dim_arg, scope)
-  }
-
   out <- r2f(args$data, scope, ..., hoist = hoist)
-  target_dims <- dim_to_dims(args$dim)
+  target_dims <- array_dim_to_dims(args$dim, scope)
   if (!length(target_dims)) {
     stop("array(dim=) must not be empty", call. = FALSE)
   }
@@ -364,15 +378,16 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     if (scalar_target) {
       # `dim = 1` is scalar-like in quickr (rank-1 length-1 is declared scalar).
       # Avoid `reshape(..., [1])` (rank-1) and instead return the first element.
-      if (is.null(hoist)) {
-        stop("internal error: array() requires hoist context", call. = FALSE)
-      }
       target_dims <- list(1L)
-      tmp <- hoist$declare_tmp(mode = out@value@mode, dims = out@value@dims)
-      hoist$emit(glue("{tmp@name} = {out}"))
+      tmp <- materialize_via_hoist(
+        out,
+        mode = out@value@mode,
+        dims = out@value@dims,
+        hoist = hoist
+      )
       idxs <- rep("1", out@value@rank)
       out <- Fortran(
-        glue("{tmp@name}({str_flatten_commas(idxs)})"),
+        glue("{tmp}({str_flatten_commas(idxs)})"),
         Variable(mode = out@value@mode, dims = list(1L))
       )
     } else {
@@ -404,38 +419,12 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
         paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
       }
 
-      known_prod <- function(dims) {
-        if (is.null(dims) || !length(dims)) {
-          return(1)
-        }
-        vals <- vapply(
-          dims,
-          function(d) {
-            if (
-              is.atomic(d) &&
-                length(d) == 1L &&
-                !is.na(d) &&
-                is_wholenumber(d)
-            ) {
-              as.double(d)
-            } else {
-              NA_real_
-            }
-          },
-          double(1L)
-        )
-        if (anyNA(vals)) {
-          return(NA_real_)
-        }
-        prod(vals)
-      }
-
       source <- if (is_fill_constructor) {
         i <- scope_unique_var(scope, "integer")
         glue("[({out}, {i}=1, int({n_expr}))]")
       } else {
-        n_target <- known_prod(target_dims)
-        n_source <- known_prod(out@value@dims)
+        n_target <- known_dims_prod(target_dims)
+        n_source <- known_dims_prod(out@value@dims)
         if (!is.na(n_target) && !is.na(n_source) && n_target > n_source) {
           stop(
             "array() reshape does not support recycling: prod(dim)=",
@@ -446,14 +435,15 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
           )
         }
         if (!is.null(hoist)) {
-          mark_scope_uses_errors(scope)
-          err <- quickr_error_fortran_lines(
-            "array() reshape does not support recycling (data shorter than prod(dim))",
+          emit_quickr_error_if(
+            condition = glue("int({n_expr}) > size({out})"),
+            message = paste0(
+              "array() reshape does not support recycling ",
+              "(data shorter than prod(dim))"
+            ),
+            hoist = hoist,
             scope = scope
           )
-          hoist$emit(glue("if (int({n_expr}) > size({out})) then"))
-          hoist$emit(paste0("  ", err))
-          hoist$emit("end if")
         }
 
         # RESHAPE() requires `SOURCE` to be an array expression; array constructors
