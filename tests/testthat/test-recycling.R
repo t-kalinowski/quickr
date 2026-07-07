@@ -149,6 +149,31 @@ test_that("1x1 matrix operands follow R: arithmetic scalarizes, strict ops rejec
   expect_error(qcmp(c(1, 2, 3), matrix(5)), "matrix first dimension")
 })
 
+test_that("1x1 matrix with a symbolic-length vector keeps R's shape", {
+  # The result's shape depends on the runtime length: R keeps the 1x1
+  # dims for a length-1 vector and drops them for any other length, so no
+  # static decision can be right for both. Scalarizing regardless (the
+  # old behavior) silently returned a dimensionless vector where R
+  # returns a 1x1 matrix. Symbolic lengths now take the vector-matrix
+  # rule instead: a runtime guard requires length 1 and the result is a
+  # 1x1 matrix; longer vectors error where R would recycle (deprecated).
+  fn <- function(m, x) {
+    declare(type(m = double(1, 1)), type(x = double(n)))
+    m + x
+  }
+  qfn <- quick(fn)
+  expect_identical(qfn(matrix(2), 3), fn(matrix(2), 3))
+  expect_error(qfn(matrix(2), c(1, 2, 3)), "matrix first dimension")
+
+  rev_fn <- function(x, m) {
+    declare(type(x = double(n)), type(m = double(1, 1)))
+    x + m
+  }
+  qrev <- quick(rev_fn)
+  expect_identical(qrev(3, matrix(2)), rev_fn(3, matrix(2)))
+  expect_error(qrev(c(1, 2, 3), matrix(2)), "matrix first dimension")
+})
+
 test_that("guard text is pinned (one snapshot per mechanism)", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(m)))

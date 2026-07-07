@@ -128,6 +128,13 @@ dim_is_one <- function(x) {
   is_wholenumber(x) && identical(as.integer(x), 1L)
 }
 
+# Check if a dimension expression is statically known and not 1. Symbolic
+# dimensions are FALSE: "not provably 1" is not "provably not 1".
+# Used by: maybe_reshape_vector_matrix()
+dim_known_not_one <- function(x) {
+  is_wholenumber(x) && !identical(as.integer(x), 1L)
+}
+
 # Check if a Fortran value is a 1x1 matrix.
 # Used by: r2f-arithmetic.R, r2f-logical.R
 is_one_by_one <- function(x) {
@@ -238,10 +245,15 @@ scalarize_matrix <- function(mat) {
 # size guard through `hoist`.
 #
 # `scalarize_one_by_one` mirrors R's split over length-1 arrays: arithmetic
-# recycles a 1x1 matrix against a longer vector (deprecated in R but still
-# the behavior), while comparisons and & | error. Strict callers pass FALSE
-# so the 1x1 falls through to the vector-matrix rule and is rejected or
-# guarded like any other 1-row matrix.
+# recycles a 1x1 matrix against a vector of statically known length != 1
+# (deprecated in R but still the behavior: R drops the array dims). When
+# the vector's length is only known at run time, the result's shape would
+# depend on that value -- R keeps the 1x1 dims for a length-1 vector and
+# drops them otherwise -- so the 1x1 falls through to the vector-matrix
+# rule: a runtime guard requires length 1 and the result is a 1x1 matrix,
+# an error where R would recycle. Comparisons and & | error in R itself,
+# so strict callers pass FALSE and the 1x1 always takes the vector-matrix
+# path.
 # Used by: r2f-arithmetic.R, r2f-logical.R
 maybe_reshape_vector_matrix <- function(
   left,
@@ -281,7 +293,7 @@ maybe_reshape_vector_matrix <- function(
       is_one_by_one(left)
   ) {
     right_len <- dim_or_one(right, 1L)
-    if (!dim_is_one(right_len)) {
+    if (dim_known_not_one(right_len)) {
       left <- scalarize_via_hoist(left)
       left_rank <- 0L
     }
@@ -292,7 +304,7 @@ maybe_reshape_vector_matrix <- function(
       is_one_by_one(right)
   ) {
     left_len <- dim_or_one(left, 1L)
-    if (!dim_is_one(left_len)) {
+    if (dim_known_not_one(left_len)) {
       right <- scalarize_via_hoist(right)
       right_rank <- 0L
     }
