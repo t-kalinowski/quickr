@@ -38,9 +38,13 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 # TODO: return
 
 # ---- repeat ----
-r2f_handlers[["repeat"]] <- function(args, scope, ...) {
+r2f_handlers[["repeat"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  body <- r2f(args[[1]], scope, ...)
+  # The body gets its own hoist target: forwarding the enclosing
+  # statement's hoist would emit a single-statement body's hoisted code
+  # (BLAS calls, temporaries, guards) once, before the loop, instead of
+  # per iteration. (`{` bodies already isolate each statement.)
+  body <- r2f(args[[1]], scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do
@@ -72,7 +76,11 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   # present, lower to an explicit exit check at the top of the loop body.
   cond_hoist <- new_hoist(scope)
   cond <- r2f(args[[1]], scope, ..., hoist = cond_hoist)
-  body <- r2f(args[[2]], scope, ..., hoist = hoist)
+  # The body gets its own hoist target for the same reason: forwarding the
+  # enclosing statement's hoist would emit a single-statement body's
+  # hoisted code (BLAS calls, temporaries, guards) once, before the loop.
+  # (`{` bodies already isolate each statement.)
+  body <- r2f(args[[2]], scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
   exit_check <- glue("if (.not. ({cond})) exit")
   cond_code <- cond_hoist$render(exit_check)

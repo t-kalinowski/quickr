@@ -103,3 +103,28 @@ test_that("expr return value", {
   expect_translation_snapshots(fn)
   expect_quick_identical(fn, 1:10)
 })
+
+test_that("single-statement while/repeat bodies re-run their hoisted statements", {
+  # A non-`{` loop body whose lone statement hoists code (here a BLAS
+  # call) must emit that code inside the loop; hoisting it out of the
+  # loop would freeze the body's work at its first evaluation. `for` is
+  # covered in test-for-iterables.R.
+  #
+  # Run-tested only via the snapshots: a regression in either would
+  # compute the product once before the loop and never terminate.
+  squarings_while <- function(m) {
+    declare(type(m = double(2, 2)))
+    while (m[1, 1] < 100) m <- m %*% m
+    m
+  }
+
+  expect_translation_snapshots(squarings_while)
+
+  squarings_repeat <- function(m) {
+    declare(type(m = double(2, 2)))
+    repeat m <- m %*% m
+    m
+  }
+
+  expect_translation_snapshots(squarings_repeat)
+})
