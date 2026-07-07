@@ -71,9 +71,6 @@ register_r2f_handler(
       return(out)
     }
 
-    # It sure seems like it's be nice if the Fortran() constructor
-    # took mode and dims as args directly,
-    # without needing to go through Variable...
     stopifnot(is.symbol(target))
     name <- as.character(target)
 
@@ -270,6 +267,37 @@ register_r2f_handler(
   }
 )
 
+# Validate and resolve the target of a superassignment (`x <<- v`,
+# `x[i] <<- v`) to its host-scope Variable: the name must not shadow a
+# closure formal or the closure's output variable, and must already exist
+# in the enclosing quick() scope. Marks the host variable modified.
+# Used by: `<<-`, `[<<-`, compile_subscript_lhs() (r2f-closures.R)
+resolve_superassign_target <- function(name, scope) {
+  formal_names <- names(formals(scope_closure(scope))) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- scope_forbid_superassign(scope)
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
+  host_scope <- scope_host_scope(scope) %||%
+    stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+  host_var
+}
+
 register_r2f_handler(
   "<<-",
   function(args, scope, ..., hoist = NULL) {
@@ -296,28 +324,7 @@ register_r2f_handler(
     stopifnot(is.symbol(target))
     name <- as.character(target)
 
-    formal_names <- names(formals(scope_closure(scope))) %||% character()
-    if (name %in% formal_names) {
-      stop("<<- targets must not shadow closure formals: ", name)
-    }
-
-    forbidden <- scope_forbid_superassign(scope)
-    if (name %in% forbidden) {
-      stop("closure must not superassign to its output variable: ", name)
-    }
-
-    host_scope <- scope_host_scope(scope) %||%
-      stop("internal error: missing host scope")
-    host_var <- get0(name, host_scope)
-    if (!inherits(host_var, Variable)) {
-      stop(
-        "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-        name
-      )
-    }
-
-    host_var@modified <- TRUE
-    host_scope[[name]] <- host_var
+    host_var <- resolve_superassign_target(name, scope)
 
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
@@ -343,28 +350,7 @@ register_r2f_handler(
     }
     name <- as.character(base)
 
-    formal_names <- names(formals(scope_closure(scope))) %||% character()
-    if (name %in% formal_names) {
-      stop("<<- targets must not shadow closure formals: ", name)
-    }
-
-    forbidden <- scope_forbid_superassign(scope)
-    if (name %in% forbidden) {
-      stop("closure must not superassign to its output variable: ", name)
-    }
-
-    host_scope <- scope_host_scope(scope) %||%
-      stop("internal error: missing host scope")
-    host_var <- get0(name, host_scope)
-    if (!inherits(host_var, Variable)) {
-      stop(
-        "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-        name
-      )
-    }
-
-    host_var@modified <- TRUE
-    host_scope[[name]] <- host_var
+    host_var <- resolve_superassign_target(name, scope)
 
     lhs <- compile_subscript_lhs(
       subset_call,

@@ -542,9 +542,59 @@ maybe_reshape_vector_matrix <- function(
 mode_lattice <- c("logical", "integer", "double", "complex")
 
 # Rank of a mode on the lattice (NA for modes outside it, e.g. character).
-# Used by: reduce_promoted_mode(), scope.R (check_reassignment_narrowing)
+# Used by: reduce_promoted_mode(), check_reassignment_narrowing()
 mode_rank <- function(mode) {
   match(mode, mode_lattice)
+}
+
+# Sanity-check that an assignment's value can be stored in its target
+# (rank matches unless one side is scalar).
+# Used by: r2f-assign.R, scope.R
+check_assignment_compatible <- function(target, value) {
+  if (is.null(value)) {
+    return()
+  }
+  stopifnot(exprs = {
+    inherits(target, Variable)
+    inherits(value, Variable)
+    passes_as_scalar(target) ||
+      passes_as_scalar(value) ||
+      target@rank == value@rank
+  })
+}
+
+# Reassignment cannot re-type a Fortran variable the way R promotes an R
+# binding, so a value whose mode sits above the variable's on the lattice
+# would be silently truncated by the assignment. Refuse at compile time
+# instead.
+# Used by: r2f-assign.R
+check_reassignment_narrowing <- function(name, target, value) {
+  if (
+    !inherits(target, Variable) ||
+      !inherits(value, Variable) ||
+      is.null(target@mode) ||
+      is.null(value@mode)
+  ) {
+    return()
+  }
+  target_rank <- mode_rank(target@mode)
+  value_rank <- mode_rank(value@mode)
+  if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
+    return()
+  }
+  stop(
+    "cannot reassign `",
+    name,
+    "`: assignment would narrow ",
+    value@mode,
+    " to ",
+    target@mode,
+    "; R would promote `",
+    name,
+    "` to ",
+    value@mode,
+    call. = FALSE
+  )
 }
 
 # Determine the promoted mode from a list of Fortran values.

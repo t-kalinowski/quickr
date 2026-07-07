@@ -37,7 +37,6 @@ names.quickr_ordered_env <- function(x) {
   all_names <- ls(envir = x, sorted = FALSE)
   ordered_names <- attr(x, "ordered_names", TRUE)
   if (!setequal(all_names, ordered_names)) {
-    warning("untracked name")
     stop("untracked name")
   }
   ordered_names
@@ -55,52 +54,6 @@ print.quickr_ordered_env <- function(x, ...) {
   str(as.list.quickr_ordered_env(x), no.list = TRUE)
 }
 
-
-check_assignment_compatible <- function(target, value) {
-  if (is.null(value)) {
-    return()
-  }
-  stopifnot(exprs = {
-    inherits(target, Variable)
-    inherits(value, Variable)
-    passes_as_scalar(target) ||
-      passes_as_scalar(value) ||
-      target@rank == value@rank
-  })
-}
-
-# Reassignment cannot re-type a Fortran variable the way R promotes an R
-# binding, so a value whose mode sits above the variable's on the lattice
-# (logical < integer < double < complex) would be silently truncated by the
-# assignment. Refuse at compile time instead.
-check_reassignment_narrowing <- function(name, target, value) {
-  if (
-    !inherits(target, Variable) ||
-      !inherits(value, Variable) ||
-      is.null(target@mode) ||
-      is.null(value@mode)
-  ) {
-    return()
-  }
-  target_rank <- mode_rank(target@mode)
-  value_rank <- mode_rank(value@mode)
-  if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
-    return()
-  }
-  stop(
-    "cannot reassign `",
-    name,
-    "`: assignment would narrow ",
-    value@mode,
-    " to ",
-    target@mode,
-    "; R would promote `",
-    name,
-    "` to ",
-    value@mode,
-    call. = FALSE
-  )
-}
 
 new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
