@@ -163,11 +163,12 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 
 # Compile a zero-fill constructor call: a single scalar literal carrying
 # array dims. Whole-array assignment broadcasts that correctly, and
-# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
-# the scalar form. Any other consumer (elementwise ops, reductions, ...)
-# needs a real array expression -- an expression like `numeric(2) + 1`
-# would otherwise contribute one element where its dims claim two -- so
-# materialize the fill into a hoisted temporary there.
+# c()/array() spread it as an implied-do, so those contexts keep the
+# scalar form. Any other consumer (elementwise ops, reductions,
+# matrix() -- whose reshape() lowering needs an array SOURCE, not a
+# scalar literal) needs a real array expression -- an expression like
+# `numeric(2) + 1` would otherwise contribute one element where its dims
+# claim two -- so materialize the fill into a hoisted temporary there.
 fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   var <- Variable(mode = mode, dims = r2dims(args, scope))
   out <- Fortran(literal, var)
@@ -175,7 +176,7 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
     return(out)
   }
   parent_call <- parent_call_name(list(...)$calls)
-  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array")) {
     return(out)
   }
   materialize_via_hoist(literal, mode, var@dims, hoist)

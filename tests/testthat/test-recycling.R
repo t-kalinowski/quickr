@@ -266,6 +266,36 @@ test_that("fill constructors materialize where an array is required", {
   expect_quick_identical(symbolic, list(c(5, 6), 3L))
 })
 
+test_that("fill constructors materialize inside matrix()", {
+  # matrix() lowers non-scalar data through reshape(), whose SOURCE must
+  # be an array. Fills used to pass through as scalar literals with
+  # claimed dims and relied on hoist_unless_name() to materialize them;
+  # once that helper learned to skip literals, the generated
+  # reshape(0.0_c_double, ...) failed to compile (and logical(k) only
+  # kept working because the literal regex missed `.false.`). Fills now
+  # materialize before matrix() like any other array consumer.
+  numeric_fill <- function() {
+    matrix(numeric(6), 3, 2)
+  }
+  expect_quick_identical(numeric_fill, list())
+
+  integer_fill <- function() {
+    matrix(integer(6), 3, 2)
+  }
+  expect_quick_identical(integer_fill, list())
+
+  logical_fill <- function() {
+    matrix(logical(6), 3, 2)
+  }
+  expect_quick_identical(logical_fill, list())
+
+  assigned <- function() {
+    x <- matrix(numeric(6), 3, 2)
+    x
+  }
+  expect_quick_identical(assigned, list())
+})
+
 test_that("matrix(scalar, m, n) materializes where an array is required", {
   reduced <- function() {
     sum(matrix(2, 2, 3))
