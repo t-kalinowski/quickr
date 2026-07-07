@@ -2,15 +2,14 @@
 
 skip_on_cran()
 
-test_that("prop helpers implement coercion, validation and set-once behavior", {
+test_that("prop helpers implement coercion and validation", {
   Test <- S7::new_class(
     name = "Test",
     properties = list(
       s = quickr:::prop_string(
         default = NULL,
         allow_null = TRUE,
-        coerce = TRUE,
-        set_once = TRUE
+        coerce = TRUE
       ),
       n = quickr:::prop_wholenumber(
         default = 1,
@@ -29,7 +28,6 @@ test_that("prop helpers implement coercion, validation and set-once behavior", {
 
   obj@s <- 123
   expect_identical(obj@s, "123")
-  expect_error(obj@s <- "again", "can only be set once")
 
   obj@n <- 2
   expect_identical(obj@n, 2L)
@@ -77,13 +75,13 @@ test_that("Fortran validates length and prints non-null properties", {
   expect_true(any(grepl("@r:", out, fixed = TRUE)))
 })
 
-test_that("new_setter returns NULL when no coercion or set_once", {
-  result <- quickr:::new_setter(coerce = FALSE, set_once = FALSE)
+test_that("new_setter returns NULL when no coercion", {
+  result <- quickr:::new_setter(coerce = FALSE)
   expect_null(result)
 })
 
 test_that("new_setter handles coerce = NULL correctly", {
-  result <- quickr:::new_setter(coerce = NULL, set_once = FALSE)
+  result <- quickr:::new_setter(coerce = NULL)
   expect_null(result)
 })
 
