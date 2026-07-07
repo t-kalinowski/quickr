@@ -23,12 +23,7 @@ r2f_handlers[["["]] <- function(
   drop <- idx_args$drop %||% TRUE
   idx_args$drop <- NULL
 
-  extents <- subscript_axis_extents(var@value, length(idx_args))
-  for (i in seq_along(idx_args)) {
-    if (!is_missing(idx_args[[i]])) {
-      check_subscript_expr(idx_args[[i]], extent = extents[[i]])
-    }
-  }
+  check_subscript_exprs(var@value, idx_args)
 
   idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
@@ -306,11 +301,24 @@ check_subscript_expr <- function(e, extent = NULL) {
   invisible(NULL)
 }
 
+# Validate every non-missing subscript in `idx_args` against `base_var`'s
+# statically known extents. The single entry point for both the read side
+# (the `[` handler) and the write side (compile_subset_designator() in
+# r2f-closures.R), so read and write subscripts validate identically.
+check_subscript_exprs <- function(base_var, idx_args) {
+  extents <- subscript_axis_extents(base_var, length(idx_args))
+  for (i in seq_along(idx_args)) {
+    if (!is_missing(idx_args[[i]])) {
+      check_subscript_expr(idx_args[[i]], extent = extents[[i]])
+    }
+  }
+  invisible(NULL)
+}
+
 # Statically-known extent per subscript axis; NULL where symbolic/unknown.
 # A single subscript on a rank>1 base is R's linear indexing -- its extent
 # is the product of the dims when all of them are known.
-# Used by: the `[` handler (above) and compile_subset_designator()
-# (r2f-closures.R), so read and write subscripts validate identically.
+# Used by: check_subscript_exprs()
 subscript_axis_extents <- function(var, n_idx) {
   dims <- var@dims
   if (n_idx == length(dims)) {
