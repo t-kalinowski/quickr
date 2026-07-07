@@ -20,6 +20,10 @@ new_hoist <- function(scope) {
 
   has_block <- function() !is.null(block_scope)
 
+  # TRUE when render(code) would return `code` unchanged: nothing emitted,
+  # no block-scoped temporaries declared.
+  is_empty <- function() !length(hoisted) && !has_block()
+
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
       block_scope <<- scope_new_child(scope, "block")
@@ -42,7 +46,7 @@ new_hoist <- function(scope) {
 
   render <- function(code) {
     code <- str_split_lines(code)
-    if (!length(hoisted) && !has_block()) {
+    if (is_empty()) {
       return(str_flatten_lines(code))
     }
 
@@ -65,6 +69,7 @@ new_hoist <- function(scope) {
     list(
       emit = emit,
       declare_tmp = declare_tmp,
+      is_empty = is_empty,
       render = render
     ),
     parent = emptyenv()

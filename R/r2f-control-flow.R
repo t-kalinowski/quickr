@@ -82,9 +82,7 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   # (`{` bodies already isolate each statement.)
   body <- r2f(args[[2]], scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
-  exit_check <- glue("if (.not. ({cond})) exit")
-  cond_code <- cond_hoist$render(exit_check)
-  if (identical(as.character(cond_code), as.character(exit_check))) {
+  if (cond_hoist$is_empty()) {
     # nothing hoisted: keep the plain do-while form
     return(Fortran(glue(
       "do while ({cond})
@@ -93,6 +91,7 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
       "
     )))
   }
+  cond_code <- cond_hoist$render(glue("if (.not. ({cond})) exit"))
   Fortran(glue(
     "do
     {indent(cond_code)}
