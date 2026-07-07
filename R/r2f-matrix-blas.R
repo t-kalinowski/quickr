@@ -643,6 +643,21 @@ lapack_solve <- function(
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
+  # Both lowerings write a solution shaped by R's contract: length follows
+  # ncol(a), width follows the right-hand side. Each branch resolves the
+  # output target at its own write point (declaration order matters for
+  # the emitted block) with the one shared spelling below.
+  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
+  dest_usable <- function() {
+    can_use_output(
+      dest,
+      input_names = c(A_name, B_input_name),
+      expected_dims = expected_dims,
+      context = context,
+      allow_alias = B_input_name
+    )
+  }
+
   # R's solve() requires a square `a`; least squares is qr.solve()'s job.
   # Statically rectangular `a` is a compile error, symbolic dims get a
   # runtime guard before the dgesv call. (A rectangular `a` used to fall
@@ -652,24 +667,13 @@ lapack_solve <- function(
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
+    use_dest <- dest_usable()
+    out_var <- if (use_dest) {
+      dest
     } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
+      hoist$declare_tmp(mode = "double", dims = expected_dims)
     }
+    out_name <- out_var@name
     # The output length follows ncol(a) (R's contract) while `b` follows
     # nrow(a); the two are only runtime-equal. When ncol is statically 1
     # the output declares as a scalar, so a symbolic-length `b` must be
@@ -700,15 +704,7 @@ lapack_solve <- function(
       hoist = hoist,
       scope = scope
     )
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
-  }
-
-  if (identical(context, "qr.solve")) {
+  } else {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
@@ -771,24 +767,13 @@ end do"
       scope = scope
     )
 
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
+    use_dest <- dest_usable()
+    out_var <- if (use_dest) {
+      dest
     } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
+      hoist$declare_tmp(mode = "double", dims = expected_dims)
     }
+    out_name <- out_var@name
 
     if (passes_as_scalar(out_var)) {
       hoist$emit(glue("{out_name} = {coef_work@name}(1, 1)"))
@@ -815,13 +800,13 @@ end do"
         ))
       }
     }
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
   }
+
+  out <- Fortran(out_name, out_var)
+  if (use_dest) {
+    out@writes_to_dest <- TRUE
+  }
+  out
 }
 
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
