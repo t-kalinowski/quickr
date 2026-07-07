@@ -404,8 +404,8 @@ symmetrize_upper_to_lower <- function(target, n, hoist) {
   stopifnot(is_string(target))
   assert_hoist_env(hoist)
 
-  idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-  idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
   n_int <- blas_int(n)
   hoist$emit(glue(
     "
@@ -799,7 +799,7 @@ end do"
   ))
 
   tol_value <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
-  mn <- call("min", m, n)
+  mn <- diag_length_expr(m, n, context)
   hoist$emit(glue(
     "call dqrdc2({A_work@name}, {blas_int(m)}, {blas_int(m)}, {blas_int(n)}, {tol_value}, {rank@name}, {qraux@name}, {jpvt@name}, {work@name})"
   ))
@@ -1138,6 +1138,9 @@ lapack_svd <- function(
 
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   lwork <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  # dims list(1L) is quickr's *scalar* spelling (see Variable@is_scalar),
+  # but the work query must be a length-1 array so `work_query(1)` is
+  # subscriptable; the unfoldable `1 + 0` keeps the array declaration.
   work_query <- hoist$declare_tmp(
     mode = "double",
     dims = list(call("+", 1L, 0L))
