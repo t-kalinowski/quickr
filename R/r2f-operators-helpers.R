@@ -199,22 +199,19 @@ lower_elementwise_operands <- function(args, scope, ..., hoist = NULL) {
     if (broadcastable) {
       other_dims <- matrix_dims(other)
       for (axis in 1:2) {
-        other_dim <- if (axis == 1L) other_dims$rows else other_dims$cols
-        verdict <- check_elementwise_lengths(fill_dims[[axis]], other_dim)
-        if (!verdict$ok) {
-          stop(
-            "elementwise matrix operations require matching dimensions",
-            call. = FALSE
-          )
-        }
-        if (verdict$unknown) {
-          emit_quickr_error_if(
-            glue("({fill_dims_f[[axis]]}) /= size({other}, {axis})"),
-            "elementwise matrix operations require matching dimensions",
-            hoist,
-            scope
-          )
-        }
+        # The fill has no array to size(), so its side of a runtime guard
+        # is spelled from the claimed dim expression via `left_f`.
+        guard_conformable_dims(
+          fill_dims[[axis]],
+          if (axis == 1L) other_dims$rows else other_dims$cols,
+          elementwise_matrix_msg,
+          hoist,
+          scope,
+          left = NULL,
+          right = other,
+          right_axis = axis,
+          left_f = glue("({fill_dims_f[[axis]]})")
+        )
       }
       fill <- r2f(fills[[j]]$data, scope, ..., hoist = hoist)
       out <- list(fill, other)
@@ -292,12 +289,22 @@ check_elementwise_lengths <- function(left, right) {
   list(ok = TRUE, unknown = TRUE)
 }
 
-# Render one side of a dim-comparison guard: a literal dim as the literal,
-# anything else as the operand's actual extent (whole size when `axis` is
-# NULL). size() is an inquiry, so applying it to operand expression text
-# does not evaluate the operand.
+# The message shared by every enforcement point of the elementwise matrix
+# shape contract: the runtime-guard text must match the compile-error text.
+elementwise_matrix_msg <-
+  "elementwise matrix operations require matching dimensions"
+
+# Render one side of a dim-comparison guard: a caller-provided spelling
+# (`f`, for operands with no array to size(), e.g. a scalar fill's claimed
+# dims) wins; then a literal dim as the literal; anything else as the
+# operand's actual extent (whole size when `axis` is NULL). size() is an
+# inquiry, so applying it to operand expression text does not evaluate the
+# operand.
 # Used by: guard_conformable_dims()
-guard_dim_f <- function(dim, operand, axis = NULL) {
+guard_dim_f <- function(dim, operand, axis = NULL, f = NULL) {
+  if (!is.null(f)) {
+    return(f)
+  }
   if (is_wholenumber(dim)) {
     return(as.character(as.integer(dim)))
   }
@@ -318,7 +325,10 @@ guard_dim_f <- function(dim, operand, axis = NULL) {
 # `hoist` is always live: r2f() opens one per statement before dispatching
 # to a handler, and every caller forwards the one it received.
 # emit_quickr_error_if() asserts it.
-# Used by: maybe_reshape_vector_matrix(), r2f-conditionals.R, r2f-matrix*.R
+# Used by: maybe_reshape_vector_matrix(), lower_elementwise_operands(),
+# r2f-conditionals.R, r2f-matrix*.R. `left_f`/`right_f` override that
+# side's guard spelling (see guard_dim_f()); its `left`/`right` operand is
+# then unused and may be NULL.
 guard_conformable_dims <- function(
   left_dim,
   right_dim,
@@ -328,7 +338,9 @@ guard_conformable_dims <- function(
   left,
   right,
   left_axis = NULL,
-  right_axis = NULL
+  right_axis = NULL,
+  left_f = NULL,
+  right_f = NULL
 ) {
   stopifnot(is_string(message))
   conform <- check_elementwise_lengths(left_dim, right_dim)
@@ -338,7 +350,7 @@ guard_conformable_dims <- function(
   if (conform$unknown) {
     emit_quickr_error_if(
       glue(
-        "{guard_dim_f(left_dim, left, left_axis)} /= {guard_dim_f(right_dim, right, right_axis)}"
+        "{guard_dim_f(left_dim, left, left_axis, left_f)} /= {guard_dim_f(right_dim, right, right_axis, right_f)}"
       ),
       message,
       hoist,
@@ -472,14 +484,13 @@ maybe_reshape_vector_matrix <- function(
   }
 
   if (left_rank == 2L && right_rank == 2L) {
-    matrix_msg <- "elementwise matrix operations require matching dimensions"
     left_dims <- matrix_dims(left)
     right_dims <- matrix_dims(right)
     for (axis in 1:2) {
       guard_conformable_dims(
         if (axis == 1L) left_dims$rows else left_dims$cols,
         if (axis == 1L) right_dims$rows else right_dims$cols,
-        matrix_msg,
+        elementwise_matrix_msg,
         hoist,
         scope,
         left = left,
