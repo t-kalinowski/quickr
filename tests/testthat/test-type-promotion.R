@@ -101,7 +101,7 @@ test_that("%% and %/% with mixed modes promote", {
 test_that("^ always returns double; integer exponent stays exact", {
   fn <- function(x) {
     declare(type(x = integer(1)))
-    x ^ -1L
+    x^-1L
   }
   # locks the `** (...)` parenthesization and the double result mode:
   # integer ** used to return integer (R: 0.5, bug: 0) through
@@ -111,13 +111,13 @@ test_that("^ always returns double; integer exponent stays exact", {
 
   fn2 <- function(x) {
     declare(type(x = integer(n)))
-    x ^ 2L
+    x^2L
   }
   expect_quick_equal(fn2, list(-3:3))
 
   fn3 <- function(x) {
     declare(type(x = double(1)))
-    x ^ 2L
+    x^2L
   }
   # negative base with whole-number exponent is defined in R (and in
   # Fortran's real ** int, unlike real ** real)
@@ -125,7 +125,7 @@ test_that("^ always returns double; integer exponent stays exact", {
 
   fn4 <- function(x) {
     declare(type(x = double(1)))
-    x ^ 2.5
+    x^2.5
   }
   expect_quick_equal(fn4, list(2))
 })
@@ -155,7 +155,7 @@ test_that("logical operands participate in arithmetic as integers", {
 
   fn_pow <- function(a, b) {
     declare(type(a = logical(1)), type(b = logical(1)))
-    a ^ b
+    a^b
   }
   # R: TRUE ^ TRUE is 1 (double)
   expect_quick_equal(fn_pow, list(TRUE, TRUE), list(FALSE, TRUE))

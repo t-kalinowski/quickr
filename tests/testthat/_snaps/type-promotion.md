@@ -405,7 +405,7 @@
     Output
       function(x) {
           declare(type(x = integer(1)))
-          x ^ -1L
+          x^-1L
         }
       <environment: 0x0>
     Code
