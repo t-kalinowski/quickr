@@ -9,7 +9,7 @@
 # Fortran subscripts must be integers; coerce a double subscript
 # expression with a c_ptrdiff_t cast. (Not cast_to_mode(), which refuses
 # narrowing casts by design.)
-subscript_as_index_int <- function(sub) {
+cast_subscript_to_integer <- function(sub) {
   if (sub@value@mode == "double") {
     Fortran(
       glue("int({sub}, kind=c_ptrdiff_t)"),
@@ -32,7 +32,7 @@ lower_subscript_args <- function(idx_args, base_dims, scope, ..., hoist) {
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", base_dims[[i]]))
     } else {
-      subscript_as_index_int(r2f(idx, scope, ..., hoist = hoist))
+      cast_subscript_to_integer(r2f(idx, scope, ..., hoist = hoist))
     }
   })
 }
@@ -184,7 +184,7 @@ r2f_handlers[["["]] <- function(
           }
 
           if (is_call(r, quote(`:`)) && length(r) == 3L) {
-            return(subscript_as_index_int(
+            return(cast_subscript_to_integer(
               r2f(r[[2L]], scope, ..., hoist = hoist)
             ))
           }
@@ -202,7 +202,7 @@ r2f_handlers[["["]] <- function(
 
           if (is_call(r, quote(seq))) {
             info <- seq_like_parse("seq", as.list(r)[-1L], scope)
-            return(subscript_as_index_int(
+            return(cast_subscript_to_integer(
               r2f(info$from, scope, ..., hoist = hoist)
             ))
           }

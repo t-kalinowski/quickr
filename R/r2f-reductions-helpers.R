@@ -38,7 +38,7 @@ create_mask_hoist <- function() {
 # arguments. A conflicting second mask within the same context is a
 # clean compile error.
 # Used by: r2f-reductions.R (max/min/sum/prod and any/all)
-reduce_arg_with_mask <- function(arg, scope, mask_hoist, dots) {
+lower_masked_reduction_arg <- function(arg, scope, mask_hoist, dots) {
   x <- r2f(
     arg,
     scope,

@@ -22,7 +22,7 @@ is_fill_constructor_call <- function(e) {
 # `a:b` sequences, and symbols bound to a known literal vector; anything
 # else falls through to r2dims().
 # Used by: array()
-array_dim_to_dims <- function(dim_arg, scope) {
+parse_array_dims <- function(dim_arg, scope) {
   if (
     is.atomic(dim_arg) &&
       typeof(dim_arg) %in% c("integer", "double")
@@ -80,7 +80,7 @@ array_dim_to_dims <- function(dim_arg, scope) {
         (is.language(var@r) || is.atomic(var@r)) &&
         !identical(var@r, dim_arg)
     ) {
-      return(array_dim_to_dims(var@r, scope))
+      return(parse_array_dims(var@r, scope))
     }
   }
 
@@ -90,7 +90,7 @@ array_dim_to_dims <- function(dim_arg, scope) {
 # Product of a dims list when every dim is a known whole number, NA_real_
 # otherwise (in double to dodge integer overflow on large dims).
 # Used by: array()
-known_dims_prod <- function(dims) {
+known_dims_product <- function(dims) {
   if (is.null(dims) || !length(dims)) {
     return(1)
   }
@@ -389,7 +389,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   }
 
   out <- r2f(args$data, scope, ..., hoist = hoist)
-  target_dims <- array_dim_to_dims(args$dim, scope)
+  target_dims <- parse_array_dims(args$dim, scope)
   if (!length(target_dims)) {
     stop("array(dim=) must not be empty", call. = FALSE)
   }
@@ -447,8 +447,8 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
         i <- scope_unique_var(scope, "integer")
         glue("[({out}, {i}=1, int({n_expr}))]")
       } else {
-        n_target <- known_dims_prod(target_dims)
-        n_source <- known_dims_prod(out@value@dims)
+        n_target <- known_dims_product(target_dims)
+        n_source <- known_dims_product(out@value@dims)
         if (!is.na(n_target) && !is.na(n_source) && n_target > n_source) {
           stop(
             "array() reshape does not support recycling: prod(dim)=",

@@ -18,8 +18,11 @@ r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
       hoist = hoist
     )
     .[left, right] <- promote_arith_pair(left, right, "+")
-    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-    Fortran(glue("({left} + {right})"), conform(left@value, right@value))
+    .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+    Fortran(
+      glue("({left} + {right})"),
+      infer_result_variable(left@value, right@value)
+    )
   }
 }
 
@@ -38,24 +41,33 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
       hoist = hoist
     )
     .[left, right] <- promote_arith_pair(left, right, "-")
-    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-    Fortran(glue("({left} - {right})"), conform(left@value, right@value))
+    .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+    Fortran(
+      glue("({left} - {right})"),
+      infer_result_variable(left@value, right@value)
+    )
   }
 }
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "*")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  Fortran(glue("({left} * {right})"), conform(left@value, right@value))
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  Fortran(
+    glue("({left} * {right})"),
+    infer_result_variable(left@value, right@value)
+  )
 }
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  Fortran(glue("({left} / {right})"), conform(left@value, right@value))
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  Fortran(
+    glue("({left} / {right})"),
+    infer_result_variable(left@value, right@value)
+  )
 }
 
 r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
@@ -68,7 +80,7 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   if (identical(right@value@mode, "logical")) {
     right <- cast_to_mode(right, "integer", "^")
   }
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
   mode <- reduce_promoted_mode(left, right)
   if (!identical(mode, "complex")) {
     mode <- "double"
@@ -76,7 +88,7 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   # Parenthesizing the exponent avoids non-standard `** -1_c_int`.
   Fortran(
     glue("({left} ** ({right}))"),
-    conform(left@value, right@value, mode = mode)
+    infer_result_variable(left@value, right@value, mode = mode)
   )
 }
 
@@ -104,8 +116,8 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
   }
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  out_val <- conform(left@value, right@value)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  out_val <- infer_result_variable(left@value, right@value)
   # MODULO gives result with sign(right) - matches R %% behaviour
   Fortran(glue("modulo({left}, {right})"), out_val)
 }
@@ -113,8 +125,8 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "%/%")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  out_val <- conform(left@value, right@value)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  out_val <- infer_result_variable(left@value, right@value)
 
   expr <- switch(
     out_val@mode,

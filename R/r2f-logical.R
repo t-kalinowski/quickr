@@ -44,7 +44,7 @@ lower_comparison_operands <- function(args, scope, op, ..., hoist = NULL) {
     stop("invalid comparison with complex values", call. = FALSE)
   }
   .[left, right] <- promote_arith_pair(left, right, "comparison")
-  maybe_reshape_vector_matrix(
+  conform_elementwise_operands(
     left,
     right,
     hoist,
@@ -61,7 +61,7 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} < {right})"), value)
 }
@@ -74,7 +74,7 @@ r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} <= {right})"), value)
 }
@@ -87,7 +87,7 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} > {right})"), value)
 }
@@ -100,7 +100,7 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} >= {right})"), value)
 }
@@ -113,7 +113,7 @@ r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} == {right})"), value)
 }
@@ -126,7 +126,7 @@ r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("({left} /= {right})"), value)
 }
@@ -140,7 +140,7 @@ lower_logical_operands <- function(args, scope, op, ..., hoist = NULL) {
   }
   left <- booleanize_logical_as_int(left)
   right <- booleanize_logical_as_int(right)
-  .[left, right] <- maybe_reshape_vector_matrix(
+  .[left, right] <- conform_elementwise_operands(
     left,
     right,
     hoist,
@@ -158,7 +158,7 @@ r2f_handlers[["&"]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("{left} .and. {right}"), value)
 }
@@ -171,7 +171,7 @@ r2f_handlers[["|"]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )
-  value <- conform(left@value, right@value)
+  value <- infer_result_variable(left@value, right@value)
   value@mode <- "logical"
   Fortran(glue("{left} .or. {right}"), value)
 }

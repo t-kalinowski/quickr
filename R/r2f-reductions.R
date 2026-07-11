@@ -10,7 +10,7 @@
 # ("[ ... ]") even when its value passes as a scalar; any()/all() must
 # wrap such values to reduce them back to a scalar expression.
 # Used by: any/all handler
-renders_as_array_ctor <- function(f) {
+renders_as_array_constructor <- function(f) {
   startsWith(trimws(as.character(f)), "[")
 }
 
@@ -51,7 +51,7 @@ register_r2f_handler(
 
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      x <- reduce_arg_with_mask(arg, scope, mask_hoist, list(...))
+      x <- lower_masked_reduction_arg(arg, scope, mask_hoist, list(...))
       # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
       # and Fortran's sum/product/minval/maxval reject logical arrays.
       x <- cast_to_mode(x, arith_join_mode(x), sprintf("%s()", call_name))
@@ -129,7 +129,7 @@ register_r2f_handler(
 
     reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      x <- reduce_arg_with_mask(arg, scope, mask_hoist, list(...))
+      x <- lower_masked_reduction_arg(arg, scope, mask_hoist, list(...))
 
       if (!identical(x@value@mode, "logical")) {
         stop("any()/all() only implemented for logical", call. = FALSE)
@@ -142,7 +142,7 @@ register_r2f_handler(
         if (is.null(hoisted_mask)) {
           # `c(FALSE)` lowers to a 1-element Fortran array constructor
           # (`[.false.]`) but any()/all() must still return scalars.
-          if (renders_as_array_ctor(x)) {
+          if (renders_as_array_constructor(x)) {
             return(Fortran(glue("{intrinsic}({x})"), Variable("logical")))
           }
           return(x)
@@ -159,7 +159,7 @@ register_r2f_handler(
         mask_is_scalar <-
           !is.null(hoisted_mask@value) &&
           passes_as_scalar(hoisted_mask@value) &&
-          !renders_as_array_ctor(hoisted_mask)
+          !renders_as_array_constructor(hoisted_mask)
 
         mask_len1 <- is_declared_len1(hoisted_mask)
 
@@ -181,7 +181,7 @@ register_r2f_handler(
         # - any(logical(0)) == FALSE
         # - all(logical(0)) == TRUE
         identity <- if (identical(call_name, "any")) ".false." else ".true."
-        x_scalar <- if (renders_as_array_ctor(x)) {
+        x_scalar <- if (renders_as_array_constructor(x)) {
           glue("{intrinsic}({x})")
         } else {
           glue("{x}")
@@ -204,7 +204,8 @@ register_r2f_handler(
         # array constructor (`[ .true. ]`). In R, this is recycled as a scalar
         # mask, so we must scalarize it to keep elementwise ops conformable.
         mask_ctor_len1 <-
-          renders_as_array_ctor(hoisted_mask) && is_declared_len1(hoisted_mask)
+          renders_as_array_constructor(hoisted_mask) &&
+          is_declared_len1(hoisted_mask)
         mask_expr <- if (mask_ctor_len1) {
           glue("any({hoisted_mask})")
         } else {
