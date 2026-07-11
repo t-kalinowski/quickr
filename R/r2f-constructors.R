@@ -186,7 +186,14 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
 register_r2f_handler(
   "logical",
   function(args, scope, ..., hoist = NULL) {
-    fill_constructor_value(".false.", "logical", args, scope, ..., hoist = hoist)
+    fill_constructor_value(
+      ".false.",
+      "logical",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
@@ -194,7 +201,14 @@ register_r2f_handler(
 register_r2f_handler(
   "integer",
   function(args, scope, ..., hoist = NULL) {
-    fill_constructor_value("0_c_int", "integer", args, scope, ..., hoist = hoist)
+    fill_constructor_value(
+      "0_c_int",
+      "integer",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
