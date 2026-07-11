@@ -112,6 +112,7 @@ test_that("single-statement while/repeat bodies re-run their hoisted statements"
   #
   # Run-tested only via the snapshots: a regression in either would
   # compute the product once before the loop and never terminate.
+  # fmt: skip
   squarings_while <- function(m) {
     declare(type(m = double(2, 2)))
     while (m[1, 1] < 100) m <- m %*% m
@@ -120,6 +121,7 @@ test_that("single-statement while/repeat bodies re-run their hoisted statements"
 
   expect_translation_snapshots(squarings_while)
 
+  # fmt: skip
   squarings_repeat <- function(m) {
     declare(type(m = double(2, 2)))
     repeat m <- m %*% m
