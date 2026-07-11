@@ -11,7 +11,7 @@ test_that("convolve", {
     ab <- double(length(a) + length(b) - 1)
     for (i in seq_along(a)) {
       for (j in seq_along(b)) {
-        ab[i + j - 1] = ab[i + j - 1] + a[i] * b[j]
+        ab[i + j - 1] <- ab[i + j - 1] + a[i] * b[j]
       }
     }
     ab

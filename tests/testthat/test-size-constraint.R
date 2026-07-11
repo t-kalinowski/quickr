@@ -5,7 +5,7 @@ skip_on_cran()
 test_that("size constraint", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(n + 1)))
-    a = sum(b)
+    a <- sum(b)
     a
   }
 
