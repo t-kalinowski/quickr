@@ -601,10 +601,10 @@ dim_guard_spellable <- function(dim, scope) {
 # way R rebinds a symbol, so rank and every extent must stay
 # compatible. Scalars broadcast natively into an array target (an
 # existing divergence: R rebinds the symbol to the scalar), and a
-# deferred-shape local (declared with NA dims) reallocates on
-# whole-array assignment, matching R, so it is exempt. Per axis, the
-# conformability policy applies: a statically known mismatch is a
-# compile error, dims that cannot be compared statically get a
+# deferred-shape local (declared with NA dims) reallocates extents on
+# same-rank whole-array assignment, matching R, so it is exempt. Per
+# axis, the conformability policy applies: a statically known mismatch
+# is a compile error, dims that cannot be compared statically get a
 # statement-level runtime guard through `hoist` (spelled from the dim
 # expressions, when spellable), and provably equal dims need nothing.
 # Callers with no statement context (no hoist) get the static checks
@@ -627,10 +627,6 @@ check_assignment_compatible <- function(
   if (passes_as_scalar(target) || passes_as_scalar(value)) {
     return(invisible())
   }
-  if (!target@is_external && has_self_size_dims(target)) {
-    # deferred-shape local: implicit (re)allocation matches R's rebind
-    return(invisible())
-  }
   if (target@rank != value@rank) {
     stop(
       "cannot reassign `",
@@ -644,6 +640,10 @@ check_assignment_compatible <- function(
       "` to the new shape",
       call. = FALSE
     )
+  }
+  if (!target@is_external && has_self_size_dims(target)) {
+    # deferred-shape local: implicit (re)allocation matches R's rebind
+    return(invisible())
   }
   emitted <- character()
   for (axis in seq_len(target@rank)) {

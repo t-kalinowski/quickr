@@ -44,7 +44,7 @@ r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
 }
 
 r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ...) {
-  x_arg <- args$x %||% args[[1L]]
+  x_arg <- args$x %||% if (length(args) >= 1L) args[[1L]] else NULL
   if (is.null(x_arg) || is_missing(x_arg)) {
     stop("as.vector() expects `x`", call. = FALSE)
   }

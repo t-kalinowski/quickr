@@ -52,11 +52,24 @@ test_that("as.vector() drops dimensions, preserving or coercing the mode", {
 })
 
 test_that("as.vector() refuses unsupported modes and non-constant modes", {
+  missing_x <- function() {
+    as.vector()
+  }
+  expect_error(
+    quick(missing_x),
+    "as.vector() expects `x`",
+    fixed = TRUE
+  )
+
   bad_mode <- function(m) {
     declare(type(m = double(2)))
     as.vector(m, mode = "list")
   }
-  expect_error(quick(bad_mode), "as.vector() does not support mode", fixed = TRUE)
+  expect_error(
+    quick(bad_mode),
+    "as.vector() does not support mode",
+    fixed = TRUE
+  )
 })
 
 test_that("as.integer() drops dimensions for an int-backed logical matrix", {

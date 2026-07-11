@@ -49,6 +49,17 @@ test_that("reassignment to a statically different shape is a compile error", {
     "cannot reassign `x`: replacement rank (2) differs from the declared rank (1)",
     fixed = TRUE
   )
+
+  fn_deferred_rank <- function(a) {
+    declare(type(a = double(2, 2)), type(x = double(NA)))
+    x <- a
+    1
+  }
+  expect_error(
+    quick(fn_deferred_rank),
+    "cannot reassign `x`: replacement rank (2) differs from the declared rank (1)",
+    fixed = TRUE
+  )
 })
 
 test_that("reassignment with symbolic dims gets a runtime shape guard", {
