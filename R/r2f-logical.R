@@ -1,120 +1,7 @@
 # r2f-logical.R
-# Handlers for logical and comparison operators: !, &, |, >=, >, <, <=, ==, !=
-# plus the scalar short-circuit forms && and || (compile_andor below).
+# Handlers for comparison and logical operators, plus is.null().
 
 # --- Handlers ---
-
-# ---- comparison operators ----
-
-# R supports equality on complex values but refuses ordering. Refuse it
-# here rather than handing gfortran an invalid comparison; shared by the
-# four ordering handlers below (== and /= stay legal, as in R).
-check_ordered_operands <- function(left, right) {
-  if ("complex" %in% c(left@value@mode, right@value@mode)) {
-    stop("invalid comparison with complex values", call. = FALSE)
-  }
-  invisible(TRUE)
-}
-
-r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} >= {right})"), var)
-}
-
-r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} > {right})"), var)
-}
-
-r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} < {right})"), var)
-}
-
-r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} <= {right})"), var)
-}
-
-r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} == {right})"), var)
-}
-
-r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
-  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  # R compares logicals as integers; Fortran has no logical comparison.
-  .[left, right] <- promote_arith_pair(left, right, "comparison")
-  .[left, right] <- maybe_reshape_vector_matrix(
-    left,
-    right,
-    hoist,
-    scope,
-    scalarize_one_by_one = FALSE
-  )
-  var <- conform(left@value, right@value)
-  var@mode <- "logical"
-  Fortran(glue("({left} /= {right})"), var)
-}
 
 # ---- unary logical not ----
 
@@ -147,51 +34,151 @@ register_r2f_handler(
   }
 )
 
-
-# ---- binary logical operators ----
-
-# TODO: gfortran supports implicit casting that of logical to integer when
-# assigning a logical to a variable declared integer, converting `.true.` to `1`,
-# but this is not a standard language feature, and Intel's `ifort` uses `-1` for `.true`.
-# We should explicitly use
-#   `merge(1_c_int, 0_c_int, <lgl>)` to cast logical to int.
-register_r2f_handler(
-  c("&", "|"),
-  function(args, scope, ..., hoist = NULL) {
-    args <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-    op <- last(list(...)$calls)
-    args <- lapply(args, function(a) {
-      if (a@value@mode != "logical") {
-        stop("`", op, "` requires logical operands", call. = FALSE)
-      }
-      a
-    })
-    .[left, right] <- args
-    left <- booleanize_logical_as_int(left)
-    right <- booleanize_logical_as_int(right)
-    .[left, right] <- maybe_reshape_vector_matrix(
-      left,
-      right,
-      hoist,
-      scope,
-      scalarize_one_by_one = FALSE
-    )
-
-    operator <- switch(op, `&` = ".and.", `|` = ".or.")
-
-    s <- glue("{left} {operator} {right}")
-    val <- conform(left@value, right@value)
-    val@mode <- "logical"
-    Fortran(s, val)
+lower_comparison_operands <- function(args, scope, op, ..., hoist = NULL) {
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
+  if (
+    op %in%
+      c("<", "<=", ">", ">=") &&
+      "complex" %in% c(left@value@mode, right@value@mode)
+  ) {
+    stop("invalid comparison with complex values", call. = FALSE)
   }
-)
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
+  maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
+}
 
-# ---- scalar short-circuit operators: && and || ----
+r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    "<",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} < {right})"), value)
+}
 
-# && and || are R's *scalar* control operators: operands must be length 1
-# (R errors otherwise), and the right operand is evaluated only when the
-# left side does not already decide the answer.
-check_andor_operand <- function(x, op) {
+r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    "<=",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} <= {right})"), value)
+}
+
+r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    ">",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} > {right})"), value)
+}
+
+r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    ">=",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} >= {right})"), value)
+}
+
+r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    "==",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} == {right})"), value)
+}
+
+r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_comparison_operands(
+    args,
+    scope,
+    "!=",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("({left} /= {right})"), value)
+}
+
+lower_logical_operands <- function(args, scope, op, ..., hoist = NULL) {
+  .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
+  for (operand in list(left, right)) {
+    if (operand@value@mode != "logical") {
+      stop("`", op, "` requires logical operands", call. = FALSE)
+    }
+  }
+  left <- booleanize_logical_as_int(left)
+  right <- booleanize_logical_as_int(right)
+  .[left, right] <- maybe_reshape_vector_matrix(
+    left,
+    right,
+    hoist,
+    scope,
+    scalarize_one_by_one = FALSE
+  )
+  list(left, right)
+}
+
+r2f_handlers[["&"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_logical_operands(
+    args,
+    scope,
+    "&",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("{left} .and. {right}"), value)
+}
+
+r2f_handlers[["|"]] <- function(args, scope, ..., hoist = NULL) {
+  .[left, right] <- lower_logical_operands(
+    args,
+    scope,
+    "|",
+    ...,
+    hoist = hoist
+  )
+  value <- conform(left@value, right@value)
+  value@mode <- "logical"
+  Fortran(glue("{left} .or. {right}"), value)
+}
+
+# && and || are scalar control operators. The right operand is conditionally
+# lowered when eager evaluation could be observable.
+check_short_circuit_operand <- function(x, op) {
   if (is.null(x@value) || !identical(x@value@mode, "logical")) {
     stop("`", op, "` requires logical operands", call. = FALSE)
   }
@@ -208,12 +195,7 @@ check_andor_operand <- function(x, op) {
   invisible(TRUE)
 }
 
-# TRUE when evaluating `e` eagerly is indistinguishable from R's lazy
-# right-operand evaluation: no side effects, no errors, no traps. A
-# conservative whitelist -- names, literals, and compositions of pure
-# non-trapping operations. Anything else (subscripts, %%/%/%, function
-# calls, ...) gets the conditional lowering.
-is_pure_scalar_condition <- function(e) {
+is_eager_safe_condition <- function(e) {
   if (is.symbol(e) || (is.atomic(e) && length(e) == 1L)) {
     return(TRUE)
   }
@@ -240,51 +222,47 @@ is_pure_scalar_condition <- function(e) {
     "/",
     "abs"
   )
-  if (!op %in% pure_ops) {
-    return(FALSE)
-  }
-  all(vapply(as.list(e)[-1L], is_pure_scalar_condition, logical(1L)))
+  op %in%
+    pure_ops &&
+    all(vapply(as.list(e)[-1L], is_eager_safe_condition, logical(1L)))
 }
 
-compile_andor <- function(args, scope, ..., hoist = NULL) {
-  op <- last(list(...)$calls)
+lower_short_circuit_operator <- function(args, scope, op, ..., hoist = NULL) {
   stopifnot(length(args) == 2L, op %in% c("&&", "||"))
 
-  # R always evaluates the left operand: its hoists stay unconditional.
   left <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  check_andor_operand(left, op)
+  check_short_circuit_operand(left, op)
   left <- booleanize_logical_as_int(left)
+  fortran_op <- if (op == "&&") ".and." else ".or."
 
-  f <- if (op == "&&") ".and." else ".or."
-
-  if (is_pure_scalar_condition(args[[2L]])) {
-    # Fortran may evaluate both operands of .and./.or.; for a pure right
-    # operand that is indistinguishable from short-circuiting, so keep
-    # the compact infix form.
+  if (is_eager_safe_condition(args[[2L]])) {
     right <- r2f(args[[2L]], scope, ..., hoist = hoist)
-    check_andor_operand(right, op)
+    check_short_circuit_operand(right, op)
     right <- booleanize_logical_as_int(right)
-    return(Fortran(glue("{left} {f} {right}"), Variable("logical")))
+    return(Fortran(glue("{left} {fortran_op} {right}"), Variable("logical")))
   }
 
-  # The right operand can error or have side effects; R reaches it only
-  # when the left side does not decide. Compile it into its own hoist and
-  # emit everything inside the conditional.
   if (is.null(hoist)) {
     stop("internal error: `", op, "` requires hoist context", call. = FALSE)
   }
   sub <- new_hoist(scope)
   right <- r2f(args[[2L]], scope, ..., hoist = sub)
-  check_andor_operand(right, op)
+  check_short_circuit_operand(right, op)
   right <- booleanize_logical_as_int(right)
 
   tmp <- hoist$declare_tmp(mode = "logical", dims = NULL)
   hoist$emit(glue("{tmp@name} = {left}"))
-  cond <- if (op == "&&") tmp@name else glue(".not. {tmp@name}")
-  hoist$emit(glue("if ({cond}) then"))
+  condition <- if (op == "&&") tmp@name else glue(".not. {tmp@name}")
+  hoist$emit(glue("if ({condition}) then"))
   hoist$emit(indent(sub$render(glue("{tmp@name} = {right}"))))
   hoist$emit("end if")
   Fortran(tmp@name, tmp)
 }
 
-register_r2f_handler(c("&&", "||"), compile_andor)
+r2f_handlers[["&&"]] <- function(args, scope, ..., hoist = NULL) {
+  lower_short_circuit_operator(args, scope, "&&", ..., hoist = hoist)
+}
+
+r2f_handlers[["||"]] <- function(args, scope, ..., hoist = NULL) {
+  lower_short_circuit_operator(args, scope, "||", ..., hoist = hoist)
+}
