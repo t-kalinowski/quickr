@@ -12,7 +12,11 @@ test_that("matrix-vector %*% guards an unknown vector length", {
   qfn <- expect_no_warning(quick(fn))
   expect_equal(qfn(diag(3), as.double(1:3)), diag(3) %*% 1:3)
   # was: dgemv read past the end of x, returning garbage
-  expect_error(qfn(diag(3), as.double(1:2)), "non-conformable arguments in %*%", fixed = TRUE)
+  expect_error(
+    qfn(diag(3), as.double(1:2)),
+    "non-conformable arguments in %*%",
+    fixed = TRUE
+  )
 })
 
 test_that("vector-matrix %*% guards an unknown vector length", {
@@ -22,7 +26,11 @@ test_that("vector-matrix %*% guards an unknown vector length", {
   }
   qfn <- expect_no_warning(quick(fn))
   expect_equal(qfn(as.double(1:3), diag(3)), t(as.double(1:3)) %*% diag(3))
-  expect_error(qfn(as.double(1:5), diag(3)), "non-conformable arguments in %*%", fixed = TRUE)
+  expect_error(
+    qfn(as.double(1:5), diag(3)),
+    "non-conformable arguments in %*%",
+    fixed = TRUE
+  )
 })
 
 test_that("triangular solve guards squareness and RHS length", {
