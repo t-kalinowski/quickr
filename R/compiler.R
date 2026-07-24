@@ -164,10 +164,8 @@ quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
   FALSE
 }
 
-quickr_default_fortran_makevars_lines <- function(
-  config_value = quickr_cached_r_cmd_config_value
-) {
-  fc <- trimws(config_value("FC"))
+quickr_default_fortran_makevars_lines <- function() {
+  fc <- trimws(quickr_cached_r_cmd_config_value("FC"))
   if (!nzchar(fc)) {
     return(character())
   }
@@ -187,11 +185,9 @@ quickr_default_fortran_makevars_lines <- function(
 
 quickr_fcompiler_env <- function(
   build_dir,
-  write_lines = writeLines,
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
-  link_flags = character(),
-  config_value = quickr_cached_r_cmd_config_value
+  link_flags = character()
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
@@ -246,7 +242,7 @@ quickr_fcompiler_env <- function(
   default_makevars_lines <- if (use_flang) {
     character()
   } else {
-    quickr_default_fortran_makevars_lines(config_value = config_value)
+    quickr_default_fortran_makevars_lines()
   }
 
   if (!use_flang && !use_openmp && !length(default_makevars_lines)) {
@@ -270,7 +266,7 @@ quickr_fcompiler_env <- function(
       paste("PKG_LIBS +=", paste(link_flags, collapse = " "))
     }
   )
-  write_lines(
+  writeLines(
     makevars_lines,
     makevars_path
   )

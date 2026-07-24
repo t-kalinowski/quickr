@@ -67,24 +67,21 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
   dir.create(build_dir)
   local_mocked_bindings(
     quickr_prefer_flang = function(...) FALSE,
+    quickr_cached_r_cmd_config_value = function(name) {
+      if (identical(name, "FC")) "clang" else ""
+    },
     .package = "quickr"
   )
 
   withr::local_options(quickr.fortran_compiler = "gfortran")
   expect_equal(
-    quickr:::quickr_fcompiler_env(
-      build_dir,
-      config_value = function(name) if (identical(name, "FC")) "clang" else ""
-    ),
+    quickr:::quickr_fcompiler_env(build_dir),
     character()
   )
 
   withr::local_options(quickr.fortran_compiler = "auto")
   expect_equal(
-    quickr:::quickr_fcompiler_env(
-      build_dir,
-      config_value = function(name) if (identical(name, "FC")) "clang" else ""
-    ),
+    quickr:::quickr_fcompiler_env(build_dir),
     character()
   )
 })

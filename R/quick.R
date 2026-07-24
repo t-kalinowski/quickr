@@ -326,9 +326,7 @@ compile <- function(fsub, build_dir = tempfile(paste0(fsub@name, "-build-"))) {
 
 quickr_windows_add_dll_paths <- function(
   flags,
-  os_type = .Platform$OS.type,
-  config_value = quickr_cached_r_cmd_config_value,
-  which = Sys.which
+  os_type = .Platform$OS.type
 ) {
   if (!identical(os_type, "windows")) {
     return(invisible(character()))
@@ -359,15 +357,17 @@ quickr_windows_add_dll_paths <- function(
     file.path(arch_lib_dirs, "..", "..", "bin")
   )
 
-  config_binpref <- config_path(config_value("BINPREF"))
+  config_binpref <- config_path(
+    quickr_cached_r_cmd_config_value("BINPREF")
+  )
   if (nzchar(config_binpref) && !dir.exists(config_binpref)) {
     config_binpref <- dirname(config_binpref)
   }
   config_values <- c(
-    config_value("FC"),
-    config_value("F77"),
-    config_value("CC"),
-    config_value("CXX")
+    quickr_cached_r_cmd_config_value("FC"),
+    quickr_cached_r_cmd_config_value("F77"),
+    quickr_cached_r_cmd_config_value("CC"),
+    quickr_cached_r_cmd_config_value("CXX")
   )
   config_paths <- vapply(config_values, config_path, character(1))
   config_bins <- dirname(config_paths[nzchar(config_paths)])
@@ -406,7 +406,7 @@ quickr_windows_add_dll_paths <- function(
     file.path(rtools_roots, "x86_64-w64-mingw32", "bin")
   ))
 
-  compilers <- which(c("gfortran", "gcc", "clang", "flang"))
+  compilers <- Sys.which(c("gfortran", "gcc", "clang", "flang"))
   compilers <- compilers[nzchar(compilers)]
   compiler_bins <- unique(dirname(compilers))
 
@@ -457,13 +457,12 @@ quickr_windows_add_dll_paths <- function(
 
 quickr_windows_load_dll_dependencies <- function(
   dirs,
-  os_type = .Platform$OS.type,
-  dyn_load = base::dyn.load
+  os_type = .Platform$OS.type
 ) {
   if (!identical(os_type, "windows")) {
     return(invisible(character()))
   }
-  stopifnot(is.character(dirs), is.function(dyn_load))
+  stopifnot(is.character(dirs))
 
   patterns <- c(
     "libgcc_s*.dll",
@@ -486,7 +485,7 @@ quickr_windows_load_dll_dependencies <- function(
   dlls <- normalizePath(dlls, winslash = "\\", mustWork = FALSE)
   dlls <- dlls[!duplicated(tolower(basename(dlls)))]
   for (dll in dlls) {
-    dyn_load(dll)
+    base::dyn.load(dll)
   }
 
   invisible(dlls)

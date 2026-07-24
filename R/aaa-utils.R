@@ -42,13 +42,9 @@ scope_fortran_symbol <- function(sym, scope) {
   sym
 }
 
-quickr_r_cmd <- function(
-  os_type = .Platform$OS.type,
-  r_home = R.home,
-  file_exists = file.exists
-) {
-  r_cmd <- r_home("bin/R")
-  if (identical(os_type, "windows") && !file_exists(r_cmd)) {
+quickr_r_cmd <- function(os_type = .Platform$OS.type) {
+  r_cmd <- R.home("bin/R")
+  if (identical(os_type, "windows") && !file.exists(r_cmd)) {
     r_cmd <- paste0(r_cmd, ".exe")
   }
   r_cmd
@@ -56,48 +52,39 @@ quickr_r_cmd <- function(
 
 quickr_compiler_probe_cache <- new.env(parent = emptyenv())
 
-quickr_cached_r_cmd_config_value <- function(
-  name,
-  cache = quickr_compiler_probe_cache
-) {
-  stopifnot(is_string(name), is.environment(cache))
+quickr_cached_r_cmd_config_value <- function(name) {
+  stopifnot(is_string(name))
 
   # Compiler configuration is fixed for the R session. Restart R after
   # changing the toolchain or its configuration files.
   cache_key <- paste("r_cmd_config", name, sep = "\r")
-  if (exists(cache_key, envir = cache, inherits = FALSE)) {
-    return(get(cache_key, envir = cache, inherits = FALSE))
+  if (
+    exists(
+      cache_key,
+      envir = quickr_compiler_probe_cache,
+      inherits = FALSE
+    )
+  ) {
+    return(get(
+      cache_key,
+      envir = quickr_compiler_probe_cache,
+      inherits = FALSE
+    ))
   }
 
   probe <- quickr_r_cmd_config_probe(name)
   if (isTRUE(probe$ok)) {
-    assign(cache_key, probe$value, envir = cache)
+    assign(cache_key, probe$value, envir = quickr_compiler_probe_cache)
   }
   probe$value
 }
 
-quickr_r_cmd_config_value <- function(
-  name,
-  r_cmd = quickr_r_cmd(),
-  system2 = base::system2
-) {
-  quickr_r_cmd_config_probe(
-    name = name,
-    r_cmd = r_cmd,
-    system2 = system2
-  )$value
-}
-
-quickr_r_cmd_config_probe <- function(
-  name,
-  r_cmd = quickr_r_cmd(),
-  system2 = base::system2
-) {
-  stopifnot(is_string(name), is_string(r_cmd), is.function(system2))
+quickr_r_cmd_config_probe <- function(name) {
+  stopifnot(is_string(name))
 
   out <- tryCatch(
-    suppressWarnings(system2(
-      r_cmd,
+    suppressWarnings(base::system2(
+      quickr_r_cmd(),
       c("CMD", "config", name),
       stdout = TRUE,
       stderr = FALSE
