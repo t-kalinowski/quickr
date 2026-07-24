@@ -4,6 +4,9 @@
   for the rest of the R session. Restart R after changing the compiler or
   Makevars configuration.
 
+* Successful flang availability checks are now reused for the rest of the R
+  session. Restart R after changing the flang toolchain.
+
 # quickr 0.3.0
 
 This release adds major new support for linear algebra, local functions,

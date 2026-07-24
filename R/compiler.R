@@ -15,6 +15,20 @@ quickr_flang_available <- function() {
   if (!nzchar(flang)) {
     return(list(path = "", available = FALSE))
   }
+
+  # Compiler availability is fixed for the R session. Restart R after
+  # changing the flang toolchain.
+  cache_key <- paste("flang_available", flang, sep = "\r")
+  if (
+    exists(
+      cache_key,
+      envir = quickr_compiler_probe_cache,
+      inherits = FALSE
+    )
+  ) {
+    return(list(path = flang, available = TRUE))
+  }
+
   probe <- tryCatch(
     system2(flang, "--version", stdout = TRUE, stderr = TRUE),
     error = function(e) structure(character(), status = 1L)
@@ -22,6 +36,7 @@ quickr_flang_available <- function() {
   if (!is.null(attr(probe, "status"))) {
     return(list(path = flang, available = FALSE))
   }
+  assign(cache_key, TRUE, envir = quickr_compiler_probe_cache)
   list(path = flang, available = TRUE)
 }
 
