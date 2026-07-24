@@ -165,7 +165,7 @@ quickr_prefer_flang <- function(sysname = Sys.info()[["sysname"]]) {
 }
 
 quickr_default_fortran_makevars_lines <- function(
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   fc <- trimws(config_value("FC"))
   if (!nzchar(fc)) {
@@ -191,7 +191,7 @@ quickr_fcompiler_env <- function(
   sysname = Sys.info()[["sysname"]],
   use_openmp = FALSE,
   link_flags = character(),
-  config_value = quickr_r_cmd_config_value
+  config_value = quickr_cached_r_cmd_config_value
 ) {
   stopifnot(is.character(build_dir), length(build_dir) == 1L, nzchar(build_dir))
 
