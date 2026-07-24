@@ -2,6 +2,35 @@
 
 skip_on_cran()
 
+local_empty_compiler_probe_cache <- function(envir = parent.frame()) {
+  cache <- get0(
+    "quickr_compiler_probe_cache",
+    envir = asNamespace("quickr"),
+    inherits = FALSE
+  )
+  if (is.null(cache)) {
+    return(invisible(NULL))
+  }
+
+  old <- as.list.environment(cache, all.names = TRUE)
+  withr::defer(
+    {
+      entries <- ls(envir = cache, all.names = TRUE)
+      if (length(entries)) {
+        rm(list = entries, envir = cache)
+      }
+      list2env(old, envir = cache)
+    },
+    envir = envir
+  )
+
+  entries <- ls(envir = cache, all.names = TRUE)
+  if (length(entries)) {
+    rm(list = entries, envir = cache)
+  }
+  invisible(NULL)
+}
+
 test_that("quickr_r_cmd_config_value captures only stdout", {
   expect_identical(
     deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),
@@ -46,6 +75,28 @@ test_that("quickr_r_cmd_config_value returns empty on command failure", {
       system2 = system2_stub
     ),
     ""
+  )
+})
+
+test_that("R CMD config probe distinguishes empty values from errors", {
+  empty_value <- function(...) character()
+  expect_identical(
+    quickr:::quickr_r_cmd_config_probe(
+      "CC",
+      r_cmd = "R",
+      system2 = empty_value
+    ),
+    list(value = "", ok = TRUE)
+  )
+
+  error_value <- function(...) "ERROR: no information for variable 'CC'"
+  expect_identical(
+    quickr:::quickr_r_cmd_config_probe(
+      "CC",
+      r_cmd = "R",
+      system2 = error_value
+    ),
+    list(value = "", ok = FALSE)
   )
 })
 
@@ -458,4 +509,68 @@ test_that("compile cleans existing build directories and reports failures", {
   )
   expect_true(dir.exists(build_dir))
   expect_false(file.exists(file.path(build_dir, "stale.txt")))
+})
+
+test_that("quick reuses successful R CMD config probes", {
+  local_empty_compiler_probe_cache()
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+
+  probe <- quickr_r_cmd_config_probe
+  events <- list()
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name, ...) {
+      result <- probe(name, ...)
+      events[[length(events) + 1L]] <<- list(name = name, ok = result$ok)
+      result
+    },
+    .package = "quickr"
+  )
+
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  }
+
+  expect_quick_identical(fn, 1)
+  first_events <- events
+  expect_quick_identical(fn, 3)
+
+  successful <- unique(vapply(
+    first_events[vapply(first_events, `[[`, logical(1), "ok")],
+    `[[`,
+    character(1),
+    "name"
+  ))
+  later <- events[seq_along(events) > length(first_events)]
+  later_names <- vapply(later, `[[`, character(1), "name")
+  expect_length(intersect(successful, later_names), 0L)
+})
+
+test_that("quick retries failed R CMD config probes", {
+  local_empty_compiler_probe_cache()
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+
+  probe <- quickr_r_cmd_config_probe
+  blas_calls <- 0L
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name, ...) {
+      if (identical(name, "BLAS_LIBS")) {
+        blas_calls <<- blas_calls + 1L
+        if (blas_calls == 1L) {
+          return(list(value = "", ok = FALSE))
+        }
+      }
+      probe(name, ...)
+    },
+    .package = "quickr"
+  )
+
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  }
+
+  expect_quick_identical(fn, 1)
+  expect_quick_identical(fn, 3)
+  expect_identical(blas_calls, 2L)
 })

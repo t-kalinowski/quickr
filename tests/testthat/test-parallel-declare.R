@@ -27,6 +27,38 @@ test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   expect_quick_identical(parallel_sapply, list(x))
 })
 
+test_that("parallel quick avoids unsupported R CMD config probes", {
+  skip_if_no_openmp()
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+
+  probe <- quickr_r_cmd_config_probe
+  names <- character()
+  local_mocked_bindings(
+    quickr_r_cmd_config_probe = function(name, ...) {
+      names <<- c(names, name)
+      probe(name, ...)
+    },
+    .package = "quickr"
+  )
+
+  fn <- function(x) {
+    declare(
+      type(x = double(NA)),
+      type(out = double(length(x)))
+    )
+    out <- double(length(x))
+    declare(parallel())
+    for (i in seq_along(x)) {
+      out[i] <- x[i] + 1
+    }
+    out
+  }
+
+  expect_quick_identical(fn, list(c(1, 2, 3)))
+  unsupported <- c("SHLIB_OPENMP_FFLAGS", "SHLIB_OPENMP_CFLAGS")
+  expect_length(intersect(names, unsupported), 0L)
+})
+
 test_that("parallel sapply supports axpy patterns", {
   skip_if_no_openmp()
 

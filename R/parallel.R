@@ -173,38 +173,14 @@ openmp_directives <- function(parallel, private = NULL) {
   )
 }
 
-openmp_config_value <- local({
-  cached <- NULL
-
-  function(name, config_value = quickr_r_cmd_config_value) {
-    if (is.null(cached)) {
-      cached <<- list()
-    }
-    cached_value <- cached[[name]]
-    if (!is.null(cached_value)) {
-      return(cached_value)
-    }
-    value <- config_value(name)
-    if (!nzchar(value)) {
-      value <- ""
-    }
-    cached[[name]] <<- value
-    value
-  }
-})
-
 openmp_fflags <- function() {
   env_flags <- trimws(Sys.getenv("QUICKR_OPENMP_FFLAGS", ""))
   if (nzchar(env_flags)) {
     return(env_flags)
   }
 
-  config_flags <- openmp_config_value("SHLIB_OPENMP_FFLAGS")
-  if (nzchar(config_flags)) {
-    return(config_flags)
-  }
-
-  fc <- openmp_config_value("FC")
+  # SHLIB_OPENMP_* are Make macros, not supported R CMD config variables.
+  fc <- quickr_cached_r_cmd_config_value("FC")
   if (grepl("(gfortran|flang)", fc, ignore.case = TRUE)) {
     return("-fopenmp")
   }
@@ -218,17 +194,12 @@ openmp_link_flags <- function(fflags = openmp_fflags()) {
     return(env_flags)
   }
 
-  config_flags <- openmp_config_value("SHLIB_OPENMP_CFLAGS")
-  if (nzchar(config_flags)) {
-    return(config_flags)
-  }
-
-  cc <- openmp_config_value("CC")
+  cc <- quickr_cached_r_cmd_config_value("CC")
   if (nzchar(fflags) && !grepl("clang", cc, ignore.case = TRUE)) {
     return(fflags)
   }
 
-  fc <- openmp_config_value("FC")
+  fc <- quickr_cached_r_cmd_config_value("FC")
   if (grepl("gfortran", fc, ignore.case = TRUE)) {
     compiler <- strsplit(fc, "\\s+")[[1L]][[1L]]
     libname <- if (identical(Sys.info()[["sysname"]], "Darwin")) {

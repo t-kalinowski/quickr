@@ -1,5 +1,9 @@
 # quickr (development version)
 
+* Repeated `quick()` compilations now reuse successful `R CMD config` results
+  for the rest of the R session. Restart R after changing the compiler or
+  Makevars configuration.
+
 # quickr 0.3.0
 
 This release adds major new support for linear algebra, local functions,

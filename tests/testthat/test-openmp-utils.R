@@ -39,31 +39,6 @@ test_that("openmp_makevars_lines errors when linker flags are missing", {
   )
 })
 
-test_that("openmp_config_value caches toolchain lookups", {
-  cache_env <- environment(quickr:::openmp_config_value)
-  old_cache <- cache_env$cached
-  old_config <- cache_env$quickr_r_cmd_config_value
-  withr::defer(cache_env$cached <- old_cache)
-  withr::defer({
-    if (is.null(old_config)) {
-      rm(quickr_r_cmd_config_value, envir = cache_env)
-    } else {
-      cache_env$quickr_r_cmd_config_value <- old_config
-    }
-  })
-  cache_env$cached <- NULL
-
-  calls <- 0
-  cache_env$quickr_r_cmd_config_value <- function(...) {
-    calls <<- calls + 1
-    "value"
-  }
-
-  expect_equal(quickr:::openmp_config_value("QUICKR_TEST_CACHE"), "value")
-  expect_equal(quickr:::openmp_config_value("QUICKR_TEST_CACHE"), "value")
-  expect_equal(calls, 1)
-})
-
 test_that("get_pending_parallel returns NULL for NULL or non-scope", {
   expect_null(quickr:::get_pending_parallel(NULL))
   expect_null(quickr:::get_pending_parallel(list()))
@@ -117,7 +92,7 @@ test_that("openmp_link_flags uses env variable first", {
 
 test_that("openmp_fflags returns empty when no config found", {
   local_mocked_bindings(
-    openmp_config_value = function(...) "",
+    quickr_cached_r_cmd_config_value = function(...) "",
     .package = "quickr"
   )
   withr::local_envvar(QUICKR_OPENMP_FFLAGS = "")
@@ -128,8 +103,8 @@ test_that("openmp_fflags returns empty when no config found", {
 
 test_that("openmp_link_flags returns fflags for non-clang CC", {
   local_mocked_bindings(
-    openmp_config_value = function(name, ...) {
-      switch(name, SHLIB_OPENMP_CFLAGS = "", CC = "gcc", "")
+    quickr_cached_r_cmd_config_value = function(name, ...) {
+      switch(name, CC = "gcc", "")
     },
     .package = "quickr"
   )
@@ -141,8 +116,8 @@ test_that("openmp_link_flags returns fflags for non-clang CC", {
 
 test_that("openmp_link_flags returns empty for clang CC", {
   local_mocked_bindings(
-    openmp_config_value = function(name, ...) {
-      switch(name, SHLIB_OPENMP_CFLAGS = "", CC = "clang", FC = "flang", "")
+    quickr_cached_r_cmd_config_value = function(name, ...) {
+      switch(name, CC = "clang", FC = "flang", "")
     },
     .package = "quickr"
   )
