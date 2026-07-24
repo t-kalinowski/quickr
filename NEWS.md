@@ -26,6 +26,18 @@
   symbol in both cases. Locals declared with unknown (`NA`) dims still
   reallocate on assignment, like R.
 
+- `diag(x)` with a length-1 `x` and no `nrow`/`ncol` now builds the
+  identity matrix of size `x`, matching R. Previously only a *literal*
+  size took that path, so `diag(n)` with `n` declared `integer(1)`
+  returned a 1x1 matrix containing `n` instead of the n-by-n identity —
+  a silent divergence in both shape and values. As in R the size is
+  `as.integer(x)`, so a `double` or `logical` `x` works and truncates
+  toward zero (`diag(3.7)` is the 3x3 identity, as in R). Use
+  `diag(x, nrow)` for a 1x1 matrix holding `x`.
+
+- `declare()` size expressions now accept `as.integer()`, which lowers to
+  Fortran's `INT()` and to an integer cast in the generated C bridge.
+
 - Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
   operand lengths to match, unless one operand is a scalar or a vector is
   combined column-wise with a matrix whose rows it spans. R-style partial

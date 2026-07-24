@@ -395,6 +395,28 @@ reshape_vector_for_matrix <- function(vec, rows, cols) {
   Fortran(out_expr, out_val)
 }
 
+# Size expressions may carry an as.integer() coercion (diag()'s identity
+# form sizes the result with as.integer(x), as R does). The two renderers
+# that spell a dim by deparsing -- bind_dim_string() and blas_int() -- would
+# emit the R name verbatim, so map it to Fortran's INT(), which truncates
+# toward zero the same way. dims2f()/dims2c() translate the call properly
+# and do not need this.
+# Used by: bind_dim_string() (r2f-matrix.R), blas_int() (r2f-matrix-blas.R)
+fortranize_size_calls <- function(e) {
+  if (!is.call(e)) {
+    return(e)
+  }
+  if (identical(e[[1L]], quote(as.integer))) {
+    e[[1L]] <- quote(int)
+  }
+  for (i in seq_along(e)[-1L]) {
+    if (!is_missing(e[[i]])) {
+      e[[i]] <- fortranize_size_calls(e[[i]])
+    }
+  }
+  e
+}
+
 # Floor a double expression while staying in the real domain: Fortran
 # FLOOR() returns an integer, so a large double (e.g. 1e20) would
 # silently overflow. aint(x) truncates toward 0 (real result); adjust by

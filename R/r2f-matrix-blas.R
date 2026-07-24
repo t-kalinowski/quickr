@@ -353,7 +353,7 @@ ensure_blas_operand_name <- function(x, hoist) {
 # Wrap an expression as a BLAS int literal.
 blas_int <- function(x) {
   x_str <- if (is.language(x)) {
-    gsub("([0-9]+)L\\b", "\\1", deparse1(x))
+    gsub("([0-9]+)L\\b", "\\1", deparse1(fortranize_size_calls(x)))
   } else if (is_wholenumber(x)) {
     as.character(as.integer(x))
   } else {

@@ -348,6 +348,88 @@ test_that("t() and diag() preserve integer mode", {
   expect_quick_equal(dident, list())
 })
 
+test_that("diag() takes R's identity form for any length-1 x", {
+  # R's rule is length(x) == 1 with no nrow/ncol, not rank 0: a declared
+  # integer(1) argument is the n x n identity, not a 1x1 matrix holding n
+  dsym <- function(n) {
+    declare(type(n = integer(1)))
+    diag(n)
+  }
+  expect_quick_equal(dsym, list(3L), list(1L))
+
+  # same through the inferred-destination path
+  ddest <- function(n) {
+    declare(type(n = integer(1)))
+    out <- diag(n)
+    out
+  }
+  expect_quick_equal(ddest, list(3L))
+
+  # a size expression works too
+  dexpr <- function(n) {
+    declare(type(n = integer(1)))
+    diag(n + 1L)
+  }
+  expect_quick_equal(dexpr, list(2L))
+
+  # a length-1 vector is still length 1
+  dvec1 <- function(v) {
+    declare(type(v = integer(1)))
+    diag(v)
+  }
+  expect_quick_equal(dvec1, list(3L))
+
+  # nrow/ncol switch off the identity form, as R's nargs() rule does
+  d1x1 <- function(v) {
+    declare(type(v = double(1)))
+    diag(v, 1L)
+  }
+  expect_quick_equal(d1x1, list(3))
+
+  # longer vectors keep building a diagonal matrix
+  dlong <- function(v) {
+    declare(type(v = double(3)))
+    diag(v)
+  }
+  expect_quick_equal(dlong, list(c(1, 2, 3)))
+
+  # R sizes the identity with as.integer(x), so a double or logical x works
+  # and truncates toward zero
+  ddbl <- function(x) {
+    declare(type(x = double(1)))
+    diag(x)
+  }
+  expect_quick_equal(ddbl, list(3), list(3.7), list(1))
+
+  ddbl_dest <- function(x) {
+    declare(type(x = double(1)))
+    out <- diag(x)
+    out
+  }
+  expect_quick_equal(ddbl_dest, list(3))
+
+  dlgl <- function(b) {
+    declare(type(b = logical(1)))
+    diag(b)
+  }
+  expect_quick_equal(dlgl, list(TRUE))
+
+  # a non-whole literal truncates too, rather than tripping the
+  # "size must be an integer" check
+  dfrac <- function() {
+    out <- diag(3.7)
+    out
+  }
+  expect_quick_equal(dfrac, list())
+
+  # an explicit coercion at the call site is the same program
+  dcoerce <- function(x) {
+    declare(type(x = double(1)))
+    diag(as.integer(x))
+  }
+  expect_quick_equal(dcoerce, list(3))
+})
+
 test_that("t() and diag() preserve logical mode", {
   m <- matrix(c(TRUE, FALSE, TRUE, TRUE), 2, 2)
 

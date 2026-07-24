@@ -35,3 +35,21 @@ test_that("declare() size expressions validate abs() arity", {
 
   expect_error(quick(bad), "unused argument", fixed = TRUE)
 })
+
+test_that("declare() size expressions support as.integer()", {
+  # as.integer() reaches size expressions through diag()'s identity form,
+  # but it is spellable on its own: INT() in Fortran, a cast in the bridge
+  fn <- function(x, n) {
+    declare(type(x = double(1)), type(n = integer(1)))
+    out <- double(as.integer(x) + n)
+    out
+  }
+  expect_quick_equal(fn, list(2, 3L), list(2.9, 1L))
+
+  bad <- function(x) {
+    declare(type(x = double(1)))
+    out <- double(as.integer(x, 2L))
+    out
+  }
+  expect_error(quick(bad), "expects one argument", fixed = TRUE)
+})

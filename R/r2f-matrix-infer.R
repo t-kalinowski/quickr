@@ -325,8 +325,11 @@ infer_dest_diag <- function(args, scope) {
     }
   }
 
-  # Case: x is a scalar symbol without nrow/ncol (identity matrix)
-  if (!is.null(x) && x@rank == 0L && !has_nrow && !has_ncol) {
+  # Case: x is a length-1 symbol without nrow/ncol (identity matrix). Must
+  # match the handler's predicate exactly, or the inferred destination
+  # would be the 1x1 constructor result instead of the identity's (x, x).
+  # The size depends on x's value, so leave the destination uninferred.
+  if (!is.null(x) && passes_as_scalar(x) && !has_nrow && !has_ncol) {
     return(NULL)
   }
 

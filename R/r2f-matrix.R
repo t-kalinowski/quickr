@@ -312,7 +312,7 @@ bind_dim_string <- function(dim) {
   } else if (is.numeric(dim)) {
     as.character(dim)
   } else {
-    gsub("([0-9]+)L\\b", "\\1", deparse1(dim))
+    gsub("([0-9]+)L\\b", "\\1", deparse1(fortranize_size_calls(dim)))
   }
 }
 
@@ -710,8 +710,28 @@ register_r2f_handler(
       "diag() only supports scalar, vector, or matrix inputs"
     )
 
-    if (!has_nrow && !has_ncol && x_rank == 0L) {
-      nrow <- r2size(x_arg, scope)
+    # R's identity form is `length(x) == 1L` with no nrow/ncol -- it does
+    # not require a rank-0 value, so a declared `integer(1)` argument or a
+    # length-1 vector takes it too (R: diag(c(3)) is the 3x3 identity).
+    # The size comes from x's *value*, and the result is always double.
+    if (!has_nrow && !has_ncol && passes_as_scalar(x@value)) {
+      # R sizes the identity with as.integer(x), so a double or logical `x`
+      # is fine and truncates toward zero. Coerce in the size expression
+      # rather than requiring an integer, so diag(n) works whatever the
+      # caller declared. An integer `x` needs no wrapper.
+      size_arg <- if (identical(x@value@mode, "integer")) {
+        x_arg
+      } else if (x@value@mode %in% c("double", "logical")) {
+        call("as.integer", x_arg)
+      } else {
+        stop(
+          "diag(x) with a length-1 `x` builds an identity matrix of size ",
+          "`x`, which requires a numeric `x`; got ",
+          x@value@mode,
+          call. = FALSE
+        )
+      }
+      nrow <- r2size(size_arg, scope)
       ncol <- nrow
       x_val <- Fortran("1.0_c_double", Variable("double"))
       return(diag_matrix(

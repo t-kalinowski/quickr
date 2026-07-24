@@ -627,6 +627,16 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
     return(glue("(({e1}) < 0 ? -({e1}) : ({e1}))"))
   }
 
+  if (identical(op, "as.integer")) {
+    if (length(args) != 1L) {
+      stop("as.integer() expects one argument")
+    }
+    # a C cast to an integer type truncates toward zero, as R's
+    # as.integer() does
+    e1 <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)
+    return(glue("((R_xlen_t)({e1}))"))
+  }
+
   if (op %in% c("+", "-", "*", "/", "%/%", "%%", "^")) {
     if (length(args) == 1L && op %in% c("+", "-")) {
       e1 <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)

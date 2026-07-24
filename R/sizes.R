@@ -228,6 +228,41 @@ r2size <- function(r, scope) {
 
         switch(
           op,
+          as.integer = {
+            if (length(r) != 2L) {
+              stop("as.integer() in a size expression expects one argument")
+            }
+            # A numeric literal is coerced here rather than recursed into:
+            # r2size() rejects a non-whole double, which is exactly the
+            # case as.integer() exists to handle.
+            if (is.numeric(r[[2L]]) && length(r[[2L]]) == 1L) {
+              return(as.integer(r[[2L]]))
+            }
+            # An explicit coercion is exactly what the "not an integer"
+            # warning asks for, so don't also warn about the operand.
+            inner <- withCallingHandlers(
+              r2size(r[[2L]], scope),
+              warning = function(w) {
+                if (
+                  grepl(
+                    "size is not an integer",
+                    conditionMessage(w),
+                    fixed = TRUE
+                  )
+                ) {
+                  invokeRestart("muffleWarning")
+                }
+              }
+            )
+            if (is.atomic(inner) && length(inner) == 1L) {
+              if (is.na(inner)) {
+                return(NA_integer_)
+              }
+              # truncates toward zero, as as.integer() does in R
+              return(as.integer(inner))
+            }
+            call("as.integer", inner)
+          },
           length = {
             var <- get0(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
