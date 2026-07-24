@@ -5,7 +5,7 @@
     Output
       function(a, b) {
           declare(type(a = double(n)), type(b = double(n + 1)))
-          a <- sum(b)
+          a <- a + sum(b)
           a
         }
       <environment: 0x0>
@@ -26,7 +26,7 @@
         ! manifest end
       
       
-        a = sum(b)
+        a = (a + sum(b))
       end subroutine
     Code
       cat(cwrapper)

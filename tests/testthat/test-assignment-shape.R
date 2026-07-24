@@ -87,12 +87,55 @@ test_that("shape-preserving reassignments still compile", {
   }
   expect_quick_identical(fn_same, c(1, 2, 3))
 
-  # scalar broadcast into an array target keeps working
-  fn_scalar <- function(a) {
+  # two length-1 values conform whatever their ranks: a declared double(1)
+  # is rank 1, a literal is rank 0
+  fn_len1 <- function(a) {
+    declare(type(a = double(1)))
+    a <- 2
+    a
+  }
+  expect_quick_identical(fn_len1, 1)
+})
+
+test_that("reassignment between scalar and array shapes is refused", {
+  # R rebinds `x` to the scalar; Fortran would broadcast it across the
+  # array, so every element would change instead of the shape
+  fn_scalar_into_array <- function(a) {
     declare(type(a = double(n)))
     x <- a
     x <- 0
     sum(x)
   }
-  expect_no_error(r2f(fn_scalar))
+  expect_error(
+    r2f(fn_scalar_into_array),
+    "replacement is a scalar but `x` is an array",
+    fixed = TRUE
+  )
+
+  # the reduction form of the same mistake
+  fn_reduce_into_array <- function(a) {
+    declare(type(a = double(n)))
+    x <- a
+    x <- sum(x)
+    x
+  }
+  expect_error(
+    r2f(fn_reduce_into_array),
+    "replacement is a scalar but `x` is an array",
+    fixed = TRUE
+  )
+
+  # the other direction: R rebinds to the array, Fortran would keep only
+  # the first element
+  fn_array_into_scalar <- function(a) {
+    declare(type(a = double(3)))
+    x <- 1
+    x <- a
+    x
+  }
+  expect_error(
+    r2f(fn_array_into_scalar),
+    "replacement is an array but `x` is a scalar",
+    fixed = TRUE
+  )
 })

@@ -5,7 +5,7 @@ skip_on_cran()
 test_that("size constraint", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(n + 1)))
-    a <- sum(b)
+    a <- a + sum(b)
     a
   }
 
@@ -20,7 +20,9 @@ test_that("size constraint", {
     fixed = TRUE
   )
   expect_translation_snapshots(fn, "call_size_constraint")
-  expect_equal(qfn(1, c(2, 3)), 5)
+  # `a` stays an array: reassigning a scalar into it would be a shape
+  # change, which R does by rebinding and Fortran cannot do at all
+  expect_equal(qfn(1, c(2, 3)), 6)
 })
 
 test_that("size constraint", {

@@ -29,7 +29,7 @@ test_that("declare() size expressions validate abs() arity", {
       type(m = integer(1)),
       type(out = double(abs(n, m)))
     )
-    out <- double(1L)
+    out <- double(abs(n, m))
     out
   }
 

@@ -19,9 +19,12 @@
   `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
   dimensions that cannot be compared at compile time are checked at run
   time. Previously such reassignments silently kept the old shape or
-  produced invalid Fortran. Assigning a scalar into an array variable
-  (native Fortran broadcast) is unchanged, as are locals declared with
-  unknown (`NA`) dims, which reallocate on assignment like R.
+  produced invalid Fortran. This also covers reassignment between a scalar
+  and an array in either direction: `x <- numeric(n); x <- 0` used to
+  broadcast the scalar across every element, and assigning an array to a
+  scalar variable used to keep only its first element, where R rebinds the
+  symbol in both cases. Locals declared with unknown (`NA`) dims still
+  reallocate on assignment, like R.
 
 - Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
   operand lengths to match, unless one operand is a scalar or a vector is

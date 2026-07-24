@@ -623,8 +623,37 @@ check_assignment_compatible <- function(
   ) {
     return(invisible())
   }
-  if (passes_as_scalar(target) || passes_as_scalar(value)) {
+  target_scalar <- passes_as_scalar(target)
+  value_scalar <- passes_as_scalar(value)
+  # Two length-1 values conform whatever their ranks (a declared `double(1)`
+  # is rank 1; a literal is rank 0).
+  if (target_scalar && value_scalar) {
     return(invisible())
+  }
+  deferred_local <- !target@is_external && has_self_size_dims(target)
+  if (target_scalar || value_scalar) {
+    # A deferred-shape local can genuinely take a new array shape.
+    if (deferred_local && !value_scalar) {
+      return(invisible())
+    }
+    # Otherwise one side is length 1 and the other is a real array. R
+    # rebinds the symbol to the new shape; Fortran cannot, and would
+    # silently broadcast a scalar across the array (or drop all but the
+    # first element of an array into a scalar).
+    stop(
+      "cannot reassign `",
+      name,
+      "`: replacement is ",
+      if (value_scalar) "a scalar" else "an array",
+      " but `",
+      name,
+      "` is ",
+      if (target_scalar) "a scalar" else "an array",
+      "; R would rebind `",
+      name,
+      "` to the new shape",
+      call. = FALSE
+    )
   }
   if (target@rank != value@rank) {
     stop(
@@ -640,7 +669,7 @@ check_assignment_compatible <- function(
       call. = FALSE
     )
   }
-  if (!target@is_external && has_self_size_dims(target)) {
+  if (deferred_local) {
     # deferred-shape local: implicit (re)allocation matches R's rebind
     return(invisible())
   }
