@@ -32,11 +32,20 @@ test_that("quickr_windows_add_dll_paths adds missing directories on Windows", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) {
+      setNames(file.path(compiler_dir, cmds), cmds)
+    },
+    .package = "base"
+  )
+
   res <- quickr:::quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(file.path(compiler_dir, cmds), cmds)
+    os_type = "windows"
   )
 
   expect_type(res, "character")
@@ -102,11 +111,18 @@ test_that("quickr_windows_add_dll_paths adds bin next to arch lib dirs", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
   res <- quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_arch_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    os_type = "windows"
   )
 
   expect_type(res, "character")
@@ -143,11 +159,18 @@ test_that("quickr_windows_add_dll_paths skips unrelated grandparent bin dirs", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
   res <- quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    os_type = "windows"
   )
 
   grandparent_bin_norm <- tolower(normalizePath(
@@ -191,11 +214,18 @@ test_that("quickr_windows_add_dll_paths adds usr/bin from Rtools link dirs", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
   quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_arch_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    os_type = "windows"
   )
 
   path_entries <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1L]]
@@ -229,11 +259,18 @@ test_that("quickr_windows_add_dll_paths writes native Windows PATH entries", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
   quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    os_type = "windows"
   )
 
   path_entries <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1L]]
@@ -272,16 +309,23 @@ test_that("quickr_windows_add_dll_paths adds BINPREF directories", {
     RTOOLS_HOME = ""
   ))
 
-  res <- quickr_windows_add_dll_paths(
-    flags = character(),
-    os_type = "windows",
-    config_value = function(name) {
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(name) {
       if (identical(name, "BINPREF")) {
         return(paste0(binpref, "/"))
       }
       ""
     },
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
+  res <- quickr_windows_add_dll_paths(
+    flags = character(),
+    os_type = "windows"
   )
 
   expect_type(res, "character")
@@ -323,16 +367,26 @@ test_that("quickr_windows_add_dll_paths adds BINPREF prefix directories", {
     RTOOLS_HOME = ""
   ))
 
-  res <- quickr_windows_add_dll_paths(
-    flags = character(),
-    os_type = "windows",
-    config_value = function(name) {
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(name) {
       if (identical(name, "BINPREF")) {
-        return(file.path(binpref, "x86_64-w64-mingw32.static.posix-"))
+        return(file.path(
+          binpref,
+          "x86_64-w64-mingw32.static.posix-"
+        ))
       }
       ""
     },
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
+  res <- quickr_windows_add_dll_paths(
+    flags = character(),
+    os_type = "windows"
   )
 
   expect_type(res, "character")
@@ -382,11 +436,20 @@ test_that("quickr_windows_add_dll_paths leaves PATH unchanged when complete", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) {
+      setNames(file.path(compiler_dir, cmds), cmds)
+    },
+    .package = "base"
+  )
+
   res <- quickr:::quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(file.path(compiler_dir, cmds), cmds)
+    os_type = "windows"
   )
 
   expect_type(res, "character")
@@ -411,16 +474,23 @@ test_that("quickr_windows_add_dll_paths returns post-update PATH order", {
     RTOOLS_HOME = ""
   ))
 
-  res <- quickr_windows_add_dll_paths(
-    flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(name) {
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(name) {
       if (identical(name, "FC")) {
         return(file.path(config_dir, "gfortran"))
       }
       ""
     },
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
+  res <- quickr_windows_add_dll_paths(
+    flags = c(paste0("-L", lib_dir)),
+    os_type = "windows"
   )
 
   path_entries <- strsplit(Sys.getenv("PATH"), ";", fixed = TRUE)[[1L]]
@@ -464,11 +534,18 @@ test_that("quickr_windows_add_dll_paths excludes unrelated PATH directories", {
     RTOOLS_HOME = ""
   ))
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(...) "",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.which = function(cmds) setNames(rep("", length(cmds)), cmds),
+    .package = "base"
+  )
+
   res <- quickr_windows_add_dll_paths(
     flags = c(paste0("-L", lib_dir)),
-    os_type = "windows",
-    config_value = function(...) "",
-    which = function(cmds) setNames(rep("", length(cmds)), cmds)
+    os_type = "windows"
   )
 
   res_norm <- tolower(normalizePath(res, winslash = "\\", mustWork = FALSE))
@@ -495,13 +572,17 @@ test_that("quickr_windows_load_dll_dependencies preloads known runtime DLLs", {
   )
 
   loaded <- character()
-  res <- quickr_windows_load_dll_dependencies(
-    c(lib_dir, bin_dir),
-    os_type = "windows",
-    dyn_load = function(path) {
+  local_mocked_bindings(
+    dyn.load = function(path) {
       loaded <<- c(loaded, path)
       structure(list(), class = "DLLInfo")
-    }
+    },
+    .package = "base"
+  )
+
+  res <- quickr_windows_load_dll_dependencies(
+    c(lib_dir, bin_dir),
+    os_type = "windows"
   )
 
   expected <- normalizePath(

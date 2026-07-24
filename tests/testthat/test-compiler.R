@@ -31,71 +31,25 @@ local_empty_compiler_probe_cache <- function(envir = parent.frame()) {
   invisible(NULL)
 }
 
-test_that("quickr_r_cmd_config_value captures only stdout", {
-  expect_identical(
-    deparse(formals(quickr:::quickr_r_cmd_config_value)$system2),
-    "base::system2"
-  )
-
-  observed_stdout <- NULL
-  observed_stderr <- NULL
-  system2_stub <- function(
-    command,
-    args,
-    stdout = "",
-    stderr = "",
-    ...
-  ) {
-    observed_stdout <<- stdout
-    observed_stderr <<- stderr
-    " value "
-  }
-
-  expect_identical(
-    quickr:::quickr_r_cmd_config_value(
-      "CC",
-      r_cmd = "R",
-      system2 = system2_stub
-    ),
-    "value"
-  )
-  expect_identical(observed_stdout, TRUE)
-  expect_identical(observed_stderr, FALSE)
-})
-
-test_that("quickr_r_cmd_config_value returns empty on command failure", {
-  system2_stub <- function(command, args, stdout = "", stderr = "", ...) {
-    structure(" value ", status = 1L)
-  }
-
-  expect_identical(
-    quickr:::quickr_r_cmd_config_value(
-      "CC",
-      r_cmd = "R",
-      system2 = system2_stub
-    ),
-    ""
-  )
-})
-
 test_that("R CMD config probe distinguishes empty values from errors", {
-  empty_value <- function(...) character()
+  probe_value <- character()
+  local_mocked_bindings(
+    quickr_r_cmd = function() "R",
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    system2 = function(...) probe_value,
+    .package = "base"
+  )
+
   expect_identical(
-    quickr:::quickr_r_cmd_config_probe(
-      "CC",
-      r_cmd = "R",
-      system2 = empty_value
-    ),
+    quickr:::quickr_r_cmd_config_probe("CC"),
     list(value = "", ok = TRUE)
   )
 
-  error_value <- function(...) "ERROR: no information for variable 'CC'"
+  probe_value <- "ERROR: no information for variable 'CC'"
   expect_identical(
-    quickr:::quickr_r_cmd_config_probe(
-      "CC",
-      r_cmd = "R",
-      system2 = error_value
-    ),
+    quickr:::quickr_r_cmd_config_probe("CC"),
     list(value = "", ok = FALSE)
   )
 })
@@ -135,30 +89,28 @@ test_that("quickr_prefer_flang respects quickr.fortran_compiler", {
 })
 
 test_that("quickr_default_fortran_makevars_lines relaxes gfortran cost model", {
-  expect_equal(
-    quickr:::quickr_default_fortran_makevars_lines(
-      config_value = function(name) {
-        if (identical(name, "FC")) "gfortran -m64" else ""
-      }
-    ),
-    "PKG_FFLAGS += -fvect-cost-model=cheap"
+  fc <- "gfortran -m64"
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(name) {
+      if (identical(name, "FC")) fc else ""
+    },
+    .package = "quickr"
   )
 
   expect_equal(
-    quickr:::quickr_default_fortran_makevars_lines(
-      config_value = function(name) {
-        if (identical(name, "FC")) "/usr/bin/gfortran-13" else ""
-      }
-    ),
+    quickr:::quickr_default_fortran_makevars_lines(),
     "PKG_FFLAGS += -fvect-cost-model=cheap"
   )
 
+  fc <- "/usr/bin/gfortran-13"
+  expect_equal(
+    quickr:::quickr_default_fortran_makevars_lines(),
+    "PKG_FFLAGS += -fvect-cost-model=cheap"
+  )
+
+  fc <- "flang-new"
   expect_identical(
-    quickr:::quickr_default_fortran_makevars_lines(
-      config_value = function(name) {
-        if (identical(name, "FC")) "flang-new" else ""
-      }
-    ),
+    quickr:::quickr_default_fortran_makevars_lines(),
     character()
   )
 })
@@ -217,13 +169,17 @@ test_that("quickr_fcompiler_env writes Makevars when flang is usable", {
 test_that("quickr_fcompiler_env writes Makevars for default gfortran flags", {
   build_dir <- withr::local_tempdir()
 
+  local_mocked_bindings(
+    quickr_cached_r_cmd_config_value = function(name) {
+      if (identical(name, "FC")) "gfortran -m64" else ""
+    },
+    .package = "quickr"
+  )
+
   withr::local_options(quickr.fortran_compiler = "gfortran")
   env <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    sysname = "Linux",
-    config_value = function(name) {
-      if (identical(name, "FC")) "gfortran -m64" else ""
-    }
+    sysname = "Linux"
   )
 
   expect_true(startsWith(env, "R_MAKEVARS_USER="))
@@ -384,14 +340,16 @@ test_that("quickr_fcompiler_env handles flang unavailable for non-explicit reque
     quickr_flang_available = function(...) {
       list(path = "/tmp/flang", available = FALSE)
     },
+    quickr_cached_r_cmd_config_value = function(name) {
+      if (identical(name, "FC")) "clang" else ""
+    },
     .package = "quickr"
   )
 
   # Should return character() since not explicit and flang unavailable
   result <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    sysname = "Darwin",
-    config_value = function(name) if (identical(name, "FC")) "clang" else ""
+    sysname = "Darwin"
   )
   expect_identical(result, character())
 })
@@ -449,13 +407,15 @@ test_that("quickr_fcompiler_env falls back when flang runtime not found non-expl
     quickr_flang_available = function(...) {
       list(path = flang, available = TRUE)
     },
+    quickr_cached_r_cmd_config_value = function(name) {
+      if (identical(name, "FC")) "clang" else ""
+    },
     .package = "quickr"
   )
 
   result <- quickr:::quickr_fcompiler_env(
     build_dir = build_dir,
-    sysname = "Darwin",
-    config_value = function(name) if (identical(name, "FC")) "clang" else ""
+    sysname = "Darwin"
   )
   # Should fall back to character() since runtime not found and not explicit
   expect_identical(result, character())

@@ -191,12 +191,13 @@ test_that("iterable_is_singleton_one handles unknown iterable kinds", {
 })
 
 test_that("quickr_r_cmd adds .exe extension on Windows when needed", {
-  result <- quickr:::quickr_r_cmd(
-    os_type = "windows",
-    r_home = function(sub) "/path/to/R",
-    file_exists = function(x) FALSE
+  local_mocked_bindings(
+    file.exists = function(path) FALSE,
+    .package = "base"
   )
-  expect_equal(result, "/path/to/R.exe")
+
+  result <- quickr:::quickr_r_cmd(os_type = "windows")
+  expect_equal(result, paste0(R.home("bin/R"), ".exe"))
 })
 
 test_that("set_names handles list argument", {
