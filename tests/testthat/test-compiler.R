@@ -534,3 +534,94 @@ test_that("quick retries failed R CMD config probes", {
   expect_quick_identical(fn, 3)
   expect_identical(blas_calls, 2L)
 })
+
+test_that("quick caches successful flang probes by resolved path", {
+  local_empty_compiler_probe_cache()
+  withr::local_options(quickr.fortran_compiler = "auto")
+
+  flang <- file.path(tempdir(), "flang-one")
+  real_system2 <- base::system2
+  real_sys_info <- base::Sys.info
+  probes <- character()
+  local_mocked_bindings(
+    quickr_flang_path = function() flang,
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.info = function() {
+      info <- real_sys_info()
+      info[["sysname"]] <- "Darwin"
+      info
+    },
+    system2 = function(command, args = character(), ...) {
+      if (identical(command, flang) && identical(args, "--version")) {
+        probes <<- c(probes, command)
+        return("flang version")
+      }
+      real_system2(command, args, ...)
+    },
+    .package = "base"
+  )
+
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  }
+
+  compiled <- quick(fn)
+  expect_identical(compiled(1), 2)
+  compiled <- quick(fn)
+  expect_identical(compiled(2), 3)
+
+  flang <- file.path(tempdir(), "flang-two")
+  compiled <- quick(fn)
+  expect_identical(compiled(3), 4)
+
+  expect_identical(
+    probes,
+    c(
+      file.path(tempdir(), "flang-one"),
+      file.path(tempdir(), "flang-two")
+    )
+  )
+})
+
+test_that("quick retries failed flang probes", {
+  local_empty_compiler_probe_cache()
+  withr::local_options(quickr.fortran_compiler = "auto")
+
+  flang <- file.path(tempdir(), "flang")
+  real_system2 <- base::system2
+  real_sys_info <- base::Sys.info
+  probes <- 0L
+  local_mocked_bindings(
+    quickr_flang_path = function() flang,
+    .package = "quickr"
+  )
+  local_mocked_bindings(
+    Sys.info = function() {
+      info <- real_sys_info()
+      info[["sysname"]] <- "Darwin"
+      info
+    },
+    system2 = function(command, args = character(), ...) {
+      if (identical(command, flang) && identical(args, "--version")) {
+        probes <<- probes + 1L
+        return(structure("flang error", status = 1L))
+      }
+      real_system2(command, args, ...)
+    },
+    .package = "base"
+  )
+
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x + 1
+  }
+
+  compiled <- quick(fn)
+  expect_identical(compiled(1), 2)
+  compiled <- quick(fn)
+  expect_identical(compiled(2), 3)
+  expect_identical(probes, 2L)
+})
