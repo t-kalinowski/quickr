@@ -12,12 +12,8 @@ r2f_handlers[["+"]] <- function(args, scope, ...) {
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
-    pair <- promote_arith_pair(left, right, "+")
-    left <- pair$left
-    right <- pair$right
-    reshaped <- maybe_reshape_vector_matrix(left, right)
-    left <- reshaped$left
-    right <- reshaped$right
+    .[left, right] <- promote_arith_pair(left, right, "+")
+    .[left, right] <- maybe_reshape_vector_matrix(left, right)
     Fortran(glue("({left} + {right})"), conform(left@value, right@value))
   }
 }
@@ -31,24 +27,16 @@ r2f_handlers[["-"]] <- function(args, scope, ...) {
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
   } else {
     .[left, right] <- lapply(args, r2f, scope, ...)
-    pair <- promote_arith_pair(left, right, "-")
-    left <- pair$left
-    right <- pair$right
-    reshaped <- maybe_reshape_vector_matrix(left, right)
-    left <- reshaped$left
-    right <- reshaped$right
+    .[left, right] <- promote_arith_pair(left, right, "-")
+    .[left, right] <- maybe_reshape_vector_matrix(left, right)
     Fortran(glue("({left} - {right})"), conform(left@value, right@value))
   }
 }
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
-  pair <- promote_arith_pair(left, right, "*")
-  left <- pair$left
-  right <- pair$right
-  reshaped <- maybe_reshape_vector_matrix(left, right)
-  left <- reshaped$left
-  right <- reshaped$right
+  .[left, right] <- promote_arith_pair(left, right, "*")
+  .[left, right] <- maybe_reshape_vector_matrix(left, right)
   Fortran(glue("({left} * {right})"), conform(left@value, right@value))
 }
 
@@ -56,9 +44,7 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
-  reshaped <- maybe_reshape_vector_matrix(left, right)
-  left <- reshaped$left
-  right <- reshaped$right
+  .[left, right] <- maybe_reshape_vector_matrix(left, right)
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
 }
 
@@ -72,9 +58,7 @@ r2f_handlers[["^"]] <- function(args, scope, ...) {
   if (identical(right@value@mode, "logical")) {
     right <- cast_to_mode(right, "integer", "^")
   }
-  reshaped <- maybe_reshape_vector_matrix(left, right)
-  left <- reshaped$left
-  right <- reshaped$right
+  .[left, right] <- maybe_reshape_vector_matrix(left, right)
   mode <- reduce_promoted_mode(left, right)
   if (!identical(mode, "complex")) {
     mode <- "double"
@@ -113,9 +97,7 @@ r2f_handlers[["%%"]] <- function(args, scope, ...) {
 
 r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
-  pair <- promote_arith_pair(left, right, "%/%")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "%/%")
   out_val <- conform(left@value, right@value)
 
   expr <- switch(

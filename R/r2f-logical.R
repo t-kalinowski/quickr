@@ -8,9 +8,7 @@
 r2f_handlers[[">="]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} >= {right})"), var)
@@ -19,9 +17,7 @@ r2f_handlers[[">="]] <- function(args, scope, ...) {
 r2f_handlers[[">"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} > {right})"), var)
@@ -30,9 +26,7 @@ r2f_handlers[[">"]] <- function(args, scope, ...) {
 r2f_handlers[["<"]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} < {right})"), var)
@@ -41,9 +35,7 @@ r2f_handlers[["<"]] <- function(args, scope, ...) {
 r2f_handlers[["<="]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} <= {right})"), var)
@@ -52,9 +44,7 @@ r2f_handlers[["<="]] <- function(args, scope, ...) {
 r2f_handlers[["=="]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} == {right})"), var)
@@ -63,9 +53,7 @@ r2f_handlers[["=="]] <- function(args, scope, ...) {
 r2f_handlers[["!="]] <- function(args, scope, ...) {
   .[left, right] <- lapply(args, r2f, scope, ...)
   # R compares logicals as integers; Fortran has no logical comparison.
-  pair <- promote_arith_pair(left, right, "comparison")
-  left <- pair$left
-  right <- pair$right
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   var <- conform(left@value, right@value)
   var@mode <- "logical"
   Fortran(glue("({left} /= {right})"), var)
