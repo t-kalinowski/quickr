@@ -121,6 +121,9 @@ r2f_handlers[["log10"]] <- function(args, scope, ...) {
 r2f_handlers[["abs"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ...)
+  # R: abs(logical) is integer (abs(TRUE) is 1L); Fortran's abs() requires
+  # a numeric argument, so a logical operand participates as integer.
+  arg <- cast_to_mode(arg, arith_join_mode(arg), "abs()")
   out_mode <- if (arg@value@mode == "complex") "double" else arg@value@mode
   Fortran(glue("abs({arg})"), Variable(mode = out_mode, dims = arg@value@dims))
 }

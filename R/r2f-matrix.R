@@ -224,29 +224,6 @@ bind_output_mode <- function(values, context) {
   stop(context, " does not support input mode(s): ", str_flatten_commas(modes))
 }
 
-bind_cast_value <- function(value, mode, context) {
-  if (identical(value@value@mode, mode)) {
-    return(value)
-  }
-  if (identical(mode, "double")) {
-    return(maybe_cast_double(value))
-  }
-  if (identical(mode, "integer") && identical(value@value@mode, "logical")) {
-    return(Fortran(
-      glue("merge(1_c_int, 0_c_int, {value})"),
-      Variable("integer", value@value@dims)
-    ))
-  }
-  stop(
-    context,
-    " does not support coercion from ",
-    value@value@mode,
-    " to ",
-    mode,
-    call. = FALSE
-  )
-}
-
 bind_dim_sum <- function(values, context, label) {
   if (!length(values)) {
     return(0L)
@@ -381,7 +358,7 @@ register_r2f_handler(
     }
 
     mode <- bind_output_mode(values, context)
-    values <- lapply(values, bind_cast_value, mode = mode, context = context)
+    values <- lapply(values, cast_to_mode, mode = mode, context = context)
 
     dims <- lapply(values, matrix_dims, orientation = "colvec")
     scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))
@@ -437,7 +414,7 @@ register_r2f_handler(
     }
 
     mode <- bind_output_mode(values, context)
-    values <- lapply(values, bind_cast_value, mode = mode, context = context)
+    values <- lapply(values, cast_to_mode, mode = mode, context = context)
 
     dims <- lapply(values, matrix_dims, orientation = "rowvec")
     scalar_flags <- map_lgl(values, \(val) passes_as_scalar(val@value))

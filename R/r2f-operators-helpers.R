@@ -25,22 +25,101 @@ booleanize_logical_as_int <- function(x) {
   out
 }
 
-# Cast a value to double if it's logical or integer.
-# Used by: r2f-arithmetic.R
-maybe_cast_double <- function(x) {
-  if (x@value@mode == "logical") {
-    Fortran(
-      glue("merge(1.0_c_double, 0.0_c_double, {x})"),
-      Variable("double", x@value@dims)
-    )
-  } else if (x@value@mode == "integer") {
-    Fortran(
+# Cast a Fortran value to a target mode by wrapping its expression text.
+# The only place cast spellings live; errors on casts it cannot spell
+# (complex/character operands, or any narrowing) so an unsupported mode is
+# a clean diagnostic instead of invalid generated Fortran.
+# Used by: r2f-arithmetic.R, r2f-logical.R, r2f-constructors.R,
+#          r2f-reductions.R, r2f-matrix.R
+cast_to_mode <- function(x, mode, context = "operand") {
+  stopifnot(inherits(x, Fortran))
+  if (
+    is.null(mode) ||
+      is.null(x@value@mode) || # mode still being inferred; nothing to spell
+      identical(x@value@mode, mode)
+  ) {
+    return(x)
+  }
+  from <- x@value@mode
+  if (identical(mode, "double") && identical(from, "integer")) {
+    return(Fortran(
       glue("real({x}, kind=c_double)"),
       Variable("double", x@value@dims)
+    ))
+  }
+  if (identical(from, "logical") && mode %in% c("integer", "double")) {
+    if (logical_as_int(x@value) && !isTRUE(x@logical_booleanized)) {
+      # bind(c) logicals are already 0/1 integer storage; relabel, or cast
+      # the integer text directly for a double target.
+      relabeled <- Fortran(glue("{x}"), Variable("integer", x@value@dims))
+      return(cast_to_mode(relabeled, mode, context))
+    }
+    x <- booleanize_logical_as_int(x)
+    literals <- switch(
+      mode,
+      integer = "1_c_int, 0_c_int",
+      double = "1.0_c_double, 0.0_c_double"
     )
+    return(Fortran(
+      glue("merge({literals}, {x})"),
+      Variable(mode, x@value@dims)
+    ))
+  }
+  stop(
+    context,
+    " does not support coercion from ",
+    from,
+    " to ",
+    mode,
+    call. = FALSE
+  )
+}
+
+# Cast a value to double if it's logical or integer.
+# Used by: r2f-arithmetic.R, r2f-math.R, r2f-matrix*.R, r2f-coercions.R
+maybe_cast_double <- function(x) {
+  if (x@value@mode %in% c("logical", "integer")) {
+    cast_to_mode(x, "double")
   } else {
     x
   }
+}
+
+# Promote a list of operands to their common (lattice-join) mode, casting
+# each one whose mode differs. For contexts where Fortran requires uniform
+# argument types: array constructors (c()), min/max, merge, modulo.
+# Returns list(args = <cast operands>, mode = <join>).
+# Used by: r2f-arithmetic.R, r2f-constructors.R, r2f-reductions.R
+promote_operands <- function(args, context = "operator") {
+  mode <- reduce_promoted_mode(args)
+  list(
+    args = lapply(args, cast_to_mode, mode = mode, context = context),
+    mode = mode
+  )
+}
+
+# Lattice join for arithmetic contexts: logical joins as integer (R:
+# TRUE + TRUE is 2L, sum(TRUE) is 1L; Fortran has no logical arithmetic).
+# Used by: r2f-arithmetic.R, r2f-math.R, r2f-reductions.R
+arith_join_mode <- function(...) {
+  mode <- reduce_promoted_mode(...)
+  if (identical(mode, "logical")) "integer" else mode
+}
+
+# Apply R's arithmetic rule for logical operands: they join as integer
+# (TRUE + TRUE is 2L), and Fortran has no logical arithmetic, so cast them.
+# int/double mixes are left alone -- Fortran's own promotion matches R.
+# Used by: r2f-arithmetic.R, r2f-logical.R
+promote_arith_pair <- function(left, right, context = "arithmetic") {
+  if (
+    identical(left@value@mode, "logical") ||
+      identical(right@value@mode, "logical")
+  ) {
+    mode <- arith_join_mode(left, right)
+    left <- cast_to_mode(left, mode, context)
+    right <- cast_to_mode(right, mode, context)
+  }
+  list(left = left, right = right)
 }
 
 # Check if a dimension expression equals 1.
@@ -196,6 +275,17 @@ maybe_reshape_vector_matrix <- function(left, right) {
   list(left = left, right = right)
 }
 
+# R's promotion order for the supported atomic modes, lowest to highest.
+# The one place the lattice is spelled: promotion joins take the highest
+# rank present; the narrowing check refuses assignments that move down.
+mode_lattice <- c("logical", "integer", "double", "complex")
+
+# Rank of a mode on the lattice (NA for modes outside it, e.g. character).
+# Used by: reduce_promoted_mode(), scope.R (check_reassignment_narrowing)
+mode_rank <- function(mode) {
+  match(mode, mode_lattice)
+}
+
 # Determine the promoted mode from a list of Fortran values.
 # Used by: r2f-arithmetic.R, r2f-constructors.R
 reduce_promoted_mode <- function(...) {
@@ -212,23 +302,25 @@ reduce_promoted_mode <- function(...) {
   }
   modes <- unique(unlist(getmode(list(...))))
 
-  if ("double" %in% modes) {
-    "double"
-  } else if ("integer" %in% modes) {
-    "integer"
-  } else if ("logical" %in% modes) {
-    "logical"
-  } else {
+  ranks <- mode_rank(modes)
+  if (!length(ranks) || all(is.na(ranks))) {
     NULL
+  } else {
+    mode_lattice[[max(ranks, na.rm = TRUE)]]
   }
 }
 
 # Create a Variable with conforming dimensions from multiple inputs.
 # Used by: r2f-arithmetic.R, r2f-logical.R, r2f-constructors.R, r2f-conditionals.R
 conform <- function(..., mode = NULL) {
+  vars <- drop_nulls(list(...))
+  # Report the promoted (lattice-join) mode: the emitted expression already
+  # promotes (Fortran's rules match R for numeric mixes), and `<-` copies
+  # the reported mode verbatim into the target's declaration, so reporting
+  # the first non-scalar's mode declared truncating targets.
+  mode <- mode %||% reduce_promoted_mode(vars)
   var <- NULL
-  # technically, types are implicit promoted, but we'll let <- handle that.
-  for (var in drop_nulls(list(...))) {
+  for (var in vars) {
     if (passes_as_scalar(var)) {
       next
     } else {
