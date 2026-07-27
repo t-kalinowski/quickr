@@ -245,3 +245,14 @@ test_that("check_assignment_compatible handles NULL value", {
   target <- quickr:::Variable("double", list(1L))
   expect_silent(quickr:::check_assignment_compatible(target, NULL))
 })
+
+test_that("r2size() warns, not crashes, on a deferred-mode Variable", {
+  # mirrors R/r2f-assign.R's deferred-mode path: a binding can exist with
+  # @mode still NULL while inference is in progress
+  scope <- quickr:::new_scope(closure = NULL)
+  scope[["n"]] <- quickr:::Variable(NULL, name = "n", r_name = "n")
+  expect_warning(
+    quickr:::r2size(quote(n), scope),
+    "size is not an integer"
+  )
+})

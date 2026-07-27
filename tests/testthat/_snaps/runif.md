@@ -566,3 +566,67 @@
         return out_;
       }
 
+# impure runif() bounds are evaluated exactly once
+
+    Code
+      fn
+    Output
+      function() {
+          out <- runif(2L, runif(1L), 10)
+          out
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(out) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        real(c_double), intent(out) :: out(2)
+      
+        ! locals
+        integer(c_int) :: tmp1_
+        ! manifest end
+      
+        interface
+          function unif_rand() bind(c, name = "unif_rand") result(u)
+            use iso_c_binding, only: c_double
+            real(c_double) :: u
+          end function unif_rand
+        end interface
+      
+        block
+          real(c_double) :: btmp1_
+      
+          btmp1_ = unif_rand()
+          out = [((btmp1_ + (unif_rand() * (10.0_c_double - btmp1_))), tmp1_=1, 2)]
+        end block
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      #include <R_ext/Random.h>
+      
+      
+      extern void fn(double* const out__);
+      
+      SEXP fn_(SEXP _args) {
+        
+        const R_xlen_t out__len_ = 2;
+        SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
+        double* out__ = REAL(out);
+        
+        GetRNGstate();
+        fn(out__);
+        PutRNGstate();
+        
+        UNPROTECT(1);
+        return out;
+      }
+

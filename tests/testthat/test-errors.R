@@ -169,3 +169,32 @@ test_that("declare() type() calls validate syntax", {
     fixed = TRUE
   )
 })
+
+test_that("reductions reject named arguments like na.rm", {
+  for (reducer in c("max", "min", "sum", "prod")) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(NA)))
+      out <- .(as.name(reducer))(x, na.rm = TRUE)
+      out
+    }))
+    expect_error(
+      quick(fn),
+      "do not support named arguments",
+      fixed = TRUE
+    )
+  }
+})
+
+
+test_that("assigning an expression that produces no value errors cleanly", {
+  fn <- function(x) {
+    declare(type(x = logical(1)))
+    y <- if (x) 1 else 2
+    y
+  }
+  expect_error(
+    quick(fn),
+    "cannot assign `if (x) 1 else 2`: expression does not produce a value",
+    fixed = TRUE
+  )
+})

@@ -39,7 +39,7 @@ test_that("break/for", {
   fn <- function(x) {
     declare(type(x = integer(1)))
     for (i in 1:10) {
-      x = x + 1L
+      x <- x + 1L
       if (x >= 5L) {
         break
       }
@@ -55,7 +55,7 @@ test_that("while", {
   fn <- function(x) {
     declare(type(x = integer(1)))
     while (x < 5L) {
-      x = x + 1L
+      x <- x + 1L
     }
     x
   }

@@ -42,10 +42,13 @@ register_unary_intrinsic(
   expr_fun = function(arg, intrinsic) glue("{intrinsic}({arg})")
 )
 
-r2f_handlers[["floor"]] <- function(args, scope, ...) {
+r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1L]], scope, ...)
+  arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
+  # `arg` is spliced into the emitted expression three times below; hoist
+  # non-trivial expressions so side effects (e.g. RNG state) happen once.
+  arg <- hoist_unless_name(arg, hoist)
   arg <- maybe_cast_double(arg)
   if (!identical(arg@value@mode, "double")) {
     stop("floor() only implemented for logical, integer, and double")
@@ -63,10 +66,13 @@ r2f_handlers[["floor"]] <- function(args, scope, ...) {
   )
 }
 
-r2f_handlers[["ceiling"]] <- function(args, scope, ...) {
+r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1L]], scope, ...)
+  arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
+  # `arg` is spliced into the emitted expression three times below; hoist
+  # non-trivial expressions so side effects (e.g. RNG state) happen once.
+  arg <- hoist_unless_name(arg, hoist)
   arg <- maybe_cast_double(arg)
   if (!identical(arg@value@mode, "double")) {
     stop("ceiling() only implemented for logical, integer, and double")
