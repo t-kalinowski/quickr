@@ -208,21 +208,25 @@ test_that("comparisons accept logical operands like R", {
 })
 
 test_that("reassignment that would narrow the mode is a compile error", {
-  fn <- function(x) {
-    declare(type(x = integer(1)))
-    x <- x + 0.5
-    x
-  }
   # R promotes x to double; Fortran cannot re-type a variable, and the
   # assignment used to silently truncate (quickr returned 2, R returns 2.5)
-  expect_error(quick(fn), "narrow double to integer")
+  expect_snapshot(
+    quick(function(x) {
+      declare(type(x = integer(1)))
+      x <- x + 0.5
+      x
+    }),
+    error = TRUE
+  )
 
-  fn_lgl <- function(x) {
-    declare(type(x = logical(1)))
-    x <- x + 1L
-    x
-  }
-  expect_error(quick(fn_lgl), "narrow integer to logical")
+  expect_snapshot(
+    quick(function(x) {
+      declare(type(x = logical(1)))
+      x <- x + 1L
+      x
+    }),
+    error = TRUE
+  )
 
   # same-mode and widening-safe reassignments still work
   fn_ok <- function(x) {
@@ -234,21 +238,25 @@ test_that("reassignment that would narrow the mode is a compile error", {
 })
 
 test_that("subassignment that would narrow the mode is a compile error", {
-  fn <- function(x) {
-    declare(type(x = integer(3)))
-    x[1L] <- 2.5
-    x
-  }
   # R promotes the whole vector to double; the emitted element assignment
   # used to silently truncate (quickr returned c(2L, 2L, 3L))
-  expect_error(quick(fn), "narrow double to integer")
+  expect_snapshot(
+    quick(function(x) {
+      declare(type(x = integer(3)))
+      x[1L] <- 2.5
+      x
+    }),
+    error = TRUE
+  )
 
-  fn_range <- function(x) {
-    declare(type(x = integer(n)))
-    x[1:2] <- x[1:2] / 2
-    x
-  }
-  expect_error(quick(fn_range), "narrow double to integer")
+  expect_snapshot(
+    quick(function(x) {
+      declare(type(x = integer(n)))
+      x[1:2] <- x[1:2] / 2
+      x
+    }),
+    error = TRUE
+  )
 
   # widening-safe subassignment still works
   fn_ok <- function(x) {

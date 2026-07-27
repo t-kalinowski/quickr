@@ -594,3 +594,51 @@
         return out_;
       }
 
+# reassignment that would narrow the mode is a compile error
+
+    Code
+      quick(function(x) {
+        declare(type(x = integer(1)))
+        x <- x + 0.5
+        x
+      })
+    Condition
+      Error:
+      ! cannot reassign `x`: assignment would narrow double to integer; R would promote `x` to double
+
+---
+
+    Code
+      quick(function(x) {
+        declare(type(x = logical(1)))
+        x <- x + 1L
+        x
+      })
+    Condition
+      Error:
+      ! cannot reassign `x`: assignment would narrow integer to logical; R would promote `x` to integer
+
+# subassignment that would narrow the mode is a compile error
+
+    Code
+      quick(function(x) {
+        declare(type(x = integer(3)))
+        x[1L] <- 2.5
+        x
+      })
+    Condition
+      Error:
+      ! cannot reassign `x`: assignment would narrow double to integer; R would promote `x` to double
+
+---
+
+    Code
+      quick(function(x) {
+        declare(type(x = integer(n)))
+        x[1:2] <- x[1:2] / 2
+        x
+      })
+    Condition
+      Error:
+      ! cannot reassign `x`: assignment would narrow double to integer; R would promote `x` to double
+
