@@ -131,7 +131,9 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
 register_unary_intrinsic(
   "Re",
   mode_fun = function(arg) "double",
-  expr_fun = function(arg, intrinsic) glue("real({arg})")
+  # kind-less real() of an integer or double argument is single precision;
+  # kind=c_double is a no-op change of meaning for complex arguments (F2018).
+  expr_fun = function(arg, intrinsic) glue("real({arg}, kind=c_double)")
 )
 
 register_unary_intrinsic(

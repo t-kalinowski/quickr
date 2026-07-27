@@ -36,3 +36,22 @@ test_that("%% and %/%", {
   }
   expect_quick_identical(div_int, x)
 })
+
+test_that("integer %/% is exact beyond 2^24", {
+  div_int_big <- function(a, b) {
+    declare(type(a = integer(1)), type(b = integer(1)))
+    a %/% b
+  }
+
+  # locks the kind=c_double casts: kind-less real() is single precision,
+  # which cannot represent odd integers above 2^24, so e.g.
+  # 16777219L %/% 2L came back as 8388610 instead of 8388609
+  expect_translation_snapshots(div_int_big)
+
+  expect_quick_identical(
+    div_int_big,
+    list(16777219L, 2L),
+    list(-16777219L, 2L),
+    list(.Machine$integer.max, 7L)
+  )
+})

@@ -188,7 +188,7 @@
         ! manifest end
       
       
-        out_ = (a / merge(1_c_double, 0_c_double, (b/=0)))
+        out_ = (a / merge(1.0_c_double, 0.0_c_double, (b/=0)))
       end subroutine
     Code
       cat(cwrapper)
@@ -236,6 +236,81 @@
           b__,
           out___,
           a__len_);
+        
+        UNPROTECT(1);
+        return out_;
+      }
+
+# division casts logical by logical
+
+    Code
+      fn
+    Output
+      function(a, b) {
+          declare(type(a = logical(1)), type(b = logical(1)))
+          a / b
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(a, b, out_) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: a ! logical
+        integer(c_int), intent(in) :: b ! logical
+        real(c_double), intent(out) :: out_
+        ! manifest end
+      
+      
+        out_ = (merge(1.0_c_double, 0.0_c_double, (a/=0)) / merge(1.0_c_double, 0.0_c_double, (b/=0)))
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const a__, 
+        const int* const b__, 
+        double* const out___);
+      
+      SEXP fn_(SEXP _args) {
+        // a
+        _args = CDR(_args);
+        SEXP a = CAR(_args);
+        if (TYPEOF(a) != LGLSXP) {
+          Rf_error("typeof(a) must be 'logical', not '%s'", Rf_type2char(TYPEOF(a)));
+        }
+        const int* const a__ = LOGICAL(a);
+        const R_xlen_t a__len_ = Rf_xlength(a);
+        
+        // b
+        _args = CDR(_args);
+        SEXP b = CAR(_args);
+        if (TYPEOF(b) != LGLSXP) {
+          Rf_error("typeof(b) must be 'logical', not '%s'", Rf_type2char(TYPEOF(b)));
+        }
+        const int* const b__ = LOGICAL(b);
+        const R_xlen_t b__len_ = Rf_xlength(b);
+        
+        if (a__len_ != 1)
+          Rf_error("length(a) must be 1, not %0.f",
+                    (double)a__len_);
+        if (b__len_ != 1)
+          Rf_error("length(b) must be 1, not %0.f",
+                    (double)b__len_);
+        const R_xlen_t out___len_ = (1);
+        SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
+        double* out___ = REAL(out_);
+        
+        fn(a__, b__, out___);
         
         UNPROTECT(1);
         return out_;

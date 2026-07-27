@@ -106,6 +106,21 @@ test_that("complex unary intrinsics", {
 })
 
 
+test_that("Re() on a double argument keeps double precision", {
+  fn <- function(x) {
+    declare(type(x = double(n)))
+    out <- Re(x)
+    out
+  }
+
+  # locks real(x, kind=c_double): kind-less real() of a double argument
+  # is single precision, so Re() silently rounded its input
+  expect_translation_snapshots(fn)
+
+  expect_quick_identical(fn, list(c(0.1, 1 / 3, -2.5)))
+})
+
+
 test_that("unary logical 'not'-operator on vector", {
   fn <- function(x) {
     declare(type(x = integer(n)))

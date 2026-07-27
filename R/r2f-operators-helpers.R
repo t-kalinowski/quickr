@@ -30,7 +30,7 @@ booleanize_logical_as_int <- function(x) {
 maybe_cast_double <- function(x) {
   if (x@value@mode == "logical") {
     Fortran(
-      glue("merge(1_c_double, 0_c_double, {x})"),
+      glue("merge(1.0_c_double, 0.0_c_double, {x})"),
       Variable("double", x@value@dims)
     )
   } else if (x@value@mode == "integer") {

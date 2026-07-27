@@ -83,7 +83,9 @@ r2f_handlers[["%/%"]] <- function(args, scope, ...) {
 
   expr <- switch(
     out_val@mode,
-    integer = glue("int(floor(real({left}) / real({right})))"),
+    integer = glue(
+      "int(floor(real({left}, kind=c_double) / real({right}, kind=c_double)), kind=c_int)"
+    ),
     double = glue("floor({left} / {right})"),
     stop("%/% only implemented for numeric types")
   )

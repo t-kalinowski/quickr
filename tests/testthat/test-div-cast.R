@@ -42,6 +42,27 @@ test_that("division casts logical", {
 })
 
 
+test_that("division casts logical by logical", {
+  div_lgl_lgl <- function(a, b) {
+    declare(type(a = logical(1)), type(b = logical(1)))
+    a / b
+  }
+
+  # locks the 1.0_c_double/0.0_c_double literals: with integer-kind
+  # 1_c_double literals this was an integer division, and TRUE/FALSE
+  # divided by zero instead of yielding Inf
+  expect_translation_snapshots(div_lgl_lgl)
+
+  expect_quick_equal(
+    div_lgl_lgl,
+    list(TRUE, TRUE),
+    list(TRUE, FALSE), # Inf
+    list(FALSE, TRUE),
+    list(FALSE, FALSE) # NaN
+  )
+})
+
+
 test_that("division casts complex", {
   div_cplx <- function(a, b) {
     declare(type(a = complex(n)), type(b = complex(n)))
