@@ -59,6 +59,23 @@ test_that("ifelse with statically mismatched branch lengths is a compile error",
   expect_error(quick(fn), "R-style recycling is not supported")
 })
 
+test_that("ifelse with a branch of different rank than test is a compile error", {
+  # merge() requires conformable arguments: a matrix branch under a vector
+  # `test` is R recycling, not broadcasting.
+  fn <- function(c, m) {
+    declare(type(c = logical(3)), type(m = double(3, 3)))
+    ifelse(c, m, 0)
+  }
+  expect_error(quick(fn), "R-style recycling is not supported")
+
+  # the mirror image, and in `no` position: a vector branch under a matrix test
+  fn2 <- function(c, a) {
+    declare(type(c = logical(2, 2)), type(a = double(4)))
+    ifelse(c, 0, a)
+  }
+  expect_error(quick(fn2), "R-style recycling is not supported")
+})
+
 test_that("ifelse guards unknown branch lengths at runtime", {
   fn <- function(c, a, b) {
     declare(type(c = logical(NA)), type(a = double(NA)), type(b = double(NA)))

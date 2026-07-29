@@ -33,7 +33,9 @@ ifelse_axis_verdict <- function(test_dim, branch_dim) {
 # natively; a non-scalar branch must match `test`'s shape, because
 # merge() requires conformable arguments and a runtime mismatch would
 # read past the shorter branch. Statically unequal dims are a compile
-# error; symbolic dims get a statement-level runtime size guard.
+# error; symbolic dims get a statement-level runtime size guard, emitted into
+# `hoist` -- always a live hoist context, since r2f() substitutes a fresh one
+# before dispatching to any handler.
 check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
   if (passes_as_scalar(branch@value)) {
     return(invisible())
@@ -56,13 +58,6 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
   }
   if (!length(unknown_axes)) {
     return(invisible())
-  }
-  if (is.null(hoist)) {
-    stop(
-      "cannot emit a runtime length guard here; ",
-      "ifelse() branch lengths must match `test` statically",
-      call. = FALSE
-    )
   }
   # size() is an inquiry, so applying it to operand expression text does
   # not evaluate the operands.
