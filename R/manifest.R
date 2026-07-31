@@ -522,6 +522,10 @@ dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
 }
 dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
 dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
+dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
+  safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
+  glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")
+}
 dims2f_eval_base_env[["length"]] <- function(x) {
   if (is.symbol(x)) {
     glue("size({as.character(x)})")

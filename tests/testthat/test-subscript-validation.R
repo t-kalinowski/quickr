@@ -94,6 +94,20 @@ test_that("literal subscripts beyond a known extent are compile errors", {
   expect_no_error(quick(fna))
 })
 
+test_that("numeric literal subscripts are validated after integer coercion", {
+  ftruncate <- function(x) {
+    declare(type(x = double(3)))
+    x[3.9]
+  }
+  expect_quick_identical(ftruncate, list(as.double(1:3)))
+
+  fzero <- function(x) {
+    declare(type(x = double(3)))
+    x[0.5]
+  }
+  expect_error(quick(fzero), "subscripts must be positive")
+})
+
 test_that("assignment subscripts get the same validation as reads", {
   # x[-1L] <- 9 compiled into a silent out-of-bounds Fortran write
   fneg <- function(x) {
@@ -205,9 +219,36 @@ test_that("seq() value with a symbolic by is sized by the step", {
     declare(type(k = integer(1)))
     seq(1L, 9L, by = k)
   }
+  sum_fn <- function(k) {
+    declare(type(k = integer(1)))
+    sum(seq(1L, 9L, by = k))
+  }
+
   qfn := quick(fn)
+  qsum := quick(sum_fn)
   expect_identical(qfn(2L), seq(1L, 9L, by = 2L))
   expect_identical(qfn(4L), seq(1L, 9L, by = 4L))
+  expect_identical(qsum(2L), sum(seq(1L, 9L, by = 2L)))
+  expect_error(
+    qfn(0L),
+    "invalid '(to - from)/by'",
+    fixed = TRUE
+  )
+  expect_error(
+    qfn(-2L),
+    "wrong sign in 'by' argument",
+    fixed = TRUE
+  )
+  expect_error(
+    qsum(0L),
+    "invalid '(to - from)/by'",
+    fixed = TRUE
+  )
+  expect_error(
+    qsum(-2L),
+    "wrong sign in 'by' argument",
+    fixed = TRUE
+  )
 })
 
 test_that("x[seq_len(n)] with n = 0 returns a zero-length result like R", {

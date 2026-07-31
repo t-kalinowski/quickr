@@ -459,6 +459,26 @@ c_bridge_hoist_take_pending <- function(hoist) {
   pending
 }
 
+c_bridge_hoist_seq_checks <- function(hoist, from, to, by) {
+  stopifnot(
+    is.environment(hoist),
+    is_string(from),
+    is_string(to),
+    is_string(by)
+  )
+  hoist$pending <- c(
+    hoist$pending,
+    glue(
+      '
+      if (({from} != {to}) && ({by} == 0))
+        Rf_error("invalid \'(to - from)/by\'");
+      if ((({from} < {to}) && ({by} < 0)) ||
+          (({from} > {to}) && ({by} > 0)))
+        Rf_error("wrong sign in \'by\' argument");'
+    )
+  )
+}
+
 
 as_c_name <- function(var, c_hoist = NULL) {
   stopifnot(inherits(var, Variable))
@@ -580,6 +600,23 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
       stop("ncol() expects one argument")
     }
     return(dims2c_dim_index_expr(call("[", call("dim", args[[1L]]), 2L), scope))
+  }
+
+  if (identical(op, "quickr_seq_length")) {
+    if (length(args) != 3L || is.null(c_hoist)) {
+      stop("quickr_seq_length() requires three arguments and a C bridge hoist")
+    }
+    from <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)
+    to <- dims2c_expr(args[[2L]], scope, c_hoist = c_hoist)
+    by <- dims2c_expr(args[[3L]], scope, c_hoist = c_hoist)
+    c_bridge_hoist_seq_checks(c_hoist, from, to, by)
+
+    safe_by <- glue("(({by}) == 0 ? 1 : ({by}))")
+    delta <- glue("((R_xlen_t)({to}) - (R_xlen_t)({from}))")
+    quotient <- glue("({delta} / (R_xlen_t)({safe_by}))")
+    return(glue(
+      "((({quotient}) < 0 ? -({quotient}) : ({quotient})) + 1)"
+    ))
   }
 
   if (identical(op, "abs")) {

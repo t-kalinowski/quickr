@@ -250,7 +250,10 @@ check_subscript_expr <- function(e, extent = NULL) {
     extent <- NULL
   }
   if (is.numeric(e) && length(e) >= 1L && !anyNA(e)) {
-    if (any(e <= 0)) {
+    # R truncates numeric subscripts toward zero; match the int() conversion
+    # used by the generated Fortran before validating the resulting indices.
+    indices <- trunc(e)
+    if (any(indices <= 0)) {
       stop(
         "subscripts must be positive; R's negative (exclusion) and zero ",
         "subscripts are not supported: ",
@@ -258,7 +261,7 @@ check_subscript_expr <- function(e, extent = NULL) {
         call. = FALSE
       )
     }
-    if (!is.null(extent) && any(e > extent)) {
+    if (!is.null(extent) && any(indices > extent)) {
       stop(
         "subscript exceeds its dimension's extent (",
         as.integer(extent),

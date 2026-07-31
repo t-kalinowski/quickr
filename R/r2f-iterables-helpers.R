@@ -76,7 +76,39 @@ seq_like_length_expr <- function(from, to, by = NULL) {
   if (is.null(by)) {
     return(call("+", call("abs", call("-", to, from)), 1L))
   }
-  call("+", call("abs", call("%/%", call("-", to, from), by)), 1L)
+  call("quickr_seq_length", from, to, by)
+}
+
+seq_like_step_needs_runtime_check <- function(info) {
+  !is.null(info$by) &&
+    !(is_scalar_integerish(info$from) &&
+      is_scalar_integerish(info$to) &&
+      is_scalar_integerish(info$by))
+}
+
+emit_seq_step_runtime_checks <- function(from, to, by, hoist, scope) {
+  stopifnot(
+    inherits(from, Fortran),
+    inherits(to, Fortran),
+    inherits(by, Fortran),
+    inherits(hoist, "environment"),
+    inherits(scope, "quickr_scope")
+  )
+  emit_quickr_error_if(
+    glue("({from} /= {to}) .and. ({by} == 0_c_int)"),
+    "invalid '(to - from)/by'",
+    hoist,
+    scope
+  )
+  emit_quickr_error_if(
+    glue(
+      "(({to} > {from}) .and. ({by} < 0_c_int)) .or. ",
+      "(({to} < {from}) .and. ({by} > 0_c_int))"
+    ),
+    "wrong sign in 'by' argument",
+    hoist,
+    scope
+  )
 }
 
 # Parse a seq-like call into its components.
@@ -251,6 +283,24 @@ seq_like_r2f <- function(
   context <- context %||% r2f_iterable_context(list(...)$calls)
   if (is.null(context)) {
     context <- "value"
+  }
+
+  check_step_at_runtime <- kind == "seq" &&
+    seq_like_step_needs_runtime_check(info)
+  if (check_step_at_runtime && context != "[") {
+    emit_seq_step_runtime_checks(
+      from,
+      to,
+      by,
+      hoist = list(...)$hoist,
+      scope = scope
+    )
+  }
+  if (check_step_at_runtime) {
+    by <- Fortran(
+      glue("merge(int({by}, kind=c_int), 1_c_int, {from} /= {to})"),
+      Variable("integer")
+    )
   }
 
   if (is.null(len_expr) || is_scalar_na(len_expr)) {
