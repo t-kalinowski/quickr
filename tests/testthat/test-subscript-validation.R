@@ -196,6 +196,12 @@ test_that("literal in-range bounds emit no guard; bad literals error at compile 
 })
 
 test_that("x[seq(a, b, by)] requires a literal step and guards wrong signs", {
+  fdesc <- function(x) {
+    declare(type(x = double(5)))
+    x[seq(5L, 1L, by = -1L)]
+  }
+  expect_quick_identical(fdesc, list(as.double(1:5)))
+
   # the result length divides by the step, and the C bridge evaluates it
   # before any runtime guard could run -> compile error
   fn <- function(x, k) {

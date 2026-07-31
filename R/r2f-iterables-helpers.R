@@ -375,7 +375,8 @@ seq_like_r2f <- function(
 # Used by: seq_like_r2f() (subscript context)
 check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
   lit <- function(e) {
-    if (is_wholenumber(e)) as.integer(e) else NA_integer_
+    e <- unwrap_parens(e)
+    if (is_scalar_integerish(e)) as.integer(e) else NA_integer_
   }
   from_lit <- lit(info$from)
   to_lit <- lit(info$to)
