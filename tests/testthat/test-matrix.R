@@ -363,3 +363,31 @@ test_that("t() and diag() preserve logical mode", {
   }
   expect_quick_equal(dfn, list(m))
 })
+
+test_that("diag() preserves integer-backed logical storage in an intermediate", {
+  fn <- function(m) {
+    declare(type(m = logical(2, 2)))
+    d <- diag(m)
+    as.integer(d)
+  }
+
+  m <- matrix(c(TRUE, FALSE, TRUE, FALSE), 2, 2)
+  expect_match(
+    as.character(r2f(fn)),
+    "integer(c_int) :: d(2)",
+    fixed = TRUE
+  )
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(m))
+})
+
+test_that("diag() initializes integer-backed logical outputs as integers", {
+  fn <- function(x) {
+    declare(type(x = logical(2)))
+    diag(x, 3L, 4L)
+  }
+
+  expect_match(as.character(r2f(fn)), "out_ = 0_c_int", fixed = TRUE)
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(c(TRUE, FALSE)))
+})

@@ -318,7 +318,11 @@ infer_dest_diag <- function(args, scope) {
     diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, "diag")
     # diag_extract() preserves x's mode; a double-inferred dest would
     # mislabel an integer diagonal.
-    return(Variable(x@mode, list(diag_len)))
+    return(Variable(
+      mode = x@mode,
+      dims = list(diag_len),
+      logical_as_int = logical_as_int(x)
+    ))
   }
 
   # Case: x is a scalar literal (identity matrix of that size)
@@ -349,12 +353,20 @@ infer_dest_diag <- function(args, scope) {
       if (is.null(ncol)) {
         ncol <- nrow
       }
-      return(Variable(x@mode, list(nrow, ncol)))
+      return(Variable(
+        mode = x@mode,
+        dims = list(nrow, ncol),
+        logical_as_int = logical_as_int(x)
+      ))
     }
     # No nrow/ncol: square matrix from vector length
     if (x@rank == 1L) {
       len <- var_dim_or_one(x, 1L)
-      return(Variable(x@mode, list(len, len)))
+      return(Variable(
+        mode = x@mode,
+        dims = list(len, len),
+        logical_as_int = logical_as_int(x)
+      ))
     }
   }
 

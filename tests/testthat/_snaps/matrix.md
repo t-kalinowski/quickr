@@ -307,3 +307,156 @@
         return out;
       }
 
+# diag() preserves integer-backed logical storage in an intermediate
+
+    Code
+      fn
+    Output
+      function(m) {
+          declare(type(m = logical(2, 2)))
+          d <- diag(m)
+          as.integer(d)
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(m, out_) bind(c)
+        use iso_c_binding, only: c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: m(2, 2) ! logical
+        integer(c_int), intent(out) :: out_(2)
+      
+        ! locals
+        integer(c_int) :: d(2) ! logical
+        ! manifest end
+      
+      
+        block
+          integer(c_int) :: btmp1_
+      
+          do btmp1_ = 1_c_int, int(2, kind=c_int)
+            d(btmp1_) = m(btmp1_, btmp1_)
+          end do
+        end block
+        out_ = d
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(const int* const m__, int* const out___);
+      
+      SEXP fn_(SEXP _args) {
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != LGLSXP) {
+          Rf_error("typeof(m) must be 'logical', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        const int* const m__ = LOGICAL(m);
+        const int* const m__dim_ = ({
+        SEXP dim_ = Rf_getAttrib(m, R_DimSymbol);
+        if (Rf_length(dim_) != 2) Rf_error(
+          "m must be a 2D-array, but length(dim(m)) is %i",
+          (int) Rf_length(dim_));
+        INTEGER(dim_);});
+        const int m__dim_1_ = m__dim_[0];
+        const int m__dim_2_ = m__dim_[1];
+        
+        if (m__dim_1_ != 2)
+          Rf_error("dim(m)[1] must be 2, not %0.f",
+                    (double)m__dim_1_);
+        if (m__dim_2_ != 2)
+          Rf_error("dim(m)[2] must be 2, not %0.f",
+                    (double)m__dim_2_);
+        const R_xlen_t out___len_ = 2;
+        SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
+        int* out___ = INTEGER(out_);
+        
+        fn(m__, out___);
+        
+        UNPROTECT(1);
+        return out_;
+      }
+
+# diag() initializes integer-backed logical outputs as integers
+
+    Code
+      fn
+    Output
+      function(x) {
+          declare(type(x = logical(2)))
+          diag(x, 3L, 4L)
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, out_) bind(c)
+        use iso_c_binding, only: c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: x(2) ! logical
+        integer(c_int), intent(out) :: out_(3, 4) ! logical
+        ! manifest end
+      
+      
+        block
+          integer(c_int) :: btmp1_
+      
+          out_ = 0_c_int
+          do btmp1_ = 1_c_int, int(3, kind=c_int)
+            out_(btmp1_, btmp1_) = x(1_c_int + mod(btmp1_ - 1_c_int, int(2, kind=c_int)))
+          end do
+        end block
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(const int* const x__, int* const out___);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != LGLSXP) {
+          Rf_error("typeof(x) must be 'logical', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const int* const x__ = LOGICAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        if (x__len_ != 2)
+          Rf_error("length(x) must be 2, not %0.f",
+                    (double)x__len_);
+        const R_xlen_t out___len_ = (3) * (4);
+        SEXP out_ = PROTECT(Rf_allocVector(LGLSXP, out___len_));
+        int* out___ = LOGICAL(out_);
+        {
+          const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
+          int* const _dim = INTEGER(_dim_sexp);
+          _dim[0] = 3;
+          _dim[1] = 4;
+          Rf_dimgets(out_, _dim_sexp);
+        }
+        
+        fn(x__, out___);
+        
+        UNPROTECT(2);
+        return out_;
+      }
+

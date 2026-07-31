@@ -262,12 +262,20 @@ can_use_output <- function(
   expected_dims = NULL,
   context,
   allow_alias = character(),
-  mode = "double"
+  mode = "double",
+  logical_is_c_int = FALSE
 ) {
+  stopifnot(
+    is_bool(logical_is_c_int),
+    !logical_is_c_int || identical(mode, "logical")
+  )
   if (is.null(dest)) {
     return(FALSE)
   }
   if (!identical(dest@mode, mode)) {
+    return(FALSE)
+  }
+  if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
   assert_dest_dims_compatible(dest, expected_dims, context)
@@ -293,7 +301,8 @@ ensure_blas_operand_name <- function(x, hoist) {
   }
   tmp <- hoist$declare_tmp(
     mode = x@value@mode %||% "double",
-    dims = x@value@dims
+    dims = x@value@dims,
+    logical_as_int = logical_as_int(x@value)
   )
   hoist$emit(glue("{tmp@name} = {x}"))
   tmp@name
@@ -1199,6 +1208,7 @@ diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
   diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, context)
 
   x_name <- ensure_blas_operand_name(x, hoist)
+  logical_is_c_int <- logical_as_int(x@value)
 
   writes_to_dest <- FALSE
   if (
@@ -1207,14 +1217,19 @@ diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
       input_names = x_name,
       expected_dims = list(diag_len),
       context = context,
-      mode = x@value@mode
+      mode = x@value@mode,
+      logical_is_c_int = logical_is_c_int
     )
   ) {
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
   } else {
-    out_var <- hoist$declare_tmp(mode = x@value@mode, dims = list(diag_len))
+    out_var <- hoist$declare_tmp(
+      mode = x@value@mode,
+      dims = list(diag_len),
+      logical_as_int = logical_is_c_int
+    )
     out_name <- out_var@name
   }
 
@@ -1249,14 +1264,7 @@ diag_matrix <- function(
   assert_rank_leq1(x, paste0(context, " expects a vector or scalar input"))
 
   mode <- x@value@mode
-  zero <- switch(
-    mode,
-    double = "0.0_c_double",
-    integer = "0_c_int",
-    logical = ".false.",
-    complex = "(0.0_c_double, 0.0_c_double)",
-    stop(context, " does not support mode ", mode, call. = FALSE)
-  )
+  logical_is_c_int <- logical_as_int(x@value)
 
   diag_len <- diag_length_expr(nrow, ncol, context)
   x_scalar <- passes_as_scalar(x@value)
@@ -1271,17 +1279,30 @@ diag_matrix <- function(
       input_names = x_name,
       expected_dims = list(nrow, ncol),
       context = context,
-      mode = mode
+      mode = mode,
+      logical_is_c_int = logical_is_c_int
     )
   ) {
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
   } else {
-    out_var <- hoist$declare_tmp(mode = mode, dims = list(nrow, ncol))
+    out_var <- hoist$declare_tmp(
+      mode = mode,
+      dims = list(nrow, ncol),
+      logical_as_int = logical_is_c_int
+    )
     out_name <- out_var@name
   }
 
+  zero <- switch(
+    mode,
+    double = "0.0_c_double",
+    integer = "0_c_int",
+    logical = if (logical_as_int(out_var)) "0_c_int" else ".false.",
+    complex = "(0.0_c_double, 0.0_c_double)",
+    stop(context, " does not support mode ", mode, call. = FALSE)
+  )
   hoist$emit(glue("{out_name} = {zero}"))
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
