@@ -298,3 +298,96 @@ test_that("indexing function like transposed expressions hoists temporaries that
   x <- matrix(runif(25), 5, 5)
   expect_quick_identical(fn, list(x = x))
 })
+
+test_that("t() and diag() preserve integer mode", {
+  tfn <- function(m) {
+    declare(type(m = integer(2, 3)))
+    t(m)
+  }
+  expect_quick_equal(tfn, list(matrix(1:6, 2, 3))) # typeof integer
+
+  tvec <- function(x) {
+    declare(type(x = integer(3)))
+    t(x)
+  }
+  expect_quick_equal(tvec, list(1:3)) # R: 1 x 3 integer matrix
+
+  dfn <- function(m) {
+    declare(type(m = integer(3, 3)))
+    diag(m)
+  }
+  expect_quick_equal(dfn, list(matrix(1:9, 3, 3))) # R: integer vector
+
+  # same, through the inferred-destination path (out <- diag(m))
+  dfn2 <- function(m) {
+    declare(type(m = integer(3, 3)))
+    out <- diag(m)
+    out
+  }
+  expect_translation_snapshots(dfn2)
+  expect_quick_equal(dfn2, list(matrix(1:9, 3, 3)))
+
+  dvec <- function(x) {
+    declare(type(x = integer(3)))
+    diag(x)
+  }
+  expect_quick_equal(dvec, list(1:3)) # R: integer matrix
+
+  # x recycled along the diagonal of a non-square result
+  drect <- function(x) {
+    declare(type(x = integer(2)))
+    diag(x, 3L, 4L)
+  }
+  expect_quick_equal(drect, list(1:2))
+
+  # identity forms stay double, as in R
+  dident <- function() {
+    out <- diag(3L)
+    out
+  }
+  expect_quick_equal(dident, list())
+})
+
+test_that("t() and diag() preserve logical mode", {
+  m <- matrix(c(TRUE, FALSE, TRUE, TRUE), 2, 2)
+
+  tfn <- function(m) {
+    declare(type(m = logical(2, 2)))
+    t(m)
+  }
+  expect_quick_equal(tfn, list(m))
+
+  dfn <- function(m) {
+    declare(type(m = logical(2, 2)))
+    diag(m)
+  }
+  expect_quick_equal(dfn, list(m))
+})
+
+test_that("diag() preserves integer-backed logical storage in an intermediate", {
+  fn <- function(m) {
+    declare(type(m = logical(2, 2)))
+    d <- diag(m)
+    as.integer(d)
+  }
+
+  m <- matrix(c(TRUE, FALSE, TRUE, FALSE), 2, 2)
+  expect_match(
+    as.character(r2f(fn)),
+    "integer(c_int) :: d(2)",
+    fixed = TRUE
+  )
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(m))
+})
+
+test_that("diag() initializes integer-backed logical outputs as integers", {
+  fn <- function(x) {
+    declare(type(x = logical(2)))
+    diag(x, 3L, 4L)
+  }
+
+  expect_match(as.character(r2f(fn)), "out_ = 0_c_int", fixed = TRUE)
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(c(TRUE, FALSE)))
+})

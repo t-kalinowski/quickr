@@ -137,13 +137,14 @@ register_r2f_handler(
 r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
   x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
+  # R's t() preserves the input mode. (The transposes feeding matrix
+  # multiplication go through unwrap_transpose_arg(), not this handler.)
   if (x@value@rank == 2) {
-    val <- Variable("double", list(x@value@dims[[2]], x@value@dims[[1]]))
+    val <- Variable(x@value@mode, list(x@value@dims[[2]], x@value@dims[[1]]))
     return(Fortran(glue("transpose({x})"), val))
   } else if (x@value@rank == 1) {
     len <- x@value@dims[[1]]
-    val <- Variable("double", list(1L, len))
+    val <- Variable(x@value@mode, list(1L, len))
     return(Fortran(glue("reshape({x}, [1, int({len})])"), val))
   } else if (x@value@rank == 0) {
     return(x)

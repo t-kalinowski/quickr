@@ -311,9 +311,18 @@ infer_dest_diag <- function(args, scope) {
 
   # Case: x is a matrix -> extract diagonal (returns vector)
   if (!is.null(x) && x@rank == 2L) {
+    if (is.null(x@mode)) {
+      return(NULL)
+    }
     x_dims <- matrix_dims_var(x)
     diag_len <- diag_length_expr(x_dims$rows, x_dims$cols, "diag")
-    return(Variable("double", list(diag_len)))
+    # diag_extract() preserves x's mode; a double-inferred dest would
+    # mislabel an integer diagonal.
+    return(Variable(
+      mode = x@mode,
+      dims = list(diag_len),
+      logical_as_int = logical_as_int(x)
+    ))
   }
 
   # Case: x is a scalar literal (identity matrix of that size)
@@ -330,7 +339,8 @@ infer_dest_diag <- function(args, scope) {
   }
 
   # Case: x is a vector or scalar, construct diagonal matrix
-  if (!is.null(x) && x@rank <= 1L) {
+  # (diag_matrix() preserves x's mode, matching R)
+  if (!is.null(x) && x@rank <= 1L && !is.null(x@mode)) {
     if (has_nrow || has_ncol) {
       nrow <- if (has_nrow) infer_size(nrow_arg, scope) else NULL
       ncol <- if (has_ncol) infer_size(ncol_arg, scope) else NULL
@@ -343,12 +353,20 @@ infer_dest_diag <- function(args, scope) {
       if (is.null(ncol)) {
         ncol <- nrow
       }
-      return(Variable("double", list(nrow, ncol)))
+      return(Variable(
+        mode = x@mode,
+        dims = list(nrow, ncol),
+        logical_as_int = logical_as_int(x)
+      ))
     }
     # No nrow/ncol: square matrix from vector length
     if (x@rank == 1L) {
       len <- var_dim_or_one(x, 1L)
-      return(Variable("double", list(len, len)))
+      return(Variable(
+        mode = x@mode,
+        dims = list(len, len),
+        logical_as_int = logical_as_int(x)
+      ))
     }
   }
 

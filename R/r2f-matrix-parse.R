@@ -1,6 +1,9 @@
 # Matrix parsing helpers
 
 # Unwrap t() calls to infer transpose flags and normalize scalars/vectors.
+# The double casts here are correct and intentional: this path only feeds
+# matrix-multiplication handlers (%*%, crossprod, ...), and R's matrix
+# products always return double. The standalone t() handler preserves mode.
 unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
   arg_unwrapped <- unwrap_parens(arg)
   if (is_call(arg_unwrapped, quote(t)) && length(arg_unwrapped) == 2L) {
