@@ -41,6 +41,15 @@ test_that("negative and zero subscripts are rejected at compile time", {
   expect_error(quick(fnm), "negative subscripts|subscripts must be positive")
 })
 
+test_that("double negation remains a positive subscript", {
+  fn <- function(x) {
+    declare(type(x = double(4)))
+    x[-(-1L)]
+  }
+
+  expect_quick_identical(fn, list(as.double(1:4)))
+})
+
 test_that("literal subscripts beyond a known extent are compile errors", {
   # R pads out-of-range reads with NA; quickr refuses at compile time
   fn <- function(x) {
@@ -195,7 +204,7 @@ test_that("literal in-range bounds emit no guard; bad literals error at compile 
   expect_error(quick(fbad), "bounds >= 1")
 })
 
-test_that("x[seq(a, b, by)] requires a literal step and guards wrong signs", {
+test_that("non-singleton x[seq(a, b, by)] validates the step", {
   fdesc <- function(x) {
     declare(type(x = double(5)))
     x[seq(5L, 1L, by = -1L)]
@@ -218,6 +227,38 @@ test_that("x[seq(a, b, by)] requires a literal step and guards wrong signs", {
   qfs := quick(fs)
   expect_equal(qfs(as.double(1:9), 8L), c(5, 6, 7, 8))
   expect_error(qfs(as.double(1:9), 2L), "wrong sign")
+})
+
+test_that("a singleton seq() subscript accepts a symbolic step", {
+  fn <- function(x, n, k) {
+    declare(
+      type(x = double(5)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    x[seq(n, n, by = k)]
+  }
+
+  expect_quick_identical(
+    fn,
+    list(as.double(1:5), 3L, 0L),
+    list(as.double(5:1), 3L, -2L)
+  )
+
+  fparen <- function(x, n, k) {
+    declare(
+      type(x = double(5)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    x[seq(n, (n), by = k)]
+  }
+
+  expect_quick_identical(
+    fparen,
+    list(as.double(1:5), 3L, 0L),
+    list(as.double(5:1), 3L, -2L)
+  )
 })
 
 test_that("seq() value with a symbolic by is sized by the step", {

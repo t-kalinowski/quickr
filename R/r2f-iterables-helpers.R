@@ -381,6 +381,10 @@ check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
   from_lit <- lit(info$from)
   to_lit <- lit(info$to)
   by_lit <- if (is.null(info$by)) 1L else lit(info$by)
+  same_endpoint <- identical(
+    unwrap_parens(info$from),
+    unwrap_parens(info$to)
+  )
 
   bounds_msg <- "index ranges in x[a:b] must have bounds >= 1"
   if (isTRUE(from_lit < 1L) || isTRUE(to_lit < 1L)) {
@@ -416,15 +420,15 @@ check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
     emit(paste(checks, collapse = " .or. "), bounds_msg)
   }
 
-  # Explicit seq() step. The result length divides by the step, and that
-  # length is evaluated in the C bridge *before* any Fortran guard can run
-  # (a zero step would be a division-by-zero crash there), so a non-literal
-  # step is a compile error, not a guard. With a literal step and symbolic
-  # bounds, R errors when the step's sign opposes the direction -- the
-  # emitted section would be zero-length while the claimed length is not;
-  # that case is checkable at runtime. All-literal ranges were already
-  # validated by seq_like_length_expr() at compile time.
-  if (!is.null(info$by)) {
+  # Explicit seq() step. When the endpoints differ, the result length divides
+  # by the step, and that length is evaluated in the C bridge *before* any
+  # Fortran guard can run (a zero step would be a division-by-zero crash
+  # there), so a non-literal step is a compile error, not a guard. With a
+  # literal step and symbolic bounds, R errors when the step's sign opposes
+  # the direction -- the emitted section would be zero-length while the
+  # claimed length is not; that case is checkable at runtime. All-literal
+  # ranges were already validated by seq_like_length_expr() at compile time.
+  if (!is.null(info$by) && !same_endpoint) {
     if (is.na(by_lit)) {
       stop(
         "seq() in x[...] requires a literal `by` step ",

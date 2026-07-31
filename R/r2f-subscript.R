@@ -232,9 +232,10 @@ r2f_handlers[["["]] <- function(
 # Reject non-positive subscripts at compile time. R's negative subscript
 # means exclusion, so the result's shape depends on the subscript's value --
 # not representable in quickr's static-shape model -- while the generated
-# Fortran would silently read out of bounds. Unary minus on a subscript is
-# unambiguously exclusion syntax in R, so the form is rejected, not just
-# statically-known values. Binary minus (x[n - 1]) is untouched.
+# Fortran would silently read out of bounds. After cancelling paired unary
+# minuses, unary minus on a subscript is exclusion syntax in R, so the form is
+# rejected, not just statically-known values. Binary minus (x[n - 1]) is
+# untouched.
 #
 # When the base's extent along the subscript's axis is statically known,
 # literal values beyond it are also compile errors: R pads out-of-range
@@ -246,6 +247,23 @@ r2f_handlers[["["]] <- function(
 # check_subscript_range_bounds().
 check_subscript_expr <- function(e, extent = NULL) {
   e <- unwrap_parens(e)
+  while (is_call(e, quote(`-`)) && length(e) == 2L) {
+    inner <- unwrap_parens(e[[2L]])
+    if (
+      is.numeric(inner) &&
+        length(inner) == 1L &&
+        !is.na(inner) &&
+        is.finite(inner) &&
+        inner < 0
+    ) {
+      e <- -inner
+      next
+    }
+    if (!is_call(inner, quote(`-`)) || length(inner) != 2L) {
+      break
+    }
+    e <- unwrap_parens(inner[[2L]])
+  }
   if (!is_wholenumber(extent)) {
     extent <- NULL
   }
