@@ -288,3 +288,58 @@ test_that("for() supports rev() for value iteration", {
   expect_quick_identical(rev_values, 1:3, c(1L, 2L, 3L, 4L))
   expect_quick_identical(rev_matrix_values, matrix(1:6, nrow = 2))
 })
+
+test_that("unbraced for() bodies keep hoisted setup inside index loops", {
+  rolling_sum <- function(x, weights) {
+    declare(type(x = double(NA)), type(weights = double(NA)))
+    out <- double(length(x) - length(weights) + 1L)
+    n <- length(weights)
+    # fmt: skip
+    for (i in seq_along(out))
+      out[i] <- sum(x[i:(i + n - 1L)] * weights)
+    out
+  }
+
+  seq_lengths <- function(k) {
+    declare(type(k = integer(1)))
+    out <- 0L
+    # fmt: skip
+    for (i in 1:3)
+      out <- out + length(seq(i, i + 3L, by = k))
+    out
+  }
+
+  expect_quick_identical(
+    rolling_sum,
+    list(as.double(1:8), c(0.25, 0.75))
+  )
+  expect_quick_identical(seq_lengths, 1L, 2L)
+
+  qseq_lengths := quick(seq_lengths)
+  expect_error(
+    qseq_lengths(0L),
+    "invalid '(to - from)/by'",
+    fixed = TRUE
+  )
+  expect_error(
+    qseq_lengths(-1L),
+    "wrong sign in 'by' argument",
+    fixed = TRUE
+  )
+})
+
+test_that("unbraced for() bodies keep hoisted setup inside value loops", {
+  sum_floors <- function(starts) {
+    declare(type(starts = integer(NA)))
+    out <- 0
+    # fmt: skip
+    for (i in starts)
+      out <- out + floor(i + 0.5)
+    out
+  }
+
+  expect_quick_identical(
+    sum_floors,
+    c(1L, 3L, 5L)
+  )
+})
