@@ -334,9 +334,8 @@ seq_like_r2f <- function(
       glue("{start}, {end}, {step}")
     }
   } else if (context == "[") {
-    # `:`/`seq` sections are only correct for bounds >= 1 (and a step whose
-    # sign matches); seq_len/seq_along need no check -- their worst case is
-    # a legal zero-length section, which matches R's x[integer(0)].
+    # Validate statically-known unsupported bounds and seq() step semantics.
+    # Dynamically computed array bounds remain the caller's responsibility.
     if (kind %in% c(":", "seq")) {
       check_subscript_range_bounds(
         info,
@@ -364,14 +363,11 @@ seq_like_r2f <- function(
   Fortran(fr, val)
 }
 
-# Validate an x[a:b] / x[seq(a, b, by)] index range.
-# In subscript context the emitted section `from:to:sign(1, to-from)` and its
-# claimed length `abs(to - from) + 1` are only correct when both bounds are
-# >= 1: R's x[1:0] drops the 0 (a value-dependent shape quickr cannot
-# produce), and the sign-stride section would read x(0). Statically-bad
-# literal bounds are compile errors; unknown bounds get a statement-level
-# runtime check via emit_quickr_error_if(). An explicit seq() step is
-# handled below (literal-only, plus a runtime wrong-sign check).
+# Validate an x[a:b] / x[seq(a, b, by)] index range where doing so has no
+# general bounds-checking cost. Statically bad literal bounds are compile
+# errors. Dynamic bounds are trusted, consistently with symbolic scalar and
+# vector subscripts. An explicit seq() step is handled below (literal-only,
+# plus a runtime wrong-sign check required by seq() semantics).
 # Used by: seq_like_r2f() (subscript context)
 check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
   lit <- function(e) {
@@ -407,17 +403,6 @@ check_subscript_range_bounds <- function(info, from, to, by_f, hoist, scope) {
       )
     }
     emit_quickr_error_if(condition, message, hoist, scope)
-  }
-
-  checks <- character()
-  if (is.na(from_lit)) {
-    checks <- c(checks, glue("{from} < 1_c_int"))
-  }
-  if (is.na(to_lit)) {
-    checks <- c(checks, glue("{to} < 1_c_int"))
-  }
-  if (length(checks)) {
-    emit(paste(checks, collapse = " .or. "), bounds_msg)
   }
 
   # Explicit seq() step. When the endpoints differ, the result length divides

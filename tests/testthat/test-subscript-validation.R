@@ -1,5 +1,4 @@
-# Unit tests for subscript validation: negative/zero rejection and
-# runtime guards on index ranges
+# Unit tests for compile-time subscript validation and seq() step guards
 
 skip_on_cran()
 
@@ -168,16 +167,14 @@ test_that("assignment subscripts get the same validation as reads", {
   expect_quick_identical(fok, list(matrix(as.double(1:6), 2, 3)))
 })
 
-test_that("x[a:b] guards against non-positive bounds at runtime", {
+test_that("dynamic x[a:b] bounds compile without runtime bounds guards", {
   fn <- function(x, n) {
     declare(type(x = double(NA)), type(n = integer(1)))
     x[1:n]
   }
-  expect_translation_snapshots(fn) # pins the guard text
+  expect_translation_snapshots(fn) # pins the absence of a bounds guard
   qfn := quick(fn)
   expect_equal(qfn(as.double(1:5), 3L), c(1, 2, 3))
-  expect_error(qfn(as.double(1:5), 0L), "bounds >= 1")
-  expect_error(qfn(as.double(1:5), -2L), "bounds >= 1")
 
   # descending ranges still work
   fdesc <- function(x, n) {
@@ -186,7 +183,6 @@ test_that("x[a:b] guards against non-positive bounds at runtime", {
   }
   qdesc := quick(fdesc)
   expect_equal(qdesc(as.double(1:4), 4L), c(4, 3, 2, 1))
-  expect_error(qdesc(as.double(1:4), 0L), "bounds >= 1")
 })
 
 test_that("literal in-range bounds emit no guard; bad literals error at compile time", {
@@ -227,6 +223,16 @@ test_that("non-singleton x[seq(a, b, by)] validates the step", {
   qfs := quick(fs)
   expect_equal(qfs(as.double(1:9), 8L), c(5, 6, 7, 8))
   expect_error(qfs(as.double(1:9), 2L), "wrong sign")
+
+  # Scalar results do not need the sequence length in the C bridge, so the
+  # Fortran guard must continue to validate the step in this context.
+  fsum <- function(x, n) {
+    declare(type(x = double(NA)), type(n = integer(1)))
+    sum(x[seq(5L, n, by = 1L)])
+  }
+  qsum := quick(fsum)
+  expect_equal(qsum(as.double(1:9), 8L), sum(5:8))
+  expect_error(qsum(as.double(1:9), 2L), "wrong sign")
 })
 
 test_that("a singleton seq() subscript accepts a symbolic step", {

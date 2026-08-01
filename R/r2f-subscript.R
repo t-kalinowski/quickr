@@ -242,9 +242,9 @@ r2f_handlers[["["]] <- function(
 # reads with NA and grows the vector on out-of-range writes -- neither
 # representable in quickr's static-shape model -- while the generated
 # Fortran would silently read or write out of bounds. Literal `:` range
-# endpoints are checked against the extent here too; their >= 1 lower-bound
-# validation (including the runtime guard for symbolic endpoints) stays in
-# check_subscript_range_bounds().
+# endpoints are checked against the extent here too; literal lower-bound and
+# seq() step validation stays in check_subscript_range_bounds(). Dynamic
+# subscript bounds remain the caller's responsibility.
 check_subscript_expr <- function(e, extent = NULL) {
   e <- unwrap_parens(e)
   while (is_call(e, quote(`-`)) && length(e) == 2L) {

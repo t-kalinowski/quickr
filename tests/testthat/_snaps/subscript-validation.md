@@ -1,4 +1,4 @@
-# x[a:b] guards against non-positive bounds at runtime
+# dynamic x[a:b] bounds compile without runtime bounds guards
 
     Code
       fn
@@ -11,16 +11,13 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, n, out_, x__len_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+      subroutine fn(x, n, out_, x__len_) bind(c)
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
-      
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -29,23 +26,7 @@
         ! manifest end
       
       
-        if (n < 1_c_int) then
-          call quickr_set_error_msg("index ranges in x[a:b] must have bounds >= 1")
-          return
-        end if
         out_ = x(1_c_int:n:sign(1, n-1_c_int))
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -59,8 +40,7 @@
         const double* const x__, 
         const int* const n__, 
         double* const out___, 
-        const R_xlen_t x__len_, 
-        char* quickr_err_msg);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -89,19 +69,11 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
         fn(
           x__,
           n__,
           out___,
-          x__len_,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+          x__len_);
         
         UNPROTECT(1);
         return out_;
