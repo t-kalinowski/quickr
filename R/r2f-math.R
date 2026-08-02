@@ -55,15 +55,9 @@ r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
   }
   out_val <- Variable("double", arg@value@dims)
 
-  # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in the
-  # real domain:
-  # - aint(x) truncates toward 0 (real result)
-  # - adjust by -1 where trunc differs from floor (negative non-integers)
-  aint <- glue("aint({arg})")
-  Fortran(
-    glue("({aint} - merge(1.0_c_double, 0.0_c_double, ({arg} < {aint})))"),
-    out_val
-  )
+  # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in
+  # the real domain; real_floor_expr() shares the spelling with `%/%`.
+  Fortran(real_floor_expr(arg), out_val)
 }
 
 r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {

@@ -40,7 +40,7 @@
       
       
       
-        ab = 0
+        ab = 0.0_c_double
         do i = 1, size(a)
           do j = 1, size(b)
             ab(((i + j) - 1_c_int)) = (ab(((i + j) - 1_c_int)) + (a(i) * b(j)))

@@ -62,8 +62,9 @@ test_that("solve handles column RHS matrices and 1x1 systems", {
   expect_quick_equal(solve_scalar, list(A = matrix(2.5, 1L, 1L), b = 1.25))
 })
 
-test_that("solve supports least-squares for rectangular systems", {
-  solve_ls_vec <- function(X, y) {
+test_that("solve requires a square coefficient matrix, like R", {
+  # Squareness unknown at compile time: a runtime guard runs before dgesv.
+  solve_sym <- function(X, y) {
     declare(
       type(X = double(n, k)),
       type(y = double(n))
@@ -71,48 +72,37 @@ test_that("solve supports least-squares for rectangular systems", {
     solve(X, y)
   }
 
-  solve_ls_mat <- function(X, Y) {
-    declare(
-      type(X = double(n, k)),
-      type(Y = double(n, p))
-    )
-    solve(X, Y)
-  }
-
   set.seed(123)
   n <- 20
   k <- 5
-  p <- 3
   X <- matrix(rnorm(n * k), n, k)
   y <- rnorm(n)
-  Y <- matrix(rnorm(n * p), n, p)
 
-  q_solve_ls_vec <- expect_warning(quick(solve_ls_vec), NA)
-  q_solve_ls_mat <- expect_warning(quick(solve_ls_mat), NA)
+  q_solve_sym <- quick(solve_sym)
+  expect_error(q_solve_sym(X, y), "solve requires a square matrix")
+  expect_error(solve(X, y), "must be square") # the R oracle errors too
 
-  expect_equal(q_solve_ls_vec(X, y), qr.solve(X, y))
-  expect_equal(q_solve_ls_mat(X, Y), qr.solve(X, Y))
-})
+  base <- matrix(rnorm(n * n), n, n)
+  A <- crossprod(base) + diag(n)
+  expect_equal(q_solve_sym(A, y), solve(A, y))
 
-test_that("solve supports least-squares for single-column systems", {
-  solve_ls_col <- function(X, y) {
+  # One statically known axis still guards the symbolic one.
+  solve_col <- function(X, y) {
     declare(
       type(X = double(n, 1L)),
       type(y = double(n))
     )
     solve(X, y)
   }
-
-  set.seed(125)
-  n <- 20
-  X <- matrix(rnorm(n), n, 1L)
-  y <- rnorm(n)
-
-  q_solve_ls_col <- expect_warning(quick(solve_ls_col), NA)
-  expect_equal(q_solve_ls_col(X, y), qr.solve(X, y))
+  q_solve_col <- quick(solve_col)
+  expect_error(q_solve_col(X[, 1L, drop = FALSE], y), "square matrix")
+  expect_equal(
+    q_solve_col(matrix(2.5, 1L, 1L), 1.25),
+    solve(matrix(2.5, 1L, 1L), 1.25)
+  )
 })
 
-test_that("solve compiles 1-row least-squares systems", {
+test_that("solve rejects statically rectangular systems at compile time", {
   solve_one_row <- function(X, y) {
     declare(
       type(X = double(1L, 2L)),
@@ -120,8 +110,7 @@ test_that("solve compiles 1-row least-squares systems", {
     )
     solve(X, y)
   }
-
-  expect_no_error(r2f(solve_one_row))
+  expect_error(r2f(solve_one_row), "solve requires a square matrix")
 })
 
 test_that("qr.solve matches R for vectors and matrices", {
@@ -195,7 +184,7 @@ test_that("qr.solve uses QR with pivoting for known square systems", {
   expect_false(has_call(square_fortran, "dgesv"))
 })
 
-test_that("solve uses dgesv for known square and dgels for rectangular systems", {
+test_that("solve always uses dgesv, guarding squareness when symbolic", {
   solve_square <- function(A, b) {
     declare(
       type(A = double(n, n)),
@@ -212,12 +201,7 @@ test_that("solve uses dgesv for known square and dgels for rectangular systems",
     solve(A, b)
   }
 
-  solve_rect <- function(A, b) {
-    declare(type(A = double(3, 2)), type(b = double(3)))
-    solve(A, b)
-  }
-
-  solve_rect_named <- function(A, b) {
+  solve_sym <- function(A, b) {
     declare(
       type(A = double(n, k)),
       type(b = double(n))
@@ -233,12 +217,8 @@ test_that("solve uses dgesv for known square and dgels for rectangular systems",
     capture.output(cat(r2f(solve_square_fixed))),
     collapse = "\n"
   )
-  rect_fixed_fortran <- paste(
-    capture.output(cat(r2f(solve_rect))),
-    collapse = "\n"
-  )
-  rect_named_fortran <- paste(
-    capture.output(cat(r2f(solve_rect_named))),
+  sym_fortran <- paste(
+    capture.output(cat(r2f(solve_sym))),
     collapse = "\n"
   )
 
@@ -246,19 +226,18 @@ test_that("solve uses dgesv for known square and dgels for rectangular systems",
     any(grepl(paste0("call ", routine, "("), tolower(code), fixed = TRUE))
   }
 
-  # Search emitted Fortran to ensure solve() chooses LU (dgesv) for proven-square
-  # systems and least-squares (dgels) for rectangular systems.
+  # solve() is LU (dgesv) only; least squares is qr.solve()'s job. Provably
+  # square systems get no guard, symbolic squareness is checked at run time.
   expect_true(has_call(square_named_fortran, "dgesv"))
   expect_false(has_call(square_named_fortran, "dgels"))
+  expect_false(grepl("square matrix", square_named_fortran, fixed = TRUE))
 
   expect_true(has_call(square_fixed_fortran, "dgesv"))
   expect_false(has_call(square_fixed_fortran, "dgels"))
 
-  expect_true(has_call(rect_fixed_fortran, "dgels"))
-  expect_false(has_call(rect_fixed_fortran, "dgesv"))
-
-  expect_true(has_call(rect_named_fortran, "dgels"))
-  expect_false(has_call(rect_named_fortran, "dgesv"))
+  expect_true(has_call(sym_fortran, "dgesv"))
+  expect_false(has_call(sym_fortran, "dgels"))
+  expect_match(sym_fortran, "solve requires a square matrix", fixed = TRUE)
 })
 
 test_that("chol and chol2inv match R", {
@@ -415,7 +394,7 @@ test_that("Test bad path in lapack functions", {
   }
 
   expect_error(quick(solve_bad_rank), "expects a matrix")
-  expect_warning(quick(solve_non_square), NA)
+  expect_error(quick(solve_non_square), "requires a square matrix")
   expect_error(quick(solve_bad_rhs), "only supports vector or matrix")
   expect_error(quick(chol_bad_rank), "expects a matrix")
   expect_error(quick(chol_pivot), "pivot = TRUE")
@@ -446,7 +425,7 @@ test_that("lapack functions test non-square matrix errors", {
     chol2inv(R)
   }
 
-  expect_warning(quick(solve_rect), NA)
+  expect_error(quick(solve_rect), "requires a square matrix")
   expect_error(quick(chol_rect), "requires a square matrix")
   expect_error(quick(chol2inv_rect), "requires a square matrix")
 })
