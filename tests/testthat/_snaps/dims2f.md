@@ -31,8 +31,8 @@
         allocate(y((n - 1)))
       
       
-        x = 0
-        y = 0
+        x = 0.0_c_double
+        y = 0.0_c_double
         out_ = (size(x) + size(y))
       end subroutine
     Code
@@ -98,7 +98,7 @@
         allocate(out((int(n) / int(2) + mod(int(n), int(2)))))
       
       
-        out = 0
+        out = 0.0_c_double
         out_ = size(out)
       end subroutine
     Code

@@ -62,6 +62,75 @@ test_that("register_r2f_handler does not set match.fun when TRUE", {
   expect_null(result@match_fun)
 })
 
+test_that("register_r2f_handler records the name of a namespace-level handler", {
+  withr::defer(
+    rm(list = "test_handler_named", envir = quickr:::r2f_handlers),
+    envir = environment()
+  )
+  # Passed as a bare symbol, the way the package's own top-level registrations
+  # do it -- `quickr:::last` would be a call, with no name to record.
+  result <- quickr:::register_r2f_handler("test_handler_named", last)
+  expect_identical(result@fun_name, "last")
+})
+
+test_that("register_r2f_handler leaves anonymous and local handlers unnamed", {
+  local_handler <- function(e, scope, ...) NULL
+  withr::defer(
+    rm(
+      list = c("test_handler_unnamed_anon", "test_handler_unnamed_local"),
+      envir = quickr:::r2f_handlers
+    ),
+    envir = environment()
+  )
+  anon <- quickr:::register_r2f_handler(
+    "test_handler_unnamed_anon",
+    function(e, scope, ...) NULL
+  )
+  # A symbol, but bound in a call frame rather than a namespace, so the name
+  # would mean something else the next time the frame is entered.
+  local <- quickr:::register_r2f_handler(
+    "test_handler_unnamed_local",
+    local_handler
+  )
+  expect_null(anon@fun_name)
+  expect_null(local@fun_name)
+})
+
+test_that("dispatch re-resolves a named handler's namespace binding", {
+  # covr rebinds its instrumented copies into the namespace after the package
+  # has loaded -- that is, after registration captured the function object.
+  # Mocking the binding reproduces that sequence exactly.
+  original <- last
+  withr::defer(
+    rm(list = "test_handler_rebound", envir = quickr:::r2f_handlers),
+    envir = environment()
+  )
+  registered <- quickr:::register_r2f_handler("test_handler_rebound", last)
+  expect_identical(registered@fun_name, "last")
+
+  local_mocked_bindings(last = function(x) "rebound")
+  resolved <- quickr:::get_r2f_handler(quote(test_handler_rebound))
+  expect_identical(resolved("ignored"), "rebound")
+
+  # Resolving hands back a copy; the registry still holds what was registered.
+  expect_identical(
+    S7::S7_data(quickr:::r2f_handlers[["test_handler_rebound"]]),
+    original
+  )
+})
+
+test_that("dispatch leaves unnamed handlers alone", {
+  handler <- function(e, scope, ...) "anonymous"
+  withr::defer(
+    rm(list = "test_handler_untouched", envir = quickr:::r2f_handlers),
+    envir = environment()
+  )
+  quickr:::register_r2f_handler("test_handler_untouched", handler)
+  resolved <- quickr:::get_r2f_handler(quote(test_handler_untouched))
+  expect_null(resolved@fun_name)
+  expect_identical(S7::S7_data(resolved), handler)
+})
+
 test_that("register_r2f_handler registers multiple names", {
   handler <- function(e, scope, ...) NULL
   withr::defer(

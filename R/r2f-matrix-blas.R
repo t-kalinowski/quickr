@@ -61,19 +61,6 @@ assert_rhs_rank <- function(
   invisible(TRUE)
 }
 
-# Assert conformability and warn on unknown.
-assert_conformable_dims <- function(left, right, context, err_msg) {
-  stopifnot(is_string(context), is_string(err_msg))
-  conform <- check_conformable(left, right)
-  if (!conform$ok) {
-    stop(err_msg, call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(left, right, context)
-  }
-  invisible(TRUE)
-}
-
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -164,45 +151,21 @@ effective_dims <- function(dims, trans) {
   }
 }
 
-# Return conformability status (ok/unknown) without side-effects.
-check_conformable <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    ok <- identical(as.integer(left), as.integer(right))
-    return(list(ok = ok, unknown = FALSE))
-  }
-  if (identical(left, right)) {
-    return(list(ok = TRUE, unknown = FALSE))
-  }
-  list(ok = TRUE, unknown = TRUE)
-}
-
-warn_conformability_unknown <- function(left, right, context) {
-  left_txt <- if (is.null(left)) "NULL" else deparse(left)
-  right_txt <- if (is.null(right)) "NULL" else deparse(right)
-  warning(
-    "cannot verify conformability in ",
-    context,
-    " at compile time: ",
-    left_txt,
-    " vs ",
-    right_txt,
-    call. = FALSE
+# Enforce that `dims` describe a square matrix: a known mismatch is a
+# compile error; unverifiable dims get a runtime guard on the operand's
+# actual extents.
+assert_square_matrix <- function(dims, operand, context, hoist, scope) {
+  guard_conformable_dims(
+    dims$rows,
+    dims$cols,
+    paste0(context, " requires a square matrix"),
+    hoist,
+    scope,
+    left = operand,
+    right = operand,
+    left_axis = 1L,
+    right_axis = 2L
   )
-  invisible(FALSE)
-}
-
-# Assert that dimensions represent a square matrix (rows == cols).
-# Throws an error if dimensions are known to be non-conformable,
-# and warns if conformability cannot be verified at compile time.
-assert_square_matrix <- function(rows, cols, context) {
-  conform <- check_conformable(rows, cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(rows, cols, context)
-  }
-  invisible(TRUE)
 }
 
 # ---- BLAS emitters ----
@@ -566,13 +529,7 @@ triangular_solve <- function(
   assert_rank2_matrix(A, "triangular solve expects a matrix")
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop("non-conformable arguments in triangular solve", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, "triangular solve")
-  }
+  assert_square_matrix(a_dims, A, "triangular solve", hoist, scope)
   n <- a_dims$rows
 
   b_rank <- B@value@rank
@@ -581,23 +538,17 @@ triangular_solve <- function(
     err_scalar = "triangular solve expects a vector or matrix right-hand side",
     err_high = "triangular solve only supports vector or matrix right-hand sides"
   )
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_len,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_rows,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  }
+  guard_conformable_dims(
+    n,
+    dim_or_one(B, 1L),
+    "non-conformable arguments in triangular solve",
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- symbol_name_or_null(B)
@@ -675,53 +626,65 @@ lapack_solve <- function(
     call_high = FALSE
   )
 
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_len,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_rows,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  }
+  guard_conformable_dims(
+    m,
+    dim_or_one(B, 1L),
+    paste0("non-conformable arguments in ", context),
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- ensure_blas_operand_name(B, hoist)
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
-  square <- check_conformable(m, n)
-  if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
+  # Both lowerings write a solution shaped by R's contract: length follows
+  # ncol(a), width follows the right-hand side. Each branch resolves the
+  # output target at its own write point (declaration order matters for
+  # the emitted block) with the one shared spelling below.
+  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
+  dest_usable <- function() {
+    can_use_output(
+      dest,
+      input_names = c(A_name, B_input_name),
+      expected_dims = expected_dims,
+      context = context,
+      allow_alias = B_input_name
+    )
+  }
+
+  # R's solve() requires a square `a`; least squares is qr.solve()'s job.
+  # Statically rectangular `a` is a compile error, symbolic dims get a
+  # runtime guard before the dgesv call. (A rectangular `a` used to fall
+  # through to a dgels least-squares solve -- an answer where R errors.)
+  if (!identical(context, "qr.solve")) {
+    assert_square_matrix(a_dims, A, context, hoist, scope)
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
+    use_dest <- dest_usable()
+    out_var <- if (use_dest) {
+      dest
     } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
+      hoist$declare_tmp(mode = "double", dims = expected_dims)
     }
-    hoist$emit(glue("{out_name} = {B_input_name}"))
+    out_name <- out_var@name
+    # The output length follows ncol(a) (R's contract) while `b` follows
+    # nrow(a); the two are only runtime-equal. When ncol is statically 1
+    # the output declares as a scalar, so a symbolic-length `b` must be
+    # copied elementwise, not by whole-array assignment.
+    b_src <- if (passes_as_scalar(out_var) && !passes_as_scalar(B@value)) {
+      subs <- str_flatten_commas(rep("1", b_rank))
+      glue("{B_input_name}({subs})")
+    } else {
+      B_input_name
+    }
+    hoist$emit(glue("{out_name} = {b_src}"))
 
     ipiv <- hoist$declare_tmp(mode = "integer", dims = list(m))
     info <- hoist$declare_tmp(mode = "integer", dims = NULL)
@@ -741,15 +704,7 @@ lapack_solve <- function(
       hoist = hoist,
       scope = scope
     )
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
-  }
-
-  if (identical(context, "qr.solve")) {
+  } else {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
@@ -812,24 +767,13 @@ end do"
       scope = scope
     )
 
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
+    use_dest <- dest_usable()
+    out_var <- if (use_dest) {
+      dest
     } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
+      hoist$declare_tmp(mode = "double", dims = expected_dims)
     }
+    out_name <- out_var@name
 
     if (passes_as_scalar(out_var)) {
       hoist$emit(glue("{out_name} = {coef_work@name}(1, 1)"))
@@ -856,125 +800,10 @@ end do"
         ))
       }
     }
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
-  }
-
-  A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
-  hoist$emit(glue("{A_work@name} = {A_name}"))
-
-  max_mn <- call("max", m, n)
-
-  B_work <- hoist$declare_tmp(mode = "double", dims = list(max_mn, nrhs))
-  m_f <- dims2f(list(m), scope)
-  if (!nzchar(m_f)) {
-    m_f <- "1"
-  }
-  n_f <- dims2f(list(n), scope)
-  if (!nzchar(n_f)) {
-    n_f <- "1"
-  }
-  nrhs_f <- dims2f(list(nrhs), scope)
-  if (!nzchar(nrhs_f)) {
-    nrhs_f <- "1"
-  }
-  hoist$emit(glue("{B_work@name} = 0.0_c_double"))
-  if (b_rank == 1L) {
-    hoist$emit(glue("{B_work@name}(1:{m_f}, 1) = {B_input_name}"))
-  } else {
-    hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
-  }
-
-  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-  mn <- call("min", m, n)
-  if (identical(context, "qr.solve")) {
-    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
-    hoist$emit(glue("{jpvt@name} = 0_c_int"))
-
-    rcond <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
-    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-    lwork <- call(
-      "max",
-      1L,
-      call("+", mn, call("max", mn, nrhs)),
-      call("+", call("*", 2L, mn), call("*", 64L, call("+", n, 1L))),
-      call("+", mn, call("*", 2L, n))
-    )
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgelsy({blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {jpvt@name}, {rcond}, {rank@name}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgelsy: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{info@name} > 0_c_int"),
-      message = "Lapack routine dgelsy failed to converge",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{rank@name} < {blas_int(n)}"),
-      message = "rank deficient matrix in qr.solve",
-      hoist = hoist,
-      scope = scope
-    )
-  } else {
-    lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgels: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-  }
-
-  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, B_input_name),
-      expected_dims = expected_dims,
-      context = context,
-      allow_alias = B_input_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-    out_name <- out_var@name
-  }
-
-  if (b_rank == 1L) {
-    if (passes_as_scalar(out_var)) {
-      hoist$emit(glue("{out_name} = {B_work@name}(1, 1)"))
-    } else {
-      hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1)"))
-    }
-  } else {
-    hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1:{nrhs_f})"))
   }
 
   out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
+  if (use_dest) {
     out@writes_to_dest <- TRUE
   }
   out
@@ -987,7 +816,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -1061,7 +890,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   assert_rank2_matrix(A, paste0(context, " expects a matrix"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -1124,7 +953,7 @@ lapack_chol2inv <- function(
   assert_rank2_matrix(R, paste0(context, " expects a matrix"))
 
   r_dims <- matrix_dims(R)
-  assert_square_matrix(r_dims$rows, r_dims$cols, context)
+  assert_square_matrix(r_dims, R, context, hoist, scope)
   n <- r_dims$rows
 
   R_name <- ensure_blas_operand_name(R, hoist)

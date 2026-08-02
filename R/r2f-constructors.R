@@ -2,6 +2,36 @@
 # Handlers for value constructors: c, logical, integer, double, numeric,
 # character, raw, matrix, array
 
+# --- Helpers ---
+
+# TRUE for calls to the zero-fill constructors: logical(k), integer(k),
+# double(k), numeric(k). These lower to a single scalar literal carrying
+# array dims, so splicing contexts must spread them explicitly.
+# Used by: c(), array()
+is_fill_constructor_call <- function(e) {
+  is.call(e) &&
+    is.symbol(e[[1L]]) &&
+    as.character(e[[1L]]) %in% c("logical", "integer", "double", "numeric")
+}
+
+# Name of the call one frame above the current handler ("" at top level).
+# The materialization decisions below branch on it: a fill constructor or
+# matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
+# spreads, or pads it.
+parent_call_name <- function(calls) {
+  if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+}
+
+# Materialize `code` into a hoisted temporary and return the temporary.
+# `hoist` is always available in a handler: r2f() opens one per statement
+# before dispatching, and the constructor handlers forward what they got.
+materialize_via_hoist <- function(code, mode, dims, hoist) {
+  stopifnot(is.environment(hoist))
+  tmp <- hoist$declare_tmp(mode = mode, dims = dims)
+  hoist$emit(glue("{tmp@name} = {code}"))
+  Fortran(tmp@name, tmp)
+}
+
 # --- Handlers ---
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
@@ -12,6 +42,31 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
   promoted <- promote_operands(ff, context = "c()")
   ff <- promoted$args
   mode <- promoted$mode
+  # Fill constructors are one scalar literal claiming length k; spread them
+  # as implied-dos so the emitted element count matches the claimed length.
+  fill_idx <- which(map_lgl(args, is_fill_constructor_call))
+  if (length(fill_idx)) {
+    spread_var <- NULL
+    for (j in fill_idx) {
+      len_f <- dims2f(ff[[j]]@value@dims, scope)
+      if (!nzchar(len_f)) {
+        next # statically length 1: a single spliced scalar is already right
+      }
+      if (grepl(":", len_f, fixed = TRUE)) {
+        stop(
+          "the length of ",
+          deparse1(args[[j]]),
+          " inside c() must be known",
+          call. = FALSE
+        )
+      }
+      spread_var <- spread_var %||% scope_unique_var(scope, "integer")
+      ff[[j]] <- Fortran(
+        glue("({ff[[j]]}, {spread_var}=1, int({len_f}))"),
+        ff[[j]]@value
+      )
+    }
+  }
   s <- glue("[ {str_flatten_commas(ff)} ]")
   lens <- lapply(ff[order(map_int(ff, \(f) f@value@rank))], function(e) {
     rank <- e@value@rank
@@ -106,26 +161,67 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 
+# Compile a zero-fill constructor call: a single scalar literal carrying
+# array dims. Whole-array assignment broadcasts that correctly, and
+# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
+# the scalar form. Any other consumer (elementwise ops, reductions, ...)
+# needs a real array expression -- an expression like `numeric(2) + 1`
+# would otherwise contribute one element where its dims claim two -- so
+# materialize the fill into a hoisted temporary there.
+fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
+  var <- Variable(mode = mode, dims = r2dims(args, scope))
+  out <- Fortran(literal, var)
+  if (passes_as_scalar(var)) {
+    return(out)
+  }
+  parent_call <- parent_call_name(list(...)$calls)
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
+    return(out)
+  }
+  materialize_via_hoist(literal, mode, var@dims, hoist)
+}
+
 register_r2f_handler(
   "logical",
-  function(args, scope, ...) {
-    Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      ".false.",
+      "logical",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   "integer",
-  function(args, scope, ...) {
-    Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      "0_c_int",
+      "integer",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   c("double", "numeric"),
-  function(args, scope, ...) {
-    Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      "0.0_c_double",
+      "double",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
@@ -154,10 +250,15 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   dims <- r2dims(list(args$nrow, args$ncol), scope)
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
-  # Scalars can be broadcast into an array on assignment, so keep them as-is.
+  # A scalar broadcasts natively on direct whole-array assignment, so keep
+  # it as-is there; in any other context (sum(...), %*%, ...) the expression
+  # must be a real rank-2 array, so materialize it into a hoisted temporary.
   if (passes_as_scalar(src@value)) {
-    src@value <- out_val
-    return(src)
+    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
+      src@value <- out_val
+      return(src)
+    }
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
   rows <- dims[[1L]]
@@ -282,17 +383,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       }
       shape <- glue("int([{dims_f}])")
 
-      data_r <- args$data
-      is_fill_constructor <-
-        is.call(data_r) &&
-        is.symbol(data_r[[1L]]) &&
-        as.character(data_r[[1L]]) %in%
-          c(
-            "logical",
-            "integer",
-            "double",
-            "numeric"
-          )
+      is_fill_constructor <- is_fill_constructor_call(args$data)
 
       axis_terms <- vapply(
         target_dims,

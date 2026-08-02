@@ -38,7 +38,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         do i = 1, size(out)
           out(i) = (a(i) + b(i))
         end do

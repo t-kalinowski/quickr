@@ -28,7 +28,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         out = merge(1.0_c_double, 0.0_c_double, (pred(2_c_int, 3_c_int) /= 0))
       end subroutine
     Code
@@ -104,7 +104,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
       
@@ -185,7 +185,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
       
@@ -274,7 +274,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         out = sum(((x + y)), mask = (z > a))
       end subroutine
     Code
