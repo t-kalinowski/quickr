@@ -23,10 +23,13 @@ Imports:
 Suggests:
     bench,
     cli,
+    knitr,
     pkgload (>= 1.4.0),
     rlang,
+    rmarkdown,
     testthat (>= 3.0.0),
     withr
+VignetteBuilder: knitr
 Config/testthat/edition: 3
 Config/testthat/parallel: true
 Config/testthat/start-first: unary-intrinsics, loops

@@ -122,7 +122,7 @@
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        path = 0_c_int
         path(num_steps) = maxloc(trellis(:, num_steps), 1)
         do step = ((num_steps - 1_c_int)), 1_c_int, sign(1, 1_c_int-((num_steps - 1_c_int)))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
@@ -138,14 +138,14 @@
       
       
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
         const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {
@@ -337,7 +337,7 @@
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        path = 0_c_int
         path(size(observations)) = maxloc(trellis(:, size(observations)), 1)
         do step = (size(observations) - 1_c_int), 1_c_int, sign(1, 1_c_int-(size(observations) - 1_c_int))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
@@ -353,14 +353,14 @@
       
       
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
         const R_xlen_t states__len_);
       
       SEXP viterbi_(SEXP _args) {

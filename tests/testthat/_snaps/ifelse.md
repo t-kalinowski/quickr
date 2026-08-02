@@ -37,9 +37,9 @@
       
       
       extern void fn(
-        const int* const c__, 
-        const double* const a__, 
-        double* const out___, 
+        const int* const c__,
+        const double* const a__,
+        double* const out___,
         const R_xlen_t c__len_);
       
       SEXP fn_(SEXP _args) {
@@ -146,13 +146,13 @@
       
       
       extern void fn(
-        const int* const c__, 
-        const double* const a__, 
-        const double* const b__, 
-        double* const out___, 
-        const R_xlen_t a__len_, 
-        const R_xlen_t b__len_, 
-        const R_xlen_t c__len_, 
+        const int* const c__,
+        const double* const a__,
+        const double* const b__,
+        double* const out___,
+        const R_xlen_t a__len_,
+        const R_xlen_t b__len_,
+        const R_xlen_t c__len_,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {

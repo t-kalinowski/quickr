@@ -127,9 +127,9 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out__, 
-        const R_len_t x__dim_1_, 
+        const double* const x__,
+        double* const out__,
+        const R_len_t x__dim_1_,
         const R_len_t x__dim_2_);
       
       SEXP fn_(SEXP _args) {

@@ -274,16 +274,6 @@ str_flatten_commas <- function(...) {
   paste0(unlist(c(character(), ...), use.names = FALSE), collapse = ", ")
 }
 
-str_flatten_args <- function(..., multiline = length(dots) >= 3) {
-  dots <- unlist(c(character(), ...), use.names = FALSE)
-  if (multiline) {
-    dots <- paste0("\n  ", dots, collapse = ",")
-    paste(dots, "\n")
-  } else {
-    paste0(dots, collapse = ",")
-  }
-}
-
 interleave <- function(x, y) {
   stopifnot(is.atomic(x), is.atomic(y), length(y) == 1L, typeof(x) == typeof(y))
   drop_last(as.vector(rbind(x, y, deparse.level = 0L)))
