@@ -61,54 +61,6 @@ assert_rhs_rank <- function(
   invisible(TRUE)
 }
 
-# Render one side of a dim-comparison guard: a literal dim as the literal,
-# anything else as the operand's actual extent. size() is an inquiry, so
-# applying it to operand expression text does not evaluate the operand.
-guard_dim_f <- function(dim, operand, axis = NULL) {
-  if (is_wholenumber(dim)) {
-    return(as.character(as.integer(dim)))
-  }
-  if (is.null(axis)) {
-    glue("size({operand})")
-  } else {
-    glue("size({operand}, {axis})")
-  }
-}
-
-# The one conformability policy for BLAS/LAPACK lowerings: a statically
-# known mismatch is a compile error; dims that cannot be compared
-# statically get a statement-level runtime guard emitted before the BLAS
-# call; provably equal dims need nothing. Never warn-and-proceed. `axis`
-# NULL compares the operand's whole size (rank-1 operands).
-guard_conformable_dims <- function(
-  left_dim,
-  right_dim,
-  message,
-  hoist,
-  scope,
-  left,
-  right,
-  left_axis = NULL,
-  right_axis = NULL
-) {
-  stopifnot(is_string(message))
-  conform <- check_elementwise_lengths(left_dim, right_dim)
-  if (!conform$ok) {
-    stop(message, call. = FALSE)
-  }
-  if (conform$unknown) {
-    emit_quickr_error_if(
-      glue(
-        "{guard_dim_f(left_dim, left, left_axis)} /= {guard_dim_f(right_dim, right, right_axis)}"
-      ),
-      message,
-      hoist,
-      scope
-    )
-  }
-  invisible(TRUE)
-}
-
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -197,18 +149,6 @@ effective_dims <- function(dims, trans) {
   } else {
     dims
   }
-}
-
-# Return conformability status (ok/unknown) without side-effects.
-check_conformable <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    ok <- identical(as.integer(left), as.integer(right))
-    return(list(ok = ok, unknown = FALSE))
-  }
-  if (identical(left, right)) {
-    return(list(ok = TRUE, unknown = FALSE))
-  }
-  list(ok = TRUE, unknown = TRUE)
 }
 
 # Enforce that `dims` describe a square matrix: a known mismatch is a
@@ -709,8 +649,7 @@ lapack_solve <- function(
   # test-matrix-lapack.R. Squareness is a routing decision here, not a
   # correctness guard: unknown squareness routes to dgels, which solves
   # square systems exactly too.
-  square <- check_conformable(m, n)
-  if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
+  if (dims_match(m, n) && !identical(context, "qr.solve")) {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 

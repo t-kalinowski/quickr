@@ -288,17 +288,10 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   }
   if (length(non_scalar) > 1L) {
     for (idx in non_scalar[-1L]) {
-      conform <- check_conformable(target, dim_list[[idx]])
-      if (!conform$ok) {
-        stop(
-          context,
-          " requires inputs with a common ",
-          label,
-          " count",
-          call. = FALSE
-        )
-      }
-      if (conform$unknown) {
+      # A dim that is not provably equal to the common one is an error
+      # either way: the declaration needs the dim, so "unknown" cannot be
+      # deferred to a runtime guard here.
+      if (!dims_match(target, dim_list[[idx]])) {
         stop(
           context,
           " requires inputs with a common ",

@@ -108,16 +108,13 @@ r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
       "int(floor(real({left}, kind=c_double) / real({right}, kind=c_double)), kind=c_int)"
     ),
     double = {
-      # Fortran FLOOR() returns an integer, so a large double quotient
-      # (e.g. 1e20 %/% 3) would silently overflow. Stay in the real domain
-      # as the floor() handler does; the quotient is spliced three times,
-      # so hoist it to evaluate once.
+      # The quotient is spliced three times by real_floor_expr(), so
+      # hoist it to evaluate once.
       q <- hoist_unless_name(
         Fortran(glue("({left} / {right})"), out_val),
         hoist
       )
-      aint <- glue("aint({q})")
-      glue("({aint} - merge(1.0_c_double, 0.0_c_double, ({q} < {aint})))")
+      real_floor_expr(q)
     },
     stop("%/% only implemented for numeric types")
   )
