@@ -61,19 +61,6 @@ assert_rhs_rank <- function(
   invisible(TRUE)
 }
 
-# Assert conformability and warn on unknown.
-assert_conformable_dims <- function(left, right, context, err_msg) {
-  stopifnot(is_string(context), is_string(err_msg))
-  conform <- check_conformable(left, right)
-  if (!conform$ok) {
-    stop(err_msg, call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(left, right, context)
-  }
-  invisible(TRUE)
-}
-
 # Return the R symbol name if operand is a bare symbol; otherwise NULL.
 symbol_name_or_null <- function(x) {
   stopifnot(inherits(x, Fortran))
@@ -164,45 +151,21 @@ effective_dims <- function(dims, trans) {
   }
 }
 
-# Return conformability status (ok/unknown) without side-effects.
-check_conformable <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    ok <- identical(as.integer(left), as.integer(right))
-    return(list(ok = ok, unknown = FALSE))
-  }
-  if (identical(left, right)) {
-    return(list(ok = TRUE, unknown = FALSE))
-  }
-  list(ok = TRUE, unknown = TRUE)
-}
-
-warn_conformability_unknown <- function(left, right, context) {
-  left_txt <- if (is.null(left)) "NULL" else deparse(left)
-  right_txt <- if (is.null(right)) "NULL" else deparse(right)
-  warning(
-    "cannot verify conformability in ",
-    context,
-    " at compile time: ",
-    left_txt,
-    " vs ",
-    right_txt,
-    call. = FALSE
+# Enforce that `dims` describe a square matrix: a known mismatch is a
+# compile error; unverifiable dims get a runtime guard on the operand's
+# actual extents.
+assert_square_matrix <- function(dims, operand, context, hoist, scope) {
+  guard_conformable_dims(
+    dims$rows,
+    dims$cols,
+    paste0(context, " requires a square matrix"),
+    hoist,
+    scope,
+    left = operand,
+    right = operand,
+    left_axis = 1L,
+    right_axis = 2L
   )
-  invisible(FALSE)
-}
-
-# Assert that dimensions represent a square matrix (rows == cols).
-# Throws an error if dimensions are known to be non-conformable,
-# and warns if conformability cannot be verified at compile time.
-assert_square_matrix <- function(rows, cols, context) {
-  conform <- check_conformable(rows, cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(rows, cols, context)
-  }
-  invisible(TRUE)
 }
 
 # ---- BLAS emitters ----
@@ -566,13 +529,7 @@ triangular_solve <- function(
   assert_rank2_matrix(A, "triangular solve expects a matrix")
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop("non-conformable arguments in triangular solve", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, "triangular solve")
-  }
+  assert_square_matrix(a_dims, A, "triangular solve", hoist, scope)
   n <- a_dims$rows
 
   b_rank <- B@value@rank
@@ -581,23 +538,17 @@ triangular_solve <- function(
     err_scalar = "triangular solve expects a vector or matrix right-hand side",
     err_high = "triangular solve only supports vector or matrix right-hand sides"
   )
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_len,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_rows,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  }
+  guard_conformable_dims(
+    n,
+    dim_or_one(B, 1L),
+    "non-conformable arguments in triangular solve",
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- symbol_name_or_null(B)
@@ -675,31 +626,30 @@ lapack_solve <- function(
     call_high = FALSE
   )
 
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_len,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_rows,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  }
+  guard_conformable_dims(
+    m,
+    dim_or_one(B, 1L),
+    paste0("non-conformable arguments in ", context),
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- ensure_blas_operand_name(B, hoist)
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
-  square <- check_conformable(m, n)
-  if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
+  # solve(a, b) with a rectangular `a` deliberately falls through to the
+  # least-squares branch below -- a divergence from base R (which requires
+  # a square `a`), locked by the "least-squares" tests in
+  # test-matrix-lapack.R. Squareness is a routing decision here, not a
+  # correctness guard: unknown squareness routes to dgels, which solves
+  # square systems exactly too.
+  if (dims_match(m, n) && !identical(context, "qr.solve")) {
     A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
     hoist$emit(glue("{A_work@name} = {A_name}"))
 
@@ -987,7 +937,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -1061,7 +1011,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   assert_rank2_matrix(A, paste0(context, " expects a matrix"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
@@ -1124,7 +1074,7 @@ lapack_chol2inv <- function(
   assert_rank2_matrix(R, paste0(context, " expects a matrix"))
 
   r_dims <- matrix_dims(R)
-  assert_square_matrix(r_dims$rows, r_dims$cols, context)
+  assert_square_matrix(r_dims, R, context, hoist, scope)
   n <- r_dims$rows
 
   R_name <- ensure_blas_operand_name(R, hoist)
