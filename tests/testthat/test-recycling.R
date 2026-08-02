@@ -25,6 +25,36 @@ test_that("known unequal vector lengths are a compile error", {
   expect_error(quick(zero_len), "equal lengths")
 })
 
+test_that("a known length-0 operand is rejected against an unknown length", {
+  # R answers numeric(0) here; quickr has no length-0 result to return, so
+  # the zero is rejected even when the other operand's length is not a
+  # number the compiler can compare it to.
+  fill_left <- function(x) {
+    declare(type(x = double(n)))
+    numeric(0) + x
+  }
+  expect_error(quick(fill_left), "equal lengths")
+
+  fill_right <- function(x) {
+    declare(type(x = double(n)))
+    x > numeric(0)
+  }
+  expect_error(quick(fill_right), "equal lengths")
+
+  declared <- function(a, b) {
+    declare(type(a = double(0)), type(b = double(n)))
+    a * b
+  }
+  expect_error(quick(declared), "equal lengths")
+
+  # An NA dim is unknown, not "matches anything"
+  unspecified <- function(a, b) {
+    declare(type(a = double(NA)), type(b = double(0)))
+    a - b
+  }
+  expect_error(quick(unspecified), "equal lengths")
+})
+
 test_that("length checks cover comparisons, logical ops, and modulo", {
   comparison <- function(a, b) {
     declare(type(a = double(2)), type(b = double(4)))
@@ -246,6 +276,26 @@ test_that("matrix(scalar, m, n) materializes where an array is required", {
     t(matrix(1, 2, 3))
   }
   expect_quick_identical(transposed, list())
+})
+
+test_that("a closure's return expression materializes fills and matrix()", {
+  # A local closure's return expression is compiled on its own, with no
+  # enclosing call: the materialization decision sees an empty call stack,
+  # so nothing is broadcasting, spreading, or padding the scalar-with-dims
+  # form and it has to become a real array.
+  fill <- function(x) {
+    declare(type(x = double(3)))
+    zeros <- function() numeric(3)
+    x + zeros()
+  }
+  expect_quick_identical(fill, list(c(1, 2, 3)))
+
+  mat <- function(x) {
+    declare(type(x = double(2, 2)))
+    ones <- function() matrix(1, 2, 2)
+    x + ones()
+  }
+  expect_quick_identical(mat, list(matrix(as.double(1:4), 2, 2)))
 })
 
 test_that("matrix(scalar, m, n) keeps the broadcast fast path on assignment", {
