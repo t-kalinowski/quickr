@@ -122,7 +122,7 @@
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        path = 0_c_int
         path(num_steps) = maxloc(trellis(:, num_steps), 1)
         do step = ((num_steps - 1_c_int)), 1_c_int, sign(1, 1_c_int-((num_steps - 1_c_int)))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
@@ -337,7 +337,7 @@
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        path = 0_c_int
         path(size(observations)) = maxloc(trellis(:, size(observations)), 1)
         do step = (size(observations) - 1_c_int), 1_c_int, sign(1, 1_c_int-(size(observations) - 1_c_int))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
