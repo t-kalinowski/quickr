@@ -23,6 +23,8 @@ r2f_handlers[["["]] <- function(
   drop <- idx_args$drop %||% TRUE
   idx_args$drop <- NULL
 
+  check_subscript_exprs(var@value, idx_args)
+
   idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {
@@ -225,4 +227,132 @@ r2f_handlers[["["]] <- function(
     base_name <- var@value@name %||% stop("missing array name for subscripting")
     Fortran(glue("{base_name}({str_flatten_commas(idxs)})"), outval)
   }
+}
+
+# Reject non-positive subscripts at compile time. R's negative subscript
+# means exclusion, so the result's shape depends on the subscript's value --
+# not representable in quickr's static-shape model -- while the generated
+# Fortran would silently read out of bounds. After cancelling paired unary
+# minuses, unary minus on a subscript is exclusion syntax in R, so the form is
+# rejected, not just statically-known values. Binary minus (x[n - 1]) is
+# untouched.
+#
+# When the base's extent along the subscript's axis is statically known,
+# literal values beyond it are also compile errors: R pads out-of-range
+# reads with NA and grows the vector on out-of-range writes -- neither
+# representable in quickr's static-shape model -- while the generated
+# Fortran would silently read or write out of bounds. Literal `:` range
+# endpoints are checked against the extent here too; literal lower-bound and
+# seq() step validation stays in check_subscript_range_bounds(). Dynamic
+# subscript bounds remain the caller's responsibility.
+check_subscript_expr <- function(e, extent = NULL) {
+  e <- unwrap_parens(e)
+  while (is_call(e, quote(`-`)) && length(e) == 2L) {
+    inner <- unwrap_parens(e[[2L]])
+    if (
+      is.numeric(inner) &&
+        length(inner) == 1L &&
+        !is.na(inner) &&
+        is.finite(inner) &&
+        inner < 0
+    ) {
+      e <- -inner
+      next
+    }
+    if (!is_call(inner, quote(`-`)) || length(inner) != 2L) {
+      break
+    }
+    e <- unwrap_parens(inner[[2L]])
+  }
+  if (!is_wholenumber(extent)) {
+    extent <- NULL
+  }
+  if (is.numeric(e) && length(e) >= 1L && !anyNA(e)) {
+    # R truncates numeric subscripts toward zero; match the int() conversion
+    # used by the generated Fortran before validating the resulting indices.
+    indices <- trunc(e)
+    if (any(indices <= 0)) {
+      stop(
+        "subscripts must be positive; R's negative (exclusion) and zero ",
+        "subscripts are not supported: ",
+        deparse1(e),
+        call. = FALSE
+      )
+    }
+    if (!is.null(extent) && any(indices > extent)) {
+      stop(
+        "subscript exceeds its dimension's extent (",
+        as.integer(extent),
+        "): ",
+        deparse1(e),
+        "; R's out-of-range subscripts (NA padding, vector growing) ",
+        "are not supported",
+        call. = FALSE
+      )
+    }
+  }
+  if (is_call(e, quote(`-`)) && length(e) == 2L) {
+    stop(
+      "negative subscripts (exclusion) are not supported: ",
+      deparse1(e),
+      call. = FALSE
+    )
+  }
+  if (is_call(e, quote(`:`)) && length(e) == 3L && !is.null(extent)) {
+    for (endpoint in as.list(e)[-1L]) {
+      endpoint <- unwrap_parens(endpoint)
+      if (is_wholenumber(endpoint) && endpoint > extent) {
+        stop(
+          "index range in x[a:b] exceeds its dimension's extent (",
+          as.integer(extent),
+          "): ",
+          deparse1(e),
+          "; R's out-of-range subscripts (NA padding, vector growing) ",
+          "are not supported",
+          call. = FALSE
+        )
+      }
+    }
+  }
+  if (is_call(e, quote(c))) {
+    for (arg in as.list(e)[-1L]) {
+      check_subscript_expr(arg, extent = extent)
+    }
+  }
+  invisible(NULL)
+}
+
+# Validate every non-missing subscript in `idx_args` against `base_var`'s
+# statically known extents. The single entry point for both the read side
+# (the `[` handler) and the write side (compile_subset_designator() in
+# r2f-closures.R), so read and write subscripts validate identically.
+check_subscript_exprs <- function(base_var, idx_args) {
+  extents <- subscript_axis_extents(base_var, length(idx_args))
+  for (i in seq_along(idx_args)) {
+    if (!is_missing(idx_args[[i]])) {
+      check_subscript_expr(idx_args[[i]], extent = extents[[i]])
+    }
+  }
+  invisible(NULL)
+}
+
+# Statically-known extent per subscript axis; NULL where symbolic/unknown.
+# A single subscript on a rank>1 base is R's linear indexing -- its extent
+# is the product of the dims when all of them are known.
+# Used by: check_subscript_exprs()
+subscript_axis_extents <- function(var, n_idx) {
+  dims <- var@dims
+  if (n_idx == length(dims)) {
+    return(lapply(dims, function(d) {
+      if (is_wholenumber(d)) as.integer(d) else NULL
+    }))
+  }
+  if (
+    n_idx == 1L &&
+      length(dims) > 1L &&
+      all(vapply(dims, is_wholenumber, logical(1)))
+  ) {
+    return(list(prod(unlist(dims))))
+  }
+  rep(list(NULL), n_idx)
 }

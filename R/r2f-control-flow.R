@@ -77,7 +77,7 @@ r2f_handlers[["while"]] <- function(args, scope, ...) {
 }
 
 # ---- for ----
-r2f_handlers[["for"]] <- function(args, scope, ...) {
+r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   .[var, iterable, body] <- args
   stopifnot(is.symbol(var))
   var <- as.character(var)
@@ -174,7 +174,10 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
       previous_openmp <- enter_openmp_scope(scope)
       on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
     }
-    body <- r2f(body, scope, ...)
+    # The body is a distinct execution region and needs its own hoist target.
+    # Otherwise a single-expression body reuses the enclosing statement's
+    # target and emits loop-dependent setup before the loop.
+    body <- r2f(body, scope, ..., hoist = NULL)
     check_pending_parallel_consumed(scope)
     loop_stmts <- str_flatten_lines(glue("{var_name} = {element_expr}"), body)
 
@@ -214,12 +217,14 @@ r2f_handlers[["for"]] <- function(args, scope, ...) {
   }
   scope[[var]] <- loop_var
 
-  iterable <- r2f_for_iterable(iterable, scope, ...)
+  iterable <- r2f_for_iterable(iterable, scope, ..., hoist = hoist)
   if (!is.null(parallel)) {
     previous_openmp <- enter_openmp_scope(scope)
     on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
   }
-  body <- r2f(body, scope, ...)
+  # See the value-iteration path above: body-local setup must run inside the
+  # loop even when the R body is not wrapped in braces.
+  body <- r2f(body, scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
 
   directives <- openmp_directives(parallel)
