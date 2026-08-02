@@ -20,6 +20,10 @@ new_hoist <- function(scope) {
 
   has_block <- function() !is.null(block_scope)
 
+  # TRUE when render(code) would return `code` unchanged: nothing emitted,
+  # no block-scoped temporaries declared.
+  is_empty <- function() !length(hoisted) && !has_block()
+
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
       block_scope <<- scope_new_child(scope, "block")
@@ -42,7 +46,7 @@ new_hoist <- function(scope) {
 
   render <- function(code) {
     code <- str_split_lines(code)
-    if (!length(hoisted) && !has_block()) {
+    if (is_empty()) {
       return(str_flatten_lines(code))
     }
 
@@ -65,6 +69,7 @@ new_hoist <- function(scope) {
     list(
       emit = emit,
       declare_tmp = declare_tmp,
+      is_empty = is_empty,
       render = render
     ),
     parent = emptyenv()
@@ -380,8 +385,31 @@ num2fortran <- function(x) {
 
 get_r2f_handler <- function(name) {
   stopifnot("All functions called must be named as symbols" = is.symbol(name))
-  get0(name, r2f_handlers) %||%
+  handler <- get0(name, r2f_handlers) %||%
     stop("Unsupported function: ", name, call. = FALSE)
+  resolve_handler_fun(handler)
+}
+
+
+# Swap in the handler's current namespace binding, so an instrumented or
+# otherwise rebound copy is dispatched instead of the one captured at
+# registration. Only handlers registered as namespace-level named functions
+# carry a `fun_name`; for every other handler this is a property read and a
+# return. See register_r2f_handler() for why the name is recorded.
+resolve_handler_fun <- function(handler) {
+  if (!inherits(handler, R2FHandler)) {
+    return(handler)
+  }
+  name <- handler@fun_name
+  if (!is_string(name)) {
+    return(handler)
+  }
+  current <- get0(name, envir = environment(handler), mode = "function")
+  if (is.null(current) || identical(current, S7_data(handler))) {
+    return(handler)
+  }
+  S7_data(handler) <- current
+  handler
 }
 
 

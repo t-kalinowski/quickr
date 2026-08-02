@@ -35,7 +35,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
       
         do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
@@ -230,7 +230,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0_c_int
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
       
@@ -1050,7 +1050,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         do tmp1_ = 1_c_int, 12_c_int
           call closure1_(tmp1_, out(tmp1_))
       
