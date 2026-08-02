@@ -198,3 +198,73 @@ test_that("assigning an expression that produces no value errors cleanly", {
     fixed = TRUE
   )
 })
+
+test_that("unsupported complex operations are refused with R's messages", {
+  # Order comparisons on complex values: R errors, so must quickr -- with
+  # a clean message, not a raw gfortran failure.
+  complex_lt <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x < y
+  }
+  expect_error(quick(complex_lt), "invalid comparison with complex values")
+
+  # Equality is supported, as in R.
+  complex_eq <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x == y
+  }
+  expect_quick_identical(complex_eq, list(1i, 1i))
+  expect_quick_identical(complex_eq, list(1i, 2i))
+
+  # modulo() has no complex form in Fortran; R refuses too.
+  complex_mod <- function(x, y) {
+    declare(type(x = complex(1)), type(y = complex(1)))
+    x %% y
+  }
+  expect_error(quick(complex_mod), "unimplemented complex operation")
+})
+
+test_that("complex operands are refused in linear algebra", {
+  # The real BLAS/LAPACK lowerings (dgemm, dgesv, ...) would read complex
+  # storage as reals and return a plausible wrong answer where R returns a
+  # complex result: complex(2) %*% complex(2) returned a real dot product
+  # of the real parts. Refuse at compile time instead.
+  complex_matmul <- function(x, y) {
+    declare(type(x = complex(2)), type(y = complex(2)))
+    x %*% y
+  }
+  expect_error(
+    quick(complex_matmul),
+    "%*% does not support complex operands",
+    fixed = TRUE
+  )
+
+  # One complex operand is enough to poison the d* routine.
+  complex_mixed <- function(x, y) {
+    declare(type(x = complex(2, 2)), type(y = double(2, 2)))
+    x %*% y
+  }
+  expect_error(quick(complex_mixed), "does not support complex operands")
+
+  complex_solve <- function(x) {
+    declare(type(x = complex(2, 2)))
+    solve(x)
+  }
+  expect_error(quick(complex_solve), "does not support complex operands")
+
+  complex_crossprod <- function(x) {
+    declare(type(x = complex(2, 2)))
+    crossprod(x)
+  }
+  expect_error(quick(complex_crossprod), "does not support complex operands")
+
+  # t() alone is mode-preserving and keeps working on complex values.
+  complex_t <- function(x) {
+    declare(type(x = complex(2, 2)))
+    t(x)
+  }
+  expect_quick_identical(
+    complex_t,
+    list(matrix(c(1 + 1i, 2 + 0i, 3 - 1i, 4 + 2i), 2, 2))
+  )
+})

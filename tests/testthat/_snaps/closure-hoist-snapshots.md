@@ -34,7 +34,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
       
@@ -68,8 +68,8 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out__, 
+        const double* const x__,
+        double* const out__,
         const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
@@ -166,8 +166,8 @@
       
       
       extern void fn(
-        const int* const nx__, 
-        const int* const ny__, 
+        const int* const nx__,
+        const int* const ny__,
         double* const temp__);
       
       SEXP fn_(SEXP _args) {
