@@ -212,7 +212,7 @@ test_that("elementwise vector operations require matching lengths", {
 
   expect_error(
     quick(fn),
-    "elementwise vector operations require lengths that recycle cleanly unless one operand is scalar",
+    "elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not supported",
     fixed = TRUE
   )
 })

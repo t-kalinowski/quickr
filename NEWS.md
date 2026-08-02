@@ -7,6 +7,31 @@
 * Successful flang availability checks are now reused for the rest of the R
   session. Restart R after changing the flang toolchain.
 
+- Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
+  operand lengths to match, unless one operand is a scalar or a vector is
+  combined column-wise with a matrix whose rows it spans. R-style partial
+  recycling was never implemented: expressions like `x + y` with
+  `length(x) == 4`, `length(y) == 2` previously compiled to code that read
+  out of bounds. Statically unequal lengths are now a compile-time error;
+  lengths that cannot be verified at compile time are checked at run time.
+
+- `1x1`-matrix operands now follow R's rules: in arithmetic against a
+  vector of statically known length other than 1 they are treated as
+  scalars and the result is a plain vector (which R allows, with a
+  deprecation warning), while in comparisons and `&`/`|` they are treated
+  as one-row matrices, so mismatched shapes are rejected — matching R,
+  which raises an error. When the vector's length is only known at run
+  time, the result's shape would depend on that value (R keeps the `1x1`
+  dims for a length-1 vector and drops them otherwise), so arithmetic
+  also takes the one-row-matrix rule: a runtime check requires length 1
+  and the result is a `1x1` matrix; longer vectors raise an error where
+  R would recycle. Previously a `1x1` matrix was scalarized in arithmetic
+  and not shape-checked at all in comparisons and `&`/`|`, so e.g.
+  `x < m` with `m` a `1x1` matrix failed to build with a Fortran rank
+  mismatch instead of a quickr error, an operand needing a cast failed to
+  build even in arithmetic, and a symbolic-length `x + m` returned a plain
+  vector where R returns a `1x1` matrix.
+
 # quickr 0.3.0
 
 This release adds major new support for linear algebra, local functions,

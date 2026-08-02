@@ -128,6 +128,13 @@ dim_is_one <- function(x) {
   is_wholenumber(x) && identical(as.integer(x), 1L)
 }
 
+# Check if a dimension expression is statically known and not 1. Symbolic
+# dimensions are FALSE: "not provably 1" is not "provably not 1".
+# Used by: maybe_reshape_vector_matrix()
+dim_known_not_one <- function(x) {
+  is_wholenumber(x) && !identical(as.integer(x), 1L)
+}
+
 # Check if a Fortran value is a 1x1 matrix.
 # Used by: r2f-arithmetic.R, r2f-logical.R
 is_one_by_one <- function(x) {
@@ -146,25 +153,62 @@ dims_match <- function(left, right) {
   identical(left, right)
 }
 
-# Check if two lengths recycle without warnings.
-# Used by: r2f-arithmetic.R, r2f-logical.R
-check_recyclable_pair <- function(left, right) {
+# Three-valued conformability verdict for one axis of an elementwise op:
+# ok+known (no guard needed), not-ok+known (compile error at the caller),
+# or unknown (caller emits a runtime guard). Known lengths must be equal
+# and nonzero -- R-style recycling is never implemented, and quickr cannot
+# represent length-0 results. NA dims are always unknown: two unknown
+# lengths are not the same quantity.
+# Used by: maybe_reshape_vector_matrix()
+check_elementwise_lengths <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     left <- as.integer(left)
     right <- as.integer(right)
-    if (left == 0L || right == 0L) {
+    return(list(ok = left == right && left > 0L, unknown = FALSE))
+  }
+  if (
+    (is_wholenumber(left) && as.integer(left) == 0L) ||
+      (is_wholenumber(right) && as.integer(right) == 0L)
+  ) {
+    return(list(ok = FALSE, unknown = FALSE))
+  }
+  if (!is_scalar_na(left) && !is_scalar_na(right)) {
+    left_norm <- fortranize_expr_symbols(left)
+    right_norm <- fortranize_expr_symbols(right)
+    if (identical(left_norm, right_norm)) {
       return(list(ok = TRUE, unknown = FALSE))
     }
-    longer <- max(left, right)
-    shorter <- min(left, right)
-    return(list(ok = (longer %% shorter) == 0L, unknown = FALSE))
-  }
-  left_norm <- fortranize_expr_symbols(left)
-  right_norm <- fortranize_expr_symbols(right)
-  if (identical(left_norm, right_norm)) {
-    return(list(ok = TRUE, unknown = FALSE))
   }
   list(ok = TRUE, unknown = TRUE)
+}
+
+# Emit a statement-level runtime check that two elementwise operands have
+# equal size along the given axes (whole size when an axis is NULL).
+# size() is an inquiry, so applying it to operand expression text does not
+# evaluate the operands.
+#
+# `hoist` is always available here: r2f() opens one per statement before
+# dispatching to a handler, and every operator handler forwards the one it
+# received. emit_quickr_error_if() asserts it.
+# Used by: maybe_reshape_vector_matrix()
+emit_elementwise_size_guard <- function(
+  left,
+  right,
+  hoist,
+  scope,
+  message,
+  left_axis = NULL,
+  right_axis = left_axis
+) {
+  size_of <- function(x, axis) {
+    if (is.null(axis)) glue("size({x})") else glue("size({x}, {axis})")
+  }
+  emit_quickr_error_if(
+    glue("{size_of(left, left_axis)} /= {size_of(right, right_axis)}"),
+    message,
+    hoist,
+    scope
+  )
 }
 
 # Reshape a vector to match a matrix's dimensions.
@@ -191,9 +235,30 @@ scalarize_matrix <- function(mat) {
   Fortran(glue("{mat}(1, 1)"), out_val)
 }
 
-# Reshape vector/matrix operands to match ranks for binary operations.
+# Reshape vector/matrix operands to match ranks for binary operations, and
+# enforce the elementwise conformability policy: known-mismatched lengths
+# are compile errors (R-style recycling is not supported; scalar broadcast
+# is native), lengths that cannot be compared statically get a runtime
+# size guard through `hoist`.
+#
+# `scalarize_one_by_one` mirrors R's split over length-1 arrays: arithmetic
+# recycles a 1x1 matrix against a vector of statically known length != 1
+# (deprecated in R but still the behavior: R drops the array dims). When
+# the vector's length is only known at run time, the result's shape would
+# depend on that value -- R keeps the 1x1 dims for a length-1 vector and
+# drops them otherwise -- so the 1x1 falls through to the vector-matrix
+# rule: a runtime guard requires length 1 and the result is a 1x1 matrix,
+# an error where R would recycle. Comparisons and & | error in R itself,
+# so strict callers pass FALSE and the 1x1 always takes the vector-matrix
+# path.
 # Used by: r2f-arithmetic.R, r2f-logical.R
-maybe_reshape_vector_matrix <- function(left, right) {
+maybe_reshape_vector_matrix <- function(
+  left,
+  right,
+  hoist,
+  scope,
+  scalarize_one_by_one = TRUE
+) {
   if (
     !inherits(left, Fortran) ||
       !inherits(right, Fortran) ||
@@ -208,65 +273,125 @@ maybe_reshape_vector_matrix <- function(left, right) {
   left_rank <- if (left_scalar) 0L else left@value@rank
   right_rank <- if (right_scalar) 0L else right@value@rank
 
-  if (left_rank == 2L && right_rank == 1L && is_one_by_one(left)) {
+  # Casts and booleanization wrap operands in expression text that Fortran
+  # cannot index (`real(x, kind=c_double)(1, 1)` is invalid), so hoist
+  # anything that is not a bare name before subscripting it.
+  scalarize_via_hoist <- function(x) {
+    if (!is.null(hoist)) {
+      x <- hoist_unless_name(x, hoist)
+    }
+    scalarize_matrix(x)
+  }
+
+  if (
+    scalarize_one_by_one &&
+      left_rank == 2L &&
+      right_rank == 1L &&
+      is_one_by_one(left)
+  ) {
     right_len <- dim_or_one(right, 1L)
-    if (!dim_is_one(right_len)) {
-      left <- scalarize_matrix(left)
+    if (dim_known_not_one(right_len)) {
+      left <- scalarize_via_hoist(left)
       left_rank <- 0L
     }
-  } else if (left_rank == 1L && right_rank == 2L && is_one_by_one(right)) {
+  } else if (
+    scalarize_one_by_one &&
+      left_rank == 1L &&
+      right_rank == 2L &&
+      is_one_by_one(right)
+  ) {
     left_len <- dim_or_one(left, 1L)
-    if (!dim_is_one(left_len)) {
-      right <- scalarize_matrix(right)
+    if (dim_known_not_one(left_len)) {
+      right <- scalarize_via_hoist(right)
       right_rank <- 0L
     }
   }
 
   if (left_rank == 1L && right_rank == 1L) {
-    conform <- check_recyclable_pair(
+    vector_msg <- paste0(
+      "elementwise vector operations require equal lengths or ",
+      "a scalar operand; R-style recycling is not supported"
+    )
+    conform <- check_elementwise_lengths(
       dim_or_one(left, 1L),
       dim_or_one(right, 1L)
     )
     if (!conform$ok) {
-      stop(
-        "elementwise vector operations require lengths that recycle cleanly unless one operand is scalar",
-        call. = FALSE
-      )
+      stop(vector_msg, call. = FALSE)
+    }
+    if (conform$unknown) {
+      emit_elementwise_size_guard(left, right, hoist, scope, vector_msg)
     }
   }
 
   if (left_rank == 2L && right_rank == 2L) {
+    matrix_msg <- "elementwise matrix operations require matching dimensions"
     left_dims <- matrix_dims(left)
     right_dims <- matrix_dims(right)
-    row_conform <- check_conformable(left_dims$rows, right_dims$rows)
-    col_conform <- check_conformable(left_dims$cols, right_dims$cols)
+    row_conform <- check_elementwise_lengths(left_dims$rows, right_dims$rows)
+    col_conform <- check_elementwise_lengths(left_dims$cols, right_dims$cols)
     if (!row_conform$ok || !col_conform$ok) {
-      stop(
-        "elementwise matrix operations require matching dimensions",
-        call. = FALSE
+      stop(matrix_msg, call. = FALSE)
+    }
+    if (row_conform$unknown) {
+      emit_elementwise_size_guard(
+        left,
+        right,
+        hoist,
+        scope,
+        matrix_msg,
+        left_axis = 1L
+      )
+    }
+    if (col_conform$unknown) {
+      emit_elementwise_size_guard(
+        left,
+        right,
+        hoist,
+        scope,
+        matrix_msg,
+        left_axis = 2L
       )
     }
   }
 
+  vec_mat_msg <- paste0(
+    "elementwise vector-matrix operations require a scalar or ",
+    "a vector length equal to the matrix first dimension (nrow)"
+  )
   if (left_rank == 1L && right_rank == 2L) {
     right_dims <- matrix_dims(right)
     left_len <- dim_or_one(left, 1L)
-    row_conform <- check_conformable(left_len, right_dims$rows)
-    if (!row_conform$ok || row_conform$unknown) {
-      stop(
-        "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
-        call. = FALSE
+    row_conform <- check_elementwise_lengths(left_len, right_dims$rows)
+    if (!row_conform$ok) {
+      stop(vec_mat_msg, call. = FALSE)
+    }
+    if (row_conform$unknown) {
+      emit_elementwise_size_guard(
+        left,
+        right,
+        hoist,
+        scope,
+        vec_mat_msg,
+        right_axis = 1L
       )
     }
     left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
   } else if (left_rank == 2L && right_rank == 1L) {
     left_dims <- matrix_dims(left)
     right_len <- dim_or_one(right, 1L)
-    row_conform <- check_conformable(right_len, left_dims$rows)
-    if (!row_conform$ok || row_conform$unknown) {
-      stop(
-        "elementwise vector-matrix operations require a scalar or a vector length equal to the matrix first dimension (nrow)",
-        call. = FALSE
+    row_conform <- check_elementwise_lengths(right_len, left_dims$rows)
+    if (!row_conform$ok) {
+      stop(vec_mat_msg, call. = FALSE)
+    }
+    if (row_conform$unknown) {
+      emit_elementwise_size_guard(
+        right,
+        left,
+        hoist,
+        scope,
+        vec_mat_msg,
+        right_axis = 1L
       )
     }
     right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)
