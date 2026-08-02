@@ -186,6 +186,10 @@ check_elementwise_lengths <- function(left, right) {
 # equal size along the given axes (whole size when an axis is NULL).
 # size() is an inquiry, so applying it to operand expression text does not
 # evaluate the operands.
+#
+# `hoist` is always available here: r2f() opens one per statement before
+# dispatching to a handler, and every operator handler forwards the one it
+# received. emit_quickr_error_if() asserts it.
 # Used by: maybe_reshape_vector_matrix()
 emit_elementwise_size_guard <- function(
   left,
@@ -196,13 +200,6 @@ emit_elementwise_size_guard <- function(
   left_axis = NULL,
   right_axis = left_axis
 ) {
-  if (is.null(hoist)) {
-    stop(
-      "cannot emit a runtime length guard here; ",
-      "operand lengths must match statically",
-      call. = FALSE
-    )
-  }
   size_of <- function(x, axis) {
     if (is.null(axis)) glue("size({x})") else glue("size({x}, {axis})")
   }
@@ -258,8 +255,8 @@ scalarize_matrix <- function(mat) {
 maybe_reshape_vector_matrix <- function(
   left,
   right,
-  hoist = NULL,
-  scope = NULL,
+  hoist,
+  scope,
   scalarize_one_by_one = TRUE
 ) {
   if (

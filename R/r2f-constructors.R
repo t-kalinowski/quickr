@@ -23,12 +23,10 @@ parent_call_name <- function(calls) {
 }
 
 # Materialize `code` into a hoisted temporary and return the temporary.
-# `what` names the construct for the internal-error message when no hoist
-# context is available.
-materialize_via_hoist <- function(code, mode, dims, hoist, what) {
-  if (is.null(hoist)) {
-    stop("internal error: ", what, " requires hoist context", call. = FALSE)
-  }
+# `hoist` is always available in a handler: r2f() opens one per statement
+# before dispatching, and the constructor handlers forward what they got.
+materialize_via_hoist <- function(code, mode, dims, hoist) {
+  stopifnot(is.environment(hoist))
   tmp <- hoist$declare_tmp(mode = mode, dims = dims)
   hoist$emit(glue("{tmp@name} = {code}"))
   Fortran(tmp@name, tmp)
@@ -180,7 +178,7 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
     return(out)
   }
-  materialize_via_hoist(literal, mode, var@dims, hoist, "fill constructor")
+  materialize_via_hoist(literal, mode, var@dims, hoist)
 }
 
 register_r2f_handler(
@@ -260,7 +258,7 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       src@value <- out_val
       return(src)
     }
-    return(materialize_via_hoist(src, src@value@mode, dims, hoist, "matrix()"))
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
   rows <- dims[[1L]]
