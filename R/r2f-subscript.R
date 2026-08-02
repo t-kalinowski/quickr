@@ -1,6 +1,63 @@
 # r2f-subscript.R
 # Handlers for subscripting operations: [
 
+# --- Shared subscript lowering ---
+# The read side (the `[` handler below) and the write side
+# (compile_subset_designator() in r2f-closures.R) lower subscripts with
+# the same helpers so the two paths cannot drift.
+
+# Fortran subscripts must be integers; coerce a double subscript
+# expression with a c_ptrdiff_t cast. (Not cast_to_mode(), which refuses
+# narrowing casts by design.)
+cast_subscript_to_integer <- function(sub) {
+  if (sub@value@mode == "double") {
+    Fortran(
+      glue("int({sub}, kind=c_ptrdiff_t)"),
+      Variable("integer", sub@value@dims)
+    )
+  } else {
+    sub
+  }
+}
+
+# Lower raw subscript args: a missing arg becomes a full-axis `:`
+# section, everything else compiles through r2f(). Passing the
+# per-statement hoist along matters: subscript expressions that need
+# temporaries (e.g. rev(seq_len(n))) would otherwise self-render as an
+# inline `block ... end block` *expression*, which is invalid Fortran
+# inside an array designator.
+lower_subscript_args <- function(idx_args, base_dims, scope, ..., hoist) {
+  idxs <- whole_doubles_to_ints(idx_args)
+  imap(idxs, function(idx, i) {
+    if (is_missing(idx)) {
+      Fortran(":", Variable("integer", base_dims[[i]]))
+    } else {
+      cast_subscript_to_integer(r2f(idx, scope, ..., hoist = hoist))
+    }
+  })
+}
+
+# Indexing a scalar (rank-1 length-1) with `[1]` (or the singleton loop
+# index) is valid in R, but Fortran scalars cannot be subscripted;
+# callers treat it as a no-op.
+subscript_is_scalar_noop <- function(base_value, idxs) {
+  if (
+    passes_as_scalar(base_value) &&
+      length(idxs) == 1 &&
+      idxs[[1]]@value@mode == "integer" &&
+      passes_as_scalar(idxs[[1]]@value)
+  ) {
+    idx_r <- attr(idxs[[1]], "r", exact = TRUE)
+    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
+      return(TRUE)
+    }
+    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
+      return(TRUE)
+    }
+  }
+  FALSE
+}
+
 # --- Handlers ---
 
 r2f_handlers[["["]] <- function(
@@ -10,11 +67,15 @@ r2f_handlers[["["]] <- function(
   hoist_mask = function(mask) FALSE,
   hoist = NULL
 ) {
-  # only a subset of R's x[...] features can be translated here. `...` can only be:
-  # - a single logical mask, of the same rank as `x`. returns a rank 1 vector.
-  # - a number of arguments matching the rank of `x`, with each being
-  #   an integer of rank 0 or 1. In this case, a rank 1 logical becomes
-  #   converted to an integer with
+  # Only a subset of R's x[...] features can be translated here. `...`
+  # can be:
+  # - a single logical mask of the same rank as `x`: lowers to pack(),
+  #   returning a rank-1 vector.
+  # - a single scalar integer subscript on a rank>1 `x`: R-style linear
+  #   indexing.
+  # - one subscript per axis of `x`, each logical or integer of rank 0
+  #   or 1 (a logical vector becomes integer positions, as R's which();
+  #   double subscripts coerce to integer).
 
   var <- args[[1]]
   var <- r2f(var, scope, ..., hoist = hoist)
@@ -25,27 +86,13 @@ r2f_handlers[["["]] <- function(
 
   check_subscript_exprs(var@value, idx_args)
 
-  idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(idxs, function(idx, i) {
-    if (is_missing(idx)) {
-      Fortran(":", Variable("integer", var@value@dims[[i]]))
-    } else {
-      # Important: pass along the per-statement hoist context, otherwise
-      # subscript expressions that need temporaries (e.g. rev(seq_len(n)))
-      # will self-render as an inline `block ... end block` *expression*,
-      # which is invalid Fortran inside an array designator.
-      sub <- r2f(idx, scope, ..., hoist = hoist)
-      if (sub@value@mode == "double") {
-        # Fortran subscripts must be integers; coerce numeric expressions
-        Fortran(
-          glue("int({sub}, kind=c_ptrdiff_t)"),
-          Variable("integer", sub@value@dims)
-        )
-      } else {
-        sub
-      }
-    }
-  })
+  idxs <- lower_subscript_args(
+    idx_args,
+    var@value@dims,
+    scope,
+    ...,
+    hoist = hoist
+  )
 
   if (
     length(idxs) == 1 &&
@@ -63,21 +110,8 @@ r2f_handlers[["["]] <- function(
     ))
   }
 
-  # Indexing a scalar (rank-1 length-1) with `[1]` is valid in R, but Fortran
-  # scalars cannot be subscripted. Treat it as a no-op.
-  if (
-    passes_as_scalar(var@value) &&
-      length(idxs) == 1 &&
-      idxs[[1]]@value@mode == "integer" &&
-      passes_as_scalar(idxs[[1]]@value)
-  ) {
-    idx_r <- attr(idxs[[1]], "r", exact = TRUE)
-    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      return(var)
-    }
-    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
-      return(var)
-    }
+  if (subscript_is_scalar_noop(var@value, idxs)) {
+    return(var)
   }
 
   # R-style linear indexing for rank>1 arrays: x[i]
@@ -89,9 +123,12 @@ r2f_handlers[["["]] <- function(
   ) {
     # Hoist array expressions before subscripting (no invalid (expr)(i)).
     if (!passes_as_scalar(var@value) && is.null(var@value@name)) {
-      tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
-      hoist$emit(glue("{tmp@name} = {var}"))
-      var <- Fortran(tmp@name, tmp)
+      var <- materialize_via_hoist(
+        var,
+        mode = var@value@mode,
+        dims = var@value@dims,
+        hoist = hoist
+      )
     }
 
     base_name <- var@value@name %||% stop("missing array name for subscripting")
@@ -113,9 +150,6 @@ r2f_handlers[["["]] <- function(
   }
 
   idxs <- imap(idxs, function(subscript, i) {
-    # if (!idx@value@rank %in% 0:1)
-    #   stop("all args to x[...] must have rank 0 or 1",
-    #        deparse1(as.call(c(quote(`[`,args )))))
     switch(
       paste0(subscript@value@mode, subscript@value@rank),
       logical0 = {
@@ -125,13 +159,13 @@ r2f_handlers[["["]] <- function(
         # we convert to a temp integer vector, doing the equivalent of R's which()
         i <- scope_unique_var(scope, "integer")
         f <- glue("pack([({i}, {i}=1, size({subscript}))], {subscript})")
-        return(Fortran(f, Variable("int", NA)))
+        return(Fortran(f, Variable("integer", NA)))
       },
       integer0 = {
         if (drop) {
           subscript
         } else {
-          Fortran(glue("{subscript}:{subscript}"), Variable("int", 1))
+          Fortran(glue("{subscript}:{subscript}"), Variable("integer", 1))
         }
       },
       integer1 = {
@@ -150,14 +184,9 @@ r2f_handlers[["["]] <- function(
           }
 
           if (is_call(r, quote(`:`)) && length(r) == 3L) {
-            scalar <- r2f(r[[2L]], scope, ..., hoist = hoist)
-            if (scalar@value@mode == "double") {
-              scalar <- Fortran(
-                glue("int({scalar}, kind=c_ptrdiff_t)"),
-                Variable("integer", scalar@value@dims)
-              )
-            }
-            return(scalar)
+            return(cast_subscript_to_integer(
+              r2f(r[[2L]], scope, ..., hoist = hoist)
+            ))
           }
 
           if (is_call(r, quote(seq_len)) && length(r) == 2L) {
@@ -173,21 +202,15 @@ r2f_handlers[["["]] <- function(
 
           if (is_call(r, quote(seq))) {
             info <- seq_like_parse("seq", as.list(r)[-1L], scope)
-            scalar <- r2f(info$from, scope, ..., hoist = hoist)
-            if (scalar@value@mode == "double") {
-              scalar <- Fortran(
-                glue("int({scalar}, kind=c_ptrdiff_t)"),
-                Variable("integer", scalar@value@dims)
-              )
-            }
-            return(scalar)
+            return(cast_subscript_to_integer(
+              r2f(info$from, scope, ..., hoist = hoist)
+            ))
           }
         }
 
         subscript
       },
-      # double0 = { },
-      # double1 = { },
+      # Doubles were already coerced to integer by lower_subscript_args().
       stop(
         "all args to x[...] must be logical or integer of rank 0 or 1",
         deparse1(as.call(c(list(as.name("[")), args)))
@@ -211,9 +234,12 @@ r2f_handlers[["["]] <- function(
     !passes_as_scalar(var@value) &&
       is.null(var@value@name)
   ) {
-    tmp <- hoist$declare_tmp(mode = var@value@mode, dims = var@value@dims)
-    hoist$emit(glue("{tmp@name} = {var}"))
-    var <- Fortran(tmp@name, tmp)
+    var <- materialize_via_hoist(
+      var,
+      mode = var@value@mode,
+      dims = var@value@dims,
+      hoist = hoist
+    )
   }
 
   # External logicals are passed as integer storage (0/1) and are "booleanized"

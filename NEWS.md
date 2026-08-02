@@ -6,6 +6,85 @@
 
 * Successful flang availability checks are now reused for the rest of the R
   session. Restart R after changing the flang toolchain.
+- `c()` now accepts matrix and array arguments, flattening them in
+  column-major order like R (previously `c(m)` for a matrix `m` errored
+  with "all args passed to c() must be scalars or 1-d arrays"). `as.vector()`
+  is now supported: it drops dimensions (mode `"any"`, the default,
+  preserves the type; `mode = "double"`/`"integer"`/`"numeric"` coerce).
+
+- Reassigning a variable now requires the new value's shape to be
+  compatible with the declared shape, extending the existing rank check
+  to every dimension: quickr cannot re-declare a Fortran variable the
+  way R rebinds a symbol. A statically known mismatch (e.g.
+  `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
+  dimensions that cannot be compared at compile time are checked at run
+  time. Previously such reassignments silently kept the old shape or
+  produced invalid Fortran. This also covers reassignment between a scalar
+  and an array in either direction: `x <- numeric(n); x <- 0` used to
+  broadcast the scalar across every element, and assigning an array to a
+  scalar variable used to keep only its first element, where R rebinds the
+  symbol in both cases. Locals declared with unknown (`NA`) dims still
+  reallocate on assignment, like R.
+
+- `diag(x)` with a length-1 `x` and no `nrow`/`ncol` now builds the
+  identity matrix of size `x`, matching R. Previously only a *literal*
+  size took that path, so `diag(n)` with `n` declared `integer(1)`
+  returned a 1x1 matrix containing `n` instead of the n-by-n identity —
+  a silent divergence in both shape and values. As in R the size is
+  `as.integer(x)`, so a `double` or `logical` `x` works and truncates
+  toward zero (`diag(3.7)` is the 3x3 identity, as in R). Use
+  `diag(x, nrow)` for a 1x1 matrix holding `x`.
+
+- `declare()` size expressions now accept `as.integer()`, which lowers to
+  Fortran's `INT()` and to an integer cast in the generated C bridge.
+
+- Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
+  operand lengths to match, unless one operand is a scalar or a vector is
+  combined column-wise with a matrix whose rows it spans. R-style partial
+  recycling was never implemented: expressions like `x + y` with
+  `length(x) == 4`, `length(y) == 2` previously compiled to code that read
+  out of bounds. Statically unequal lengths are now a compile-time error;
+  lengths that cannot be verified at compile time are checked at run time.
+
+- `1x1`-matrix operands now follow R's rules: in arithmetic against a
+  vector of statically known length other than 1 they are treated as
+  scalars and the result is a plain vector (which R allows, with a
+  deprecation warning), while in comparisons and `&`/`|` they are treated
+  as one-row matrices, so mismatched shapes are rejected — matching R,
+  which raises an error. When the vector's length is only known at run
+  time, the result's shape would depend on that value (R keeps the `1x1`
+  dims for a length-1 vector and drops them otherwise), so arithmetic
+  also takes the one-row-matrix rule: a runtime check requires length 1
+  and the result is a `1x1` matrix; longer vectors raise an error where
+  R would recycle. Previously a `1x1` matrix was scalarized in arithmetic
+  and not shape-checked at all in comparisons and `&`/`|`, so e.g.
+  `x < m` with `m` a `1x1` matrix failed to build with a Fortran rank
+  mismatch instead of a quickr error, an operand needing a cast failed to
+  build even in arithmetic, and a symbolic-length `x + m` returned a plain
+  vector where R returns a `1x1` matrix.
+
+- `&&` and `||` now behave like R's scalar control operators. They
+  require length-1 logical operands (longer operands are a compile-time
+  error, as they are a runtime error in R; use `&`/`|` for elementwise
+  logic), and they short-circuit: the right operand is evaluated only when
+  the left side does not decide the answer, so idioms like
+  `while (i <= n && x[i] > 0)` are safe. Previously they compiled exactly
+  like `&`/`|` — elementwise over vectors (returning answers where R
+  errors) and with both sides always evaluated.
+
+- `solve(a, b)` now requires a square `a`, matching R. A rectangular `a`
+  previously fell through to a least-squares solve (dgels), returning an
+  answer where R raises `'a' (m x n) must be square`. Statically
+  rectangular systems are now a compile-time error; when squareness is not
+  known at compile time it is checked at run time. Use `qr.solve()` for
+  least-squares solutions of rectangular systems (unchanged).
+
+- Complex operands in linear algebra (`%*%`, `crossprod()`, `solve()`,
+  `chol()`, ...) are now a compile-time error. quickr's lowerings use the
+  real (double-only) BLAS/LAPACK routines, which previously read complex
+  storage as reals and returned a plausible but wrong real result where R
+  returns a complex one. Elementwise complex arithmetic and the
+  mode-preserving `t()`/`diag()` are unaffected.
 
 # quickr 0.3.0
 

@@ -39,6 +39,21 @@ logical_as_int <- function(var) {
   identical(var@mode, "logical") && isTRUE(var@logical_as_int)
 }
 
+# A mode with no Fortran translation reached the code generator. Declared
+# modes are validated at declare() time; this is the backstop for values
+# created mid-translation, so it must still read as a user-facing message,
+# not an internal object dump.
+stop_unsupported_mode <- function(var) {
+  name <- var@r_name %||% var@name
+  stop(
+    if (is.null(name)) "" else paste0("variable `", name, "`: "),
+    "mode '",
+    var@mode %||% "?",
+    "' is not supported by quickr",
+    call. = FALSE
+  )
+}
+
 block_tmp_allocatable_threshold <- 16L
 
 subroutine_local_allocatable_threshold_bytes <- 256L * 1024L
@@ -94,21 +109,7 @@ subroutine_local_allocatable <- function(
   # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
   # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
   # explicit allocation, so treat these as implicitly-sized locals.
-  self_size_names <- vapply(
-    seq_along(var@dims),
-    function(i) get_size_name(var, axis = as.integer(i)),
-    character(1)
-  )
-  if (
-    any(vapply(
-      seq_along(var@dims),
-      function(i) {
-        d <- var@dims[[i]]
-        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
-      },
-      logical(1)
-    ))
-  ) {
+  if (has_self_size_dims(var)) {
     return(FALSE)
   }
 
@@ -200,7 +201,7 @@ iso_c_binding_symbols <- function(
           complex = "c_double_complex",
           logical = if (isTRUE(logical_is_c_int(var))) "c_int",
           raw = "c_int8_t",
-          stop("unrecognized kind: ", format(var))
+          stop_unsupported_mode(var)
         ),
         lapply(var@dims, function(size) {
           syms <- all.vars(size)
@@ -266,7 +267,7 @@ emit_decl_line <- function(
     complex = "complex(c_double_complex)",
     logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
     raw = "integer(c_int8_t)",
-    stop("unrecognized kind: ", format(var))
+    stop_unsupported_mode(var)
   )
 
   # Block-scoped temporaries are explicitly marked allocatable so we can
@@ -375,7 +376,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
       complex = "complex(c_double_complex)",
       logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
       raw = "integer(c_int8_t)",
-      stop("unrecognized kind: ", format(var))
+      stop_unsupported_mode(var)
     )
 
     dims <- if (passes_as_scalar(var)) {
@@ -386,19 +387,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
 
     # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
     # are emitted as deferred-shape allocatables and rely on implicit allocation.
-    if (
-      is.null(intent) &&
-        !is.null(dims) &&
-        any(vapply(
-          seq_along(var@dims),
-          function(i) {
-            d <- var@dims[[i]]
-            is.symbol(d) &&
-              identical(as.character(d), get_size_name(var, axis = i))
-          },
-          logical(1)
-        ))
-    ) {
+    if (is.null(intent) && !is.null(dims) && has_self_size_dims(var)) {
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
     }
 
@@ -522,6 +511,8 @@ dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
 }
 dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
 dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
+# Fortran INT() truncates toward zero, like as.integer() in R.
+dims2f_eval_base_env[["as.integer"]] <- function(x) glue("int({x})")
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
   safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
   glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")

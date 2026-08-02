@@ -5,7 +5,7 @@
     Output
       function(a, b) {
           declare(type(a = double(n)), type(b = double(n + 1)))
-          a <- sum(b)
+          a <- a + sum(b)
           a
         }
       <environment: 0x0>
@@ -26,7 +26,7 @@
         ! manifest end
       
       
-        a = sum(b)
+        a = (a + sum(b))
       end subroutine
     Code
       cat(cwrapper)
@@ -37,8 +37,8 @@
       
       
       extern void fn(
-        double* const a__, 
-        const double* const b__, 
+        double* const a__,
+        const double* const b__,
         const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {

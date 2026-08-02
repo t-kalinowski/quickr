@@ -72,28 +72,15 @@ infer_dest_matmul <- function(args, scope) {
     orientation = if (right_rank == 1L) "colvec" else "matrix"
   )
 
-  left_eff <- if (left_rank == 2L) {
-    effective_dims(left_dims, left_trans)
-  } else {
-    left_dims
-  }
-  right_eff <- if (right_rank == 2L) {
-    effective_dims(right_dims, right_trans)
-  } else {
-    right_dims
-  }
-
-  if (left_rank == 2L && right_rank == 1L) {
-    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
-    return(Variable("double", list(out_len, 1L)))
-  }
-  if (left_rank == 1L && right_rank == 2L) {
-    transA <- if (right_trans == "N") "T" else "N"
-    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
-    return(Variable("double", list(1L, out_len)))
-  }
-
-  Variable("double", list(left_eff$rows, right_eff$cols))
+  shapes <- matmul_shapes(
+    left_rank,
+    left_dims,
+    left_trans,
+    right_rank,
+    right_dims,
+    right_trans
+  )
+  Variable("double", shapes$out_dims)
 }
 
 # Shared inference for crossprod/tcrossprod destination sizes.
@@ -200,7 +187,8 @@ infer_dest_solve <- function(args, scope) {
   NULL
 }
 
-# Infer destination dimensions for chol().
+# Infer destination dimensions for chol() and chol2inv(): both return a
+# square double matrix shaped like `x`.
 infer_dest_chol <- function(args, scope) {
   x_arg <- args$x %||% args[[1L]]
   if (is.null(x_arg)) {
@@ -214,19 +202,7 @@ infer_dest_chol <- function(args, scope) {
   Variable("double", list(x_dims$rows, x_dims$cols))
 }
 
-# Infer destination dimensions for chol2inv().
-infer_dest_chol2inv <- function(args, scope) {
-  x_arg <- args$x %||% args[[1L]]
-  if (is.null(x_arg)) {
-    return(NULL)
-  }
-  X <- infer_symbol_var(x_arg, scope)
-  if (is.null(X) || X@rank != 2L) {
-    return(NULL)
-  }
-  x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
-}
+infer_dest_chol2inv <- infer_dest_chol
 
 # Helper to infer a size from a literal or symbol.
 infer_size <- function(arg, scope) {
@@ -255,10 +231,11 @@ infer_size <- function(arg, scope) {
   NULL
 }
 
-# Infer destination dimensions for diag().
-infer_dest_diag <- function(args, scope) {
-  # R signature: diag(x = 1, nrow, ncol, names = TRUE)
-  # Handle both named and positional arguments
+# Match diag()'s x/nrow/ncol arguments, named or positional.
+# R signature: diag(x = 1, nrow, ncol, names = TRUE). Shared by the
+# diag() handler and infer_dest_diag() so lowering and dest inference
+# cannot drift. The returned `x` is never the missing arg (NULL instead).
+diag_call_args <- function(args) {
   arg_names <- names(args)
   if (is.null(arg_names)) {
     arg_names <- rep("", length(args))
@@ -288,11 +265,26 @@ infer_dest_diag <- function(args, scope) {
     ncol_arg <- args[[unnamed_idx[[3L]]]]
   }
 
-  has_nrow <- !is.null(nrow_arg) && !is_missing(nrow_arg)
-  has_ncol <- !is.null(ncol_arg) && !is_missing(ncol_arg)
+  list(
+    x = x_arg,
+    nrow = nrow_arg,
+    ncol = ncol_arg,
+    has_nrow = !is.null(nrow_arg) && !is_missing(nrow_arg),
+    has_ncol = !is.null(ncol_arg) && !is_missing(ncol_arg)
+  )
+}
+
+# Infer destination dimensions for diag().
+infer_dest_diag <- function(args, scope) {
+  margs <- diag_call_args(args)
+  x_arg <- margs$x
+  nrow_arg <- margs$nrow
+  ncol_arg <- margs$ncol
+  has_nrow <- margs$has_nrow
+  has_ncol <- margs$has_ncol
 
   # Case: no x, just nrow (identity matrix)
-  if (is.null(x_arg) || is_missing(x_arg)) {
+  if (is.null(x_arg)) {
     if (!has_nrow) {
       return(NULL)
     }
@@ -333,8 +325,11 @@ infer_dest_diag <- function(args, scope) {
     }
   }
 
-  # Case: x is a scalar symbol without nrow/ncol (identity matrix)
-  if (!is.null(x) && x@rank == 0L && !has_nrow && !has_ncol) {
+  # Case: x is a length-1 symbol without nrow/ncol (identity matrix). Must
+  # match the handler's predicate exactly, or the inferred destination
+  # would be the 1x1 constructor result instead of the identity's (x, x).
+  # The size depends on x's value, so leave the destination uninferred.
+  if (!is.null(x) && passes_as_scalar(x) && !has_nrow && !has_ncol) {
     return(NULL)
   }
 

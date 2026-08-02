@@ -137,7 +137,7 @@ test_that("matrix ops infer destination sizes for assignments", {
   expect_quick_equal(chol2inv_infer, list(A = A_pd))
 })
 
-test_that("crossprod requires conformability at compile time", {
+test_that("crossprod with unverifiable dims compiles and guards at runtime", {
   fn <- function(x, y, n, p, m, k) {
     declare(
       type(n = integer(1)),
@@ -150,10 +150,17 @@ test_that("crossprod requires conformability at compile time", {
     crossprod(x, y)
   }
 
+  # was: hard compile error "cannot verify conformability in crossprod"
+  qfn <- quick(fn)
+  x <- matrix(as.double(1:6), 2, 3)
+  y <- matrix(as.double(6:1), 2, 3)
+  expect_equal(
+    qfn(x, y, 2L, 2L, 3L, 3L),
+    crossprod(x, y)
+  )
   expect_error(
-    quick(fn),
-    "cannot verify conformability in crossprod",
-    fixed = TRUE
+    qfn(x, matrix(as.double(1:6), 3, 2), 2L, 3L, 3L, 2L),
+    "non-conformable arguments in crossprod"
   )
 })
 
@@ -212,8 +219,8 @@ test_that("matrix helpers report unsupported inputs", {
   expect_error(quick(back_bad_B), "triangular solve only supports vector")
 })
 
-test_that("matrix conformability warnings are surfaced", {
-  matmul_warn <- function(A, B, n, m, k) {
+test_that("unverifiable %*% dims compile without warning and guard at runtime", {
+  matmul_unknown <- function(A, B, n, m, k) {
     declare(
       type(n = integer(1)),
       type(m = integer(1)),
@@ -224,8 +231,14 @@ test_that("matrix conformability warnings are surfaced", {
     A %*% B
   }
 
-  expect_warning(
-    quick(matmul_warn),
-    "cannot verify conformability in %\\*%"
+  # was: compile-time R warning, then an unchecked BLAS call
+  qfn <- expect_no_warning(quick(matmul_unknown))
+  A <- matrix(as.double(1:6), 2, 3)
+  B <- matrix(as.double(6:1), 3, 2)
+  expect_equal(qfn(A, B, 2L, 3L, 3L), A %*% B)
+  expect_error(
+    qfn(A, matrix(as.double(1:4), 2, 2), 2L, 3L, 2L),
+    "non-conformable arguments in %*%",
+    fixed = TRUE
   )
 })

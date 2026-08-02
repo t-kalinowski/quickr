@@ -38,38 +38,13 @@ assert_rank_leq2 <- function(x, message) {
 }
 
 # Assert right-hand side rank is vector or matrix.
-assert_rhs_rank <- function(
-  rank,
-  err_scalar,
-  err_high,
-  call_scalar = FALSE,
-  call_high = FALSE
-) {
-  stopifnot(
-    is_wholenumber(rank),
-    is_string(err_scalar),
-    is_string(err_high),
-    is_bool(call_scalar),
-    is_bool(call_high)
-  )
+assert_vector_or_matrix_rhs <- function(rank, err_scalar, err_high) {
+  stopifnot(is_wholenumber(rank), is_string(err_scalar), is_string(err_high))
   if (rank > 2L) {
-    stop(err_high, call. = call_high)
+    stop(err_high, call. = FALSE)
   }
   if (rank == 0L) {
-    stop(err_scalar, call. = call_scalar)
-  }
-  invisible(TRUE)
-}
-
-# Assert conformability and warn on unknown.
-assert_conformable_dims <- function(left, right, context, err_msg) {
-  stopifnot(is_string(context), is_string(err_msg))
-  conform <- check_conformable(left, right)
-  if (!conform$ok) {
-    stop(err_msg, call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(left, right, context)
+    stop(err_scalar, call. = FALSE)
   }
   invisible(TRUE)
 }
@@ -164,72 +139,77 @@ effective_dims <- function(dims, trans) {
   }
 }
 
-# Return conformability status (ok/unknown) without side-effects.
-check_conformable <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    ok <- identical(as.integer(left), as.integer(right))
-    return(list(ok = ok, unknown = FALSE))
+# Effective operand and result shapes for %*%. `left_dims`/`right_dims`
+# come from matrix_dims*() with vectors oriented as a row (left) or
+# column (right) vector; transposes apply to matrix operands only (a
+# transposed vector is already reoriented by its dims). The result is
+# left_eff$rows x right_eff$cols in every case -- the gemv cases keep
+# their literal 1 extent from the vector orientation. Shared by the
+# %*% handler and infer_dest_matmul() so lowering and dest inference
+# cannot drift.
+matmul_shapes <- function(
+  left_rank,
+  left_dims,
+  left_trans,
+  right_rank,
+  right_dims,
+  right_trans
+) {
+  left_eff <- if (left_rank == 2L) {
+    effective_dims(left_dims, left_trans)
+  } else {
+    left_dims
   }
-  if (identical(left, right)) {
-    return(list(ok = TRUE, unknown = FALSE))
+  right_eff <- if (right_rank == 2L) {
+    effective_dims(right_dims, right_trans)
+  } else {
+    right_dims
   }
-  list(ok = TRUE, unknown = TRUE)
-}
-
-warn_conformability_unknown <- function(left, right, context) {
-  left_txt <- if (is.null(left)) "NULL" else deparse(left)
-  right_txt <- if (is.null(right)) "NULL" else deparse(right)
-  warning(
-    "cannot verify conformability in ",
-    context,
-    " at compile time: ",
-    left_txt,
-    " vs ",
-    right_txt,
-    call. = FALSE
+  list(
+    left_eff = left_eff,
+    right_eff = right_eff,
+    out_dims = list(left_eff$rows, right_eff$cols)
   )
-  invisible(FALSE)
 }
 
-# Assert that dimensions represent a square matrix (rows == cols).
-# Throws an error if dimensions are known to be non-conformable,
-# and warns if conformability cannot be verified at compile time.
-assert_square_matrix <- function(rows, cols, context) {
-  conform <- check_conformable(rows, cols)
-  if (!conform$ok) {
-    stop(context, " requires a square matrix", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(rows, cols, context)
-  }
-  invisible(TRUE)
+# Enforce that `dims` describe a square matrix: a known mismatch is a
+# compile error; unverifiable dims get a runtime guard on the operand's
+# actual extents.
+assert_square_matrix <- function(dims, operand, context, hoist, scope) {
+  guard_conformable_dims(
+    dims$rows,
+    dims$cols,
+    paste0(context, " requires a square matrix"),
+    hoist,
+    scope,
+    left = operand,
+    right = operand,
+    left_axis = 1L,
+    right_axis = 2L
+  )
 }
 
 # ---- BLAS emitters ----
 
-# Check that destination dimensions match expected output dimensions.
-assert_dest_dims_compatible <- function(dest, expected_dims, context) {
-  if (is.null(dest) || is.null(expected_dims)) {
-    return(invisible(TRUE))
+# TRUE when the destination's declared shape is *proven* to match the
+# expected output shape: rank equal and every extent proven equal
+# (dims_proven_equal()). Anything unproven -- symbolic dims that merely
+# fail to be refuted, NA dims -- is FALSE: the emitter then routes
+# through a hoisted temporary and the assignment shape check guards (or
+# refuses) the copy. Accepting an unproven dest passed wrong leading
+# dimensions to the BLAS call and could write past the allocation.
+dest_dims_proven_equal <- function(dest, expected_dims) {
+  if (is.null(expected_dims)) {
+    return(FALSE)
   }
-  expected_rank <- length(expected_dims)
-  if (dest@rank != expected_rank) {
-    stop("assignment target has incompatible rank for ", context, call. = FALSE)
+  if (dest@rank != length(expected_dims)) {
+    return(FALSE)
   }
-  for (i in seq_len(expected_rank)) {
-    dest_dim <- dest@dims[[i]]
-    expected_dim <- expected_dims[[i]]
-    if (is_wholenumber(dest_dim) && is_wholenumber(expected_dim)) {
-      if (!identical(as.integer(dest_dim), as.integer(expected_dim))) {
-        stop(
-          "assignment target has incompatible dimensions for ",
-          context,
-          call. = FALSE
-        )
-      }
-    }
-  }
-  invisible(TRUE)
+  all(vapply(
+    seq_along(expected_dims),
+    function(i) dims_proven_equal(dest@dims[[i]], expected_dims[[i]]),
+    logical(1)
+  ))
 }
 
 # Determine if output can safely write into dest without aliasing.
@@ -255,7 +235,9 @@ can_use_output <- function(
   if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
-  assert_dest_dims_compatible(dest, expected_dims, context)
+  if (!dest_dims_proven_equal(dest, expected_dims)) {
+    return(FALSE)
+  }
   output_name <- dest@name
   if (is.null(output_name) || !nzchar(output_name)) {
     return(FALSE)
@@ -268,6 +250,89 @@ can_use_output <- function(
   disallowed <- setdiff(input_names, allow_alias)
 
   !output_name %in% disallowed
+}
+
+# Resolve where a BLAS/LAPACK emitter writes its result: the assignment
+# destination when can_use_output() allows it, otherwise a hoisted
+# temporary declared with the expected dims. Returns list(var, name,
+# use_dest); wrap up with finalize_blas_output().
+resolve_blas_output <- function(
+  dest,
+  hoist,
+  input_names,
+  expected_dims,
+  context,
+  allow_alias = character(),
+  mode = "double",
+  logical_is_c_int = FALSE
+) {
+  if (
+    can_use_output(
+      dest,
+      input_names = input_names,
+      expected_dims = expected_dims,
+      context = context,
+      allow_alias = allow_alias,
+      mode = mode,
+      logical_is_c_int = logical_is_c_int
+    )
+  ) {
+    return(list(var = dest, name = dest@name, use_dest = TRUE))
+  }
+  var <- hoist$declare_tmp(
+    mode = mode,
+    dims = expected_dims,
+    logical_as_int = logical_is_c_int
+  )
+  list(var = var, name = var@name, use_dest = FALSE)
+}
+
+# Wrap a resolved output as the emitter's return value, marking
+# destination writes so the assignment handler skips the copy.
+finalize_blas_output <- function(out) {
+  f <- Fortran(out$name, out$var)
+  if (out$use_dest) {
+    f@writes_to_dest <- TRUE
+  }
+  f
+}
+
+# Emit the guard pair for a LAPACK `info` result: a routine-specific
+# message when info > 0 and the uniform illegal-argument message when
+# info < 0. dgesdd checks the negative case first; the per-site order is
+# preserved so the emitted guards (and snapshots) are unchanged.
+emit_lapack_info_guards <- function(
+  info,
+  routine,
+  positive_msg,
+  hoist,
+  scope,
+  negative_first = FALSE
+) {
+  emit_positive <- function() {
+    emit_quickr_error_if(
+      condition = glue("{info} > 0_c_int"),
+      message = positive_msg,
+      hoist = hoist,
+      scope = scope
+    )
+  }
+  emit_negative <- function() {
+    emit_quickr_error_if(
+      condition = glue("{info} < 0_c_int"),
+      message = glue("Lapack routine {routine}: illegal argument"),
+      hoist = hoist,
+      scope = scope
+    )
+  }
+  if (negative_first) {
+    emit_negative()
+    emit_positive()
+  } else {
+    emit_positive()
+    emit_negative()
+  }
+  invisible(TRUE)
 }
 
 # Ensure a BLAS operand is named, hoisting into a temp if needed.
@@ -288,7 +353,7 @@ ensure_blas_operand_name <- function(x, hoist) {
 # Wrap an expression as a BLAS int literal.
 blas_int <- function(x) {
   x_str <- if (is.language(x)) {
-    gsub("([0-9]+)L\\b", "\\1", deparse1(x))
+    gsub("([0-9]+)L\\b", "\\1", deparse1(fortranize_size_calls(x)))
   } else if (is_wholenumber(x)) {
     as.character(as.integer(x))
   } else {
@@ -297,8 +362,7 @@ blas_int <- function(x) {
   glue("int({x_str}, kind=c_int)")
 }
 
-# Centralized GEMM emission with optional destination
-# gemm: centralized BLAS GEMM emission.
+# gemm: centralized BLAS GEMM emission with optional destination.
 # - 'hoist' is required and provided by r2f(); handlers thread it through so
 #   helpers can pre-emit temporary assignments and BLAS calls.
 gemm <- function(
@@ -321,31 +385,20 @@ gemm <- function(
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, B_name),
-      expected_dims = list(m, n),
-      context = context
-    )
-  ) {
-    hoist$emit(glue(
-      "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {dest@name}, {blas_int(ldc_expr)})"
-    ))
-    out <- Fortran(dest@name, dest)
-    out@writes_to_dest <- TRUE
-    return(out)
-  }
-
-  output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(A_name, B_name),
+    expected_dims = list(m, n),
+    context = context
+  )
   hoist$emit(glue(
-    "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {output_var@name}, {blas_int(ldc_expr)})"
+    "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {out$name}, {blas_int(ldc_expr)})"
   ))
-  Fortran(output_var@name, output_var)
+  finalize_blas_output(out)
 }
 
-# Centralized GEMV emission with optional destination
-# gemv: centralized BLAS GEMV emission.
+# gemv: centralized BLAS GEMV emission with optional destination.
 # - 'hoist' is required and provided by r2f(); handlers thread it through so
 #   helpers can pre-emit temporary assignments and BLAS calls.
 gemv <- function(
@@ -365,36 +418,25 @@ gemv <- function(
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, x_name),
-      expected_dims = out_dims,
-      context = context
-    )
-  ) {
-    # Assign output to output destination
-    hoist$emit(glue(
-      "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {dest@name}, 1_c_int)"
-    ))
-    out <- Fortran(dest@name, dest)
-    out@writes_to_dest <- TRUE
-    return(out)
-  }
-  # Else assign to a temporary variable
-  output_var <- hoist$declare_tmp(mode = "double", dims = out_dims)
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(A_name, x_name),
+    expected_dims = out_dims,
+    context = context
+  )
   hoist$emit(glue(
-    "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {output_var@name}, 1_c_int)"
+    "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {out$name}, 1_c_int)"
   ))
-  Fortran(output_var@name, output_var)
+  finalize_blas_output(out)
 }
 
 symmetrize_upper_to_lower <- function(target, n, hoist) {
   stopifnot(is_string(target))
   assert_hoist_env(hoist)
 
-  idx_i <- hoist$declare_tmp(mode = "integer", dims = list(1L))
-  idx_j <- hoist$declare_tmp(mode = "integer", dims = list(1L))
+  idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
   n_int <- blas_int(n)
   hoist$emit(glue(
     "
@@ -465,36 +507,20 @@ syrk <- function(
   lda <- x_dims$rows
 
   # Output is symmetric n x n matrix
-  writes_to_dest <- FALSE
-  out_var <- NULL
-  out_name <- NULL
-
-  if (
-    can_use_output(
-      dest,
-      input_names = X_name,
-      expected_dims = list(n, n),
-      context = context
-    )
-  ) {
-    writes_to_dest <- TRUE
-    out_var <- dest
-    out_name <- dest@name
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = X_name,
+    expected_dims = list(n, n),
+    context = context
+  )
 
   hoist$emit(glue(
-    "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {out_name}, {blas_int(n)})"
+    "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {out$name}, {blas_int(n)})"
   ))
-  symmetrize_upper_to_lower(out_name, n, hoist = hoist)
+  symmetrize_upper_to_lower(out$name, n, hoist = hoist)
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 # Emit BLAS outer product for vectors or scalars with optional destination.
@@ -508,8 +534,8 @@ outer_mul <- function(
 ) {
   assert_hoist_env(hoist)
 
-  x <- maybe_cast_double(x)
-  y <- maybe_cast_double(y)
+  x <- cast_linalg_double(x, context)
+  y <- cast_linalg_double(y, context)
 
   if (x@value@rank > 1L || y@value@rank > 1L) {
     stop("outer() only supports vectors or scalars")
@@ -521,29 +547,18 @@ outer_mul <- function(
   x_name <- ensure_blas_operand_name(x, hoist)
   y_name <- ensure_blas_operand_name(y, hoist)
 
-  if (
-    can_use_output(
-      dest,
-      input_names = c(x_name, y_name),
-      expected_dims = list(m, n),
-      context = context
-    )
-  ) {
-    hoist$emit(glue("{dest@name} = 0.0_c_double"))
-    hoist$emit(glue(
-      "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {dest@name}, {blas_int(m)})"
-    ))
-    out <- Fortran(dest@name, dest)
-    out@writes_to_dest <- TRUE
-    return(out)
-  }
-
-  output_var <- hoist$declare_tmp(mode = "double", dims = list(m, n))
-  hoist$emit(glue("{output_var@name} = 0.0_c_double"))
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(x_name, y_name),
+    expected_dims = list(m, n),
+    context = context
+  )
+  hoist$emit(glue("{out$name} = 0.0_c_double"))
   hoist$emit(glue(
-    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {output_var@name}, {blas_int(m)})"
+    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {out$name}, {blas_int(m)})"
   ))
-  Fortran(output_var@name, output_var)
+  finalize_blas_output(out)
 }
 
 # Emit triangular solve (vector or matrix RHS) with optional destination.
@@ -560,70 +575,49 @@ triangular_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
-  B <- maybe_cast_double(B)
+  A <- cast_linalg_double(A, context)
+  B <- cast_linalg_double(B, context)
 
   assert_rank2_matrix(A, "triangular solve expects a matrix")
 
   a_dims <- matrix_dims(A)
-  conform <- check_conformable(a_dims$rows, a_dims$cols)
-  if (!conform$ok) {
-    stop("non-conformable arguments in triangular solve", call. = FALSE)
-  }
-  if (conform$unknown) {
-    warn_conformability_unknown(a_dims$rows, a_dims$cols, "triangular solve")
-  }
+  assert_square_matrix(a_dims, A, "triangular solve", hoist, scope)
   n <- a_dims$rows
 
   b_rank <- B@value@rank
-  assert_rhs_rank(
+  assert_vector_or_matrix_rhs(
     b_rank,
     err_scalar = "triangular solve expects a vector or matrix right-hand side",
     err_high = "triangular solve only supports vector or matrix right-hand sides"
   )
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_len,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      n,
-      b_rows,
-      context = "triangular solve",
-      err_msg = "non-conformable arguments in triangular solve"
-    )
-  }
+  guard_conformable_dims(
+    n,
+    dim_or_one(B, 1L),
+    "non-conformable arguments in triangular solve",
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- symbol_name_or_null(B)
 
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, B_input_name),
-      expected_dims = B@value@dims,
-      context = context,
-      allow_alias = B_input_name
-    )
-  ) {
-    hoist$emit(glue("{dest@name} = {B}"))
-    B_name <- dest@name
-    out_var <- dest
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(
-      mode = B@value@mode %||% "double",
-      dims = B@value@dims
-    )
-    hoist$emit(glue("{out_var@name} = {B}"))
-    B_name <- out_var@name
-    writes_to_dest <- FALSE
-  }
+  # The solve routines overwrite their right-hand side, so the output
+  # (dest or temp) doubles as the B argument after copying B into it.
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(A_name, B_input_name),
+    expected_dims = B@value@dims,
+    context = context,
+    allow_alias = B_input_name,
+    mode = B@value@mode %||% "double"
+  )
+  hoist$emit(glue("{out$name} = {B}"))
+  B_name <- out$name
 
   if (b_rank <= 1L) {
     hoist$emit(glue(
@@ -636,11 +630,7 @@ triangular_solve <- function(
     ))
   }
 
-  out <- Fortran(B_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 lapack_solve <- function(
@@ -654,8 +644,8 @@ lapack_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
-  B <- maybe_cast_double(B)
+  A <- cast_linalg_double(A, context)
+  B <- cast_linalg_double(B, context)
 
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
@@ -664,219 +654,156 @@ lapack_solve <- function(
   n <- a_dims$cols
 
   b_rank <- B@value@rank
-  assert_rhs_rank(
+  assert_vector_or_matrix_rhs(
     b_rank,
     err_scalar = paste0(context, " expects a vector or matrix right-hand side"),
     err_high = paste0(
       context,
       " only supports vector or matrix right-hand sides"
-    ),
-    call_scalar = FALSE,
-    call_high = FALSE
+    )
   )
 
-  if (b_rank == 1L) {
-    b_len <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_len,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  } else {
-    b_rows <- dim_or_one(B, 1L)
-    assert_conformable_dims(
-      m,
-      b_rows,
-      context = context,
-      err_msg = paste0("non-conformable arguments in ", context)
-    )
-  }
+  guard_conformable_dims(
+    m,
+    dim_or_one(B, 1L),
+    paste0("non-conformable arguments in ", context),
+    hoist,
+    scope,
+    left = A,
+    right = B,
+    left_axis = 1L,
+    right_axis = if (b_rank == 1L) NULL else 1L
+  )
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- ensure_blas_operand_name(B, hoist)
 
   nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
-  square <- check_conformable(m, n)
-  if (square$ok && !square$unknown && !identical(context, "qr.solve")) {
-    A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
-    hoist$emit(glue("{A_work@name} = {A_name}"))
-
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
-    } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
-    }
-    hoist$emit(glue("{out_name} = {B_input_name}"))
-
-    ipiv <- hoist$declare_tmp(mode = "integer", dims = list(m))
-    info <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-    hoist$emit(glue(
-      "call dgesv({blas_int(m)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {ipiv@name}, {out_name}, {blas_int(m)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} > 0_c_int"),
-      message = "Lapack routine dgesv: system is exactly singular",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgesv: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
-  }
+  # Both lowerings write a solution shaped by R's contract: length follows
+  # ncol(a), width follows the right-hand side. Each lowering resolves the
+  # output target at its own write point (declaration order matters for
+  # the emitted block) via resolve_blas_output().
+  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
 
   if (identical(context, "qr.solve")) {
-    A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
-    hoist$emit(glue("{A_work@name} = {A_name}"))
-
-    B_work <- hoist$declare_tmp(mode = "double", dims = list(m, nrhs))
-    m_f <- dims2f(list(m), scope)
-    if (!nzchar(m_f)) {
-      m_f <- "1"
-    }
-    nrhs_f <- dims2f(list(nrhs), scope)
-    if (!nzchar(nrhs_f)) {
-      nrhs_f <- "1"
-    }
-    hoist$emit(glue("{B_work@name} = 0.0_c_double"))
-    if (b_rank == 1L) {
-      hoist$emit(glue("{B_work@name}(1:{m_f}, 1) = {B_input_name}"))
-    } else {
-      hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
-    }
-
-    qraux <- hoist$declare_tmp(mode = "double", dims = list(n))
-    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
-    work <- hoist$declare_tmp(mode = "double", dims = list(n, 2L))
-    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
-    idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-    hoist$emit(glue(
-      "
-do {idx@name} = 1_c_int, {blas_int(n)}
-  {jpvt@name}({idx@name}) = {idx@name}
-end do"
-    ))
-
-    tol_value <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
-    mn <- call("min", m, n)
-    hoist$emit(glue(
-      "call dqrdc2({A_work@name}, {blas_int(m)}, {blas_int(m)}, {blas_int(n)}, {tol_value}, {rank@name}, {qraux@name}, {jpvt@name}, {work@name})"
-    ))
-
-    emit_quickr_error_if(
-      condition = glue("{rank@name} < {blas_int(mn)}"),
-      message = "rank deficient matrix in qr.solve",
+    lapack_solve_qr(
+      A_name = A_name,
+      B_input_name = B_input_name,
+      m = m,
+      n = n,
+      nrhs = nrhs,
+      b_rank = b_rank,
+      expected_dims = expected_dims,
+      dest = dest,
+      context = context,
+      tol = tol,
       hoist = hoist,
       scope = scope
     )
-
-    coef_work <- hoist$declare_tmp(
-      mode = "double",
-      dims = list(mn, nrhs)
-    )
-    hoist$emit(glue("{coef_work@name} = 0.0_c_double"))
-    info <- hoist$declare_tmp(mode = "integer", dims = NULL)
-
-    hoist$emit(glue(
-      "call dqrcf({A_work@name}, {blas_int(m)}, {rank@name}, {qraux@name}, {B_work@name}, {blas_int(nrhs)}, {coef_work@name}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} /= 0_c_int"),
-      message = "exact singularity in 'qr.coef'",
+  } else {
+    lapack_solve_gesv(
+      A = A,
+      a_dims = a_dims,
+      A_name = A_name,
+      B = B,
+      B_input_name = B_input_name,
+      m = m,
+      nrhs = nrhs,
+      b_rank = b_rank,
+      expected_dims = expected_dims,
+      dest = dest,
+      context = context,
       hoist = hoist,
       scope = scope
     )
-
-    expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-    writes_to_dest <- FALSE
-    if (
-      can_use_output(
-        dest,
-        input_names = c(A_name, B_input_name),
-        expected_dims = expected_dims,
-        context = context,
-        allow_alias = B_input_name
-      )
-    ) {
-      out_var <- dest
-      out_name <- dest@name
-      writes_to_dest <- TRUE
-    } else {
-      out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-      out_name <- out_var@name
-    }
-
-    if (passes_as_scalar(out_var)) {
-      hoist$emit(glue("{out_name} = {coef_work@name}(1, 1)"))
-    } else {
-      hoist$emit(glue("{out_name} = 0.0_c_double"))
-      if (b_rank == 1L) {
-        idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
-        hoist$emit(glue(
-          "
-do {idx@name} = 1_c_int, {rank@name}
-  {out_name}({jpvt@name}({idx@name})) = {coef_work@name}({idx@name}, 1)
-end do"
-        ))
-      } else {
-        idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
-        idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
-        hoist$emit(glue(
-          "
-do {idx_j@name} = 1_c_int, {blas_int(nrhs)}
-  do {idx_i@name} = 1_c_int, {rank@name}
-    {out_name}({jpvt@name}({idx_i@name}), {idx_j@name}) = {coef_work@name}({idx_i@name}, {idx_j@name})
-  end do
-end do"
-        ))
-      }
-    }
-
-    out <- Fortran(out_name, out_var)
-    if (writes_to_dest) {
-      out@writes_to_dest <- TRUE
-    }
-    return(out)
   }
+}
 
+# Square solve via dgesv. R's solve() requires a square `a`; least
+# squares is qr.solve()'s job. Statically rectangular `a` is a compile
+# error, symbolic dims get a runtime guard before the dgesv call. (A
+# rectangular `a` used to fall through to a dgels least-squares solve --
+# an answer where R errors.)
+lapack_solve_gesv <- function(
+  A,
+  a_dims,
+  A_name,
+  B,
+  B_input_name,
+  m,
+  nrhs,
+  b_rank,
+  expected_dims,
+  dest,
+  context,
+  hoist,
+  scope
+) {
+  assert_square_matrix(a_dims, A, context, hoist, scope)
+  A_work <- hoist$declare_tmp(mode = "double", dims = list(m, m))
+  hoist$emit(glue("{A_work@name} = {A_name}"))
+
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(A_name, B_input_name),
+    expected_dims = expected_dims,
+    context = context,
+    allow_alias = B_input_name
+  )
+  # The output length follows ncol(a) (R's contract) while `b` follows
+  # nrow(a); the two are only runtime-equal. When ncol is statically 1
+  # the output declares as a scalar, so a symbolic-length `b` must be
+  # copied elementwise, not by whole-array assignment.
+  b_src <- if (passes_as_scalar(out$var) && !passes_as_scalar(B@value)) {
+    subs <- str_flatten_commas(rep("1", b_rank))
+    glue("{B_input_name}({subs})")
+  } else {
+    B_input_name
+  }
+  hoist$emit(glue("{out$name} = {b_src}"))
+
+  ipiv <- hoist$declare_tmp(mode = "integer", dims = list(m))
+  info <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+  hoist$emit(glue(
+    "call dgesv({blas_int(m)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {ipiv@name}, {out$name}, {blas_int(m)}, {info@name})"
+  ))
+  emit_lapack_info_guards(
+    info@name,
+    "dgesv",
+    "Lapack routine dgesv: system is exactly singular",
+    hoist,
+    scope
+  )
+  finalize_blas_output(out)
+}
+
+# Least-squares solve via the LINPACK dqrdc2/dqrcf pair (R's own qr()
+# routines), permuting the rank-truncated coefficients back through the
+# pivot vector.
+lapack_solve_qr <- function(
+  A_name,
+  B_input_name,
+  m,
+  n,
+  nrhs,
+  b_rank,
+  expected_dims,
+  dest,
+  context,
+  tol,
+  hoist,
+  scope
+) {
   A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{A_work@name} = {A_name}"))
 
-  max_mn <- call("max", m, n)
-
-  B_work <- hoist$declare_tmp(mode = "double", dims = list(max_mn, nrhs))
+  B_work <- hoist$declare_tmp(mode = "double", dims = list(m, nrhs))
   m_f <- dims2f(list(m), scope)
   if (!nzchar(m_f)) {
     m_f <- "1"
-  }
-  n_f <- dims2f(list(n), scope)
-  if (!nzchar(n_f)) {
-    n_f <- "1"
   }
   nrhs_f <- dims2f(list(nrhs), scope)
   if (!nzchar(nrhs_f)) {
@@ -889,226 +816,174 @@ end do"
     hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
   }
 
+  qraux <- hoist$declare_tmp(mode = "double", dims = list(n))
+  jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
+  work <- hoist$declare_tmp(mode = "double", dims = list(n, 2L))
+  rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
+
+  hoist$emit(glue(
+    "
+do {idx@name} = 1_c_int, {blas_int(n)}
+  {jpvt@name}({idx@name}) = {idx@name}
+end do"
+  ))
+
+  tol_value <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
+  mn <- diag_length_expr(m, n, context)
+  hoist$emit(glue(
+    "call dqrdc2({A_work@name}, {blas_int(m)}, {blas_int(m)}, {blas_int(n)}, {tol_value}, {rank@name}, {qraux@name}, {jpvt@name}, {work@name})"
+  ))
+
+  emit_quickr_error_if(
+    condition = glue("{rank@name} < {blas_int(mn)}"),
+    message = "rank deficient matrix in qr.solve",
+    hoist = hoist,
+    scope = scope
+  )
+
+  coef_work <- hoist$declare_tmp(
+    mode = "double",
+    dims = list(mn, nrhs)
+  )
+  hoist$emit(glue("{coef_work@name} = 0.0_c_double"))
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
 
-  mn <- call("min", m, n)
-  if (identical(context, "qr.solve")) {
-    jpvt <- hoist$declare_tmp(mode = "integer", dims = list(n))
-    hoist$emit(glue("{jpvt@name} = 0_c_int"))
+  hoist$emit(glue(
+    "call dqrcf({A_work@name}, {blas_int(m)}, {rank@name}, {qraux@name}, {B_work@name}, {blas_int(nrhs)}, {coef_work@name}, {info@name})"
+  ))
+  emit_quickr_error_if(
+    condition = glue("{info@name} /= 0_c_int"),
+    message = "exact singularity in 'qr.coef'",
+    hoist = hoist,
+    scope = scope
+  )
 
-    rcond <- if (is.null(tol)) "1e-7_c_double" else as.character(tol)
-    rank <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = c(A_name, B_input_name),
+    expected_dims = expected_dims,
+    context = context,
+    allow_alias = B_input_name
+  )
 
-    lwork <- call(
-      "max",
-      1L,
-      call("+", mn, call("max", mn, nrhs)),
-      call("+", call("*", 2L, mn), call("*", 64L, call("+", n, 1L))),
-      call("+", mn, call("*", 2L, n))
-    )
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgelsy({blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {jpvt@name}, {rcond}, {rank@name}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgelsy: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{info@name} > 0_c_int"),
-      message = "Lapack routine dgelsy failed to converge",
-      hoist = hoist,
-      scope = scope
-    )
-    emit_quickr_error_if(
-      condition = glue("{rank@name} < {blas_int(n)}"),
-      message = "rank deficient matrix in qr.solve",
-      hoist = hoist,
-      scope = scope
-    )
+  if (passes_as_scalar(out$var)) {
+    hoist$emit(glue("{out$name} = {coef_work@name}(1, 1)"))
   } else {
-    lwork <- call("max", 1L, call("+", mn, call("max", mn, nrhs)))
-    work <- hoist$declare_tmp(mode = "double", dims = list(lwork))
-
-    hoist$emit(glue(
-      "call dgels('N', {blas_int(m)}, {blas_int(n)}, {blas_int(nrhs)}, {A_work@name}, {blas_int(m)}, {B_work@name}, {blas_int(max_mn)}, {work@name}, {blas_int(lwork)}, {info@name})"
-    ))
-    emit_quickr_error_if(
-      condition = glue("{info@name} < 0_c_int"),
-      message = "Lapack routine dgels: illegal argument",
-      hoist = hoist,
-      scope = scope
-    )
-  }
-
-  expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = c(A_name, B_input_name),
-      expected_dims = expected_dims,
-      context = context,
-      allow_alias = B_input_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = expected_dims)
-    out_name <- out_var@name
-  }
-
-  if (b_rank == 1L) {
-    if (passes_as_scalar(out_var)) {
-      hoist$emit(glue("{out_name} = {B_work@name}(1, 1)"))
+    hoist$emit(glue("{out$name} = 0.0_c_double"))
+    if (b_rank == 1L) {
+      idx <- hoist$declare_tmp(mode = "integer", dims = NULL)
+      hoist$emit(glue(
+        "
+do {idx@name} = 1_c_int, {rank@name}
+  {out$name}({jpvt@name}({idx@name})) = {coef_work@name}({idx@name}, 1)
+end do"
+      ))
     } else {
-      hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1)"))
+      idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
+      idx_j <- hoist$declare_tmp(mode = "integer", dims = NULL)
+      hoist$emit(glue(
+        "
+do {idx_j@name} = 1_c_int, {blas_int(nrhs)}
+  do {idx_i@name} = 1_c_int, {rank@name}
+    {out$name}({jpvt@name}({idx_i@name}), {idx_j@name}) = {coef_work@name}({idx_i@name}, {idx_j@name})
+  end do
+end do"
+      ))
     }
-  } else {
-    hoist$emit(glue("{out_name} = {B_work@name}(1:{n_f}, 1:{nrhs_f})"))
   }
-
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
 
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = A_name,
-      expected_dims = list(n, n),
-      context = context,
-      allow_alias = A_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = A_name,
+    expected_dims = list(n, n),
+    context = context,
+    allow_alias = A_name
+  )
 
-  hoist$emit(glue("{out_name} = {A_name}"))
+  hoist$emit(glue("{out$name} = {A_name}"))
 
   ipiv <- hoist$declare_tmp(mode = "integer", dims = list(n))
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   work <- hoist$declare_tmp(mode = "double", dims = list(n))
 
   hoist$emit(glue(
-    "call dgetrf({blas_int(n)}, {blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {info@name})"
+    "call dgetrf({blas_int(n)}, {blas_int(n)}, {out$name}, {blas_int(n)}, {ipiv@name}, {info@name})"
   ))
-  emit_quickr_error_if(
-    condition = glue("{info@name} > 0_c_int"),
-    message = "Lapack routine dgetrf: system is exactly singular",
-    hoist = hoist,
-    scope = scope
-  )
-  emit_quickr_error_if(
-    condition = glue("{info@name} < 0_c_int"),
-    message = "Lapack routine dgetrf: illegal argument",
-    hoist = hoist,
-    scope = scope
+  emit_lapack_info_guards(
+    info@name,
+    "dgetrf",
+    "Lapack routine dgetrf: system is exactly singular",
+    hoist,
+    scope
   )
   hoist$emit(glue(
-    "call dgetri({blas_int(n)}, {out_name}, {blas_int(n)}, {ipiv@name}, {work@name}, {blas_int(n)}, {info@name})"
+    "call dgetri({blas_int(n)}, {out$name}, {blas_int(n)}, {ipiv@name}, {work@name}, {blas_int(n)}, {info@name})"
   ))
-  emit_quickr_error_if(
-    condition = glue("{info@name} > 0_c_int"),
-    message = "Lapack routine dgetri: system is exactly singular",
-    hoist = hoist,
-    scope = scope
-  )
-  emit_quickr_error_if(
-    condition = glue("{info@name} < 0_c_int"),
-    message = "Lapack routine dgetri: illegal argument",
-    hoist = hoist,
-    scope = scope
+  emit_lapack_info_guards(
+    info@name,
+    "dgetri",
+    "Lapack routine dgetri: system is exactly singular",
+    hoist,
+    scope
   )
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   assert_hoist_env(hoist)
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   assert_rank2_matrix(A, paste0(context, " expects a matrix"))
 
   a_dims <- matrix_dims(A)
-  assert_square_matrix(a_dims$rows, a_dims$cols, context)
+  assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
 
   A_name <- ensure_blas_operand_name(A, hoist)
 
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = A_name,
-      expected_dims = list(n, n),
-      context = context,
-      allow_alias = A_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = A_name,
+    expected_dims = list(n, n),
+    context = context,
+    allow_alias = A_name
+  )
 
-  hoist$emit(glue("{out_name} = {A_name}"))
+  hoist$emit(glue("{out$name} = {A_name}"))
 
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   hoist$emit(glue(
-    "call dpotrf('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
+    "call dpotrf('U', {blas_int(n)}, {out$name}, {blas_int(n)}, {info@name})"
   ))
-  emit_quickr_error_if(
-    condition = glue("{info@name} > 0_c_int"),
-    message = "Lapack routine dpotrf: leading minor is not positive definite",
-    hoist = hoist,
-    scope = scope
+  emit_lapack_info_guards(
+    info@name,
+    "dpotrf",
+    "Lapack routine dpotrf: leading minor is not positive definite",
+    hoist,
+    scope
   )
-  emit_quickr_error_if(
-    condition = glue("{info@name} < 0_c_int"),
-    message = "Lapack routine dpotrf: illegal argument",
-    hoist = hoist,
-    scope = scope
-  )
-  zero_lower_triangle(out_name, n, hoist = hoist)
+  zero_lower_triangle(out$name, n, hoist = hoist)
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 lapack_chol2inv <- function(
@@ -1120,58 +995,40 @@ lapack_chol2inv <- function(
 ) {
   assert_hoist_env(hoist)
 
-  R <- maybe_cast_double(R)
+  R <- cast_linalg_double(R, context)
   assert_rank2_matrix(R, paste0(context, " expects a matrix"))
 
   r_dims <- matrix_dims(R)
-  assert_square_matrix(r_dims$rows, r_dims$cols, context)
+  assert_square_matrix(r_dims, R, context, hoist, scope)
   n <- r_dims$rows
 
   R_name <- ensure_blas_operand_name(R, hoist)
 
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = R_name,
-      expected_dims = list(n, n),
-      context = context,
-      allow_alias = R_name
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(mode = "double", dims = list(n, n))
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = R_name,
+    expected_dims = list(n, n),
+    context = context,
+    allow_alias = R_name
+  )
 
-  hoist$emit(glue("{out_name} = {R_name}"))
+  hoist$emit(glue("{out$name} = {R_name}"))
 
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   hoist$emit(glue(
-    "call dpotri('U', {blas_int(n)}, {out_name}, {blas_int(n)}, {info@name})"
+    "call dpotri('U', {blas_int(n)}, {out$name}, {blas_int(n)}, {info@name})"
   ))
-  emit_quickr_error_if(
-    condition = glue("{info@name} > 0_c_int"),
-    message = "Lapack routine dpotri: matrix is not positive definite",
-    hoist = hoist,
-    scope = scope
+  emit_lapack_info_guards(
+    info@name,
+    "dpotri",
+    "Lapack routine dpotri: matrix is not positive definite",
+    hoist,
+    scope
   )
-  emit_quickr_error_if(
-    condition = glue("{info@name} < 0_c_int"),
-    message = "Lapack routine dpotri: illegal argument",
-    hoist = hoist,
-    scope = scope
-  )
-  symmetrize_upper_to_lower(out_name, n, hoist = hoist)
+  symmetrize_upper_to_lower(out$name, n, hoist = hoist)
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
@@ -1187,42 +1044,25 @@ diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
   x_name <- ensure_blas_operand_name(x, hoist)
   logical_is_c_int <- logical_as_int(x@value)
 
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = x_name,
-      expected_dims = list(diag_len),
-      context = context,
-      mode = x@value@mode,
-      logical_is_c_int = logical_is_c_int
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(
-      mode = x@value@mode,
-      dims = list(diag_len),
-      logical_as_int = logical_is_c_int
-    )
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = x_name,
+    expected_dims = list(diag_len),
+    context = context,
+    mode = x@value@mode,
+    logical_is_c_int = logical_is_c_int
+  )
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
   hoist$emit(glue(
     "
 do {idx_i@name} = 1_c_int, {blas_int(diag_len)}
-  {out_name}({idx_i@name}) = {x_name}({idx_i@name}, {idx_i@name})
+  {out$name}({idx_i@name}) = {x_name}({idx_i@name}, {idx_i@name})
 end do"
   ))
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 diag_matrix <- function(
@@ -1249,38 +1089,25 @@ diag_matrix <- function(
 
   x_name <- ensure_blas_operand_name(x, hoist)
 
-  writes_to_dest <- FALSE
-  if (
-    can_use_output(
-      dest,
-      input_names = x_name,
-      expected_dims = list(nrow, ncol),
-      context = context,
-      mode = mode,
-      logical_is_c_int = logical_is_c_int
-    )
-  ) {
-    out_var <- dest
-    out_name <- dest@name
-    writes_to_dest <- TRUE
-  } else {
-    out_var <- hoist$declare_tmp(
-      mode = mode,
-      dims = list(nrow, ncol),
-      logical_as_int = logical_is_c_int
-    )
-    out_name <- out_var@name
-  }
+  out <- resolve_blas_output(
+    dest,
+    hoist,
+    input_names = x_name,
+    expected_dims = list(nrow, ncol),
+    context = context,
+    mode = mode,
+    logical_is_c_int = logical_is_c_int
+  )
 
   zero <- switch(
     mode,
     double = "0.0_c_double",
     integer = "0_c_int",
-    logical = if (logical_as_int(out_var)) "0_c_int" else ".false.",
+    logical = if (logical_as_int(out$var)) "0_c_int" else ".false.",
     complex = "(0.0_c_double, 0.0_c_double)",
     stop(context, " does not support mode ", mode, call. = FALSE)
   )
-  hoist$emit(glue("{out_name} = {zero}"))
+  hoist$emit(glue("{out$name} = {zero}"))
 
   idx_i <- hoist$declare_tmp(mode = "integer", dims = NULL)
   value_expr <- if (x_scalar) {
@@ -1295,15 +1122,11 @@ diag_matrix <- function(
   hoist$emit(glue(
     "
 do {idx_i@name} = 1_c_int, {blas_int(diag_len)}
-  {out_name}({idx_i@name}, {idx_i@name}) = {value_expr}
+  {out$name}({idx_i@name}, {idx_i@name}) = {value_expr}
 end do"
   ))
 
-  out <- Fortran(out_name, out_var)
-  if (writes_to_dest) {
-    out@writes_to_dest <- TRUE
-  }
-  out
+  finalize_blas_output(out)
 }
 
 svd_dims <- function(A, context = "svd") {
@@ -1332,7 +1155,7 @@ lapack_svd <- function(
   assert_hoist_env(hoist)
   stopifnot(inherits(d, Variable), inherits(u, Variable), inherits(v, Variable))
 
-  A <- maybe_cast_double(A)
+  A <- cast_linalg_double(A, context)
   dims <- svd_dims(A, context = context)
   m <- dims$m
   n <- dims$n
@@ -1346,6 +1169,9 @@ lapack_svd <- function(
 
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   lwork <- hoist$declare_tmp(mode = "integer", dims = NULL)
+  # dims list(1L) is quickr's *scalar* spelling (see Variable@is_scalar),
+  # but the work query must be a length-1 array so `work_query(1)` is
+  # subscriptable; the unfoldable `1 + 0` keeps the array declaration.
   work_query <- hoist$declare_tmp(
     mode = "double",
     dims = list(call("+", 1L, 0L))
@@ -1368,17 +1194,13 @@ lapack_svd <- function(
   hoist$emit(glue(
     "call dgesdd('S', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u@name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work@name}, {lwork@name}, {iwork@name}, {info@name})"
   ))
-  emit_quickr_error_if(
-    glue("{info@name} < 0_c_int"),
-    "Lapack routine dgesdd: illegal argument",
-    hoist,
-    scope
-  )
-  emit_quickr_error_if(
-    glue("{info@name} > 0_c_int"),
+  emit_lapack_info_guards(
+    info@name,
+    "dgesdd",
     "Lapack routine dgesdd failed to converge",
     hoist,
-    scope
+    scope,
+    negative_first = TRUE
   )
   hoist$emit(glue("{v@name} = transpose({vt@name})"))
 

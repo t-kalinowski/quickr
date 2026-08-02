@@ -20,6 +20,10 @@ new_hoist <- function(scope) {
 
   has_block <- function() !is.null(block_scope)
 
+  # TRUE when render(code) would return `code` unchanged: nothing emitted,
+  # no block-scoped temporaries declared.
+  is_empty <- function() !length(hoisted) && !has_block()
+
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
       block_scope <<- scope_new_child(scope, "block")
@@ -42,7 +46,7 @@ new_hoist <- function(scope) {
 
   render <- function(code) {
     code <- str_split_lines(code)
-    if (!length(hoisted) && !has_block()) {
+    if (is_empty()) {
       return(str_flatten_lines(code))
     }
 
@@ -65,30 +69,66 @@ new_hoist <- function(scope) {
     list(
       emit = emit,
       declare_tmp = declare_tmp,
+      is_empty = is_empty,
       render = render
     ),
     parent = emptyenv()
   )
 }
 
+# Materialize `code` into a hoisted temporary and return the temporary.
+# `hoist` is always available in a handler: r2f() opens one per statement
+# before dispatching, and every caller forwards the one it received.
+# Used by: hoist_unless_name(), r2f-constructors.R, r2f-subscript.R,
+#          r2f-rev.R
+materialize_via_hoist <- function(
+  code,
+  mode,
+  dims,
+  hoist,
+  logical_as_int = FALSE
+) {
+  stopifnot(is.environment(hoist))
+  tmp <- hoist$declare_tmp(
+    mode = mode,
+    dims = dims,
+    logical_as_int = logical_as_int
+  )
+  hoist$emit(glue("{tmp@name} = {code}"))
+  Fortran(tmp@name, tmp)
+}
+
 # Hoist `x` into a temporary variable unless it already renders as a bare
-# variable name. Use this whenever the same operand is spliced into generated
-# code more than once: Fortran evaluates intrinsic actual arguments before the
-# call, so repeating an expression duplicates its side effects (e.g. RNG
-# state via runif()).
+# variable name or a literal constant. Use this whenever the same operand is
+# spliced into generated code more than once: Fortran evaluates intrinsic
+# actual arguments before the call, so repeating an expression duplicates
+# its side effects (e.g. RNG state via runif()) -- which names and literals
+# don't have.
 hoist_unless_name <- function(x, hoist) {
   stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
   code <- trimws(as.character(x))
   if (!is.null(x@value@name) && identical(code, x@value@name)) {
     return(x)
   }
-  tmp <- hoist$declare_tmp(
+  if (grepl("^-?[0-9]+(\\.[0-9]+)?(_c_(int|double))?$", code)) {
+    return(x)
+  }
+  materialize_via_hoist(
+    x,
     mode = x@value@mode,
     dims = x@value@dims,
+    hoist = hoist,
     logical_as_int = logical_as_int(x@value)
   )
-  hoist$emit(glue("{tmp@name} = {x}"))
-  Fortran(tmp@name, tmp)
+}
+
+# Name of the call one frame above the current handler ("" at top level).
+# Materialization decisions branch on it: a fill constructor or
+# matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
+# spreads, or pads it.
+# Used by: r2f-constructors.R
+parent_call_name <- function(calls) {
+  if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
 }
 
 
@@ -155,13 +195,7 @@ lang2fortran <- r2f <- function(
     language = {
       # a call
       callable <- e[[1L]]
-      callable_unwrapped <- callable
-      while (
-        is_call(callable_unwrapped, quote(`(`)) &&
-          length(callable_unwrapped) == 2L
-      ) {
-        callable_unwrapped <- callable_unwrapped[[2L]]
-      }
+      callable_unwrapped <- unwrap_parens(callable)
 
       if (!is.null(scope)) {
         maybe_lower_local_closure_call(
@@ -174,11 +208,7 @@ lang2fortran <- r2f <- function(
           {
             handler <- get_r2f_handler(callable_unwrapped)
 
-            match.fun <- if (inherits(handler, R2FHandler)) {
-              handler@match_fun
-            } else {
-              attr(handler, "match.fun", TRUE)
-            }
+            match.fun <- handler_field(handler, "match_fun", "match.fun")
             if (is.null(match.fun)) {
               match.fun <- get0(
                 callable_unwrapped,
@@ -286,15 +316,9 @@ lang2fortran <- r2f <- function(
       }
     },
 
-    ## handling 'object' and 'closure' here are both bad ideas,
-    ## TODO: delete both
-    # "object" = {
-    #   if (inherits(e, Variable))
-    #     e <- Fortran(character(), e)
-    #   stopifnot(inherits(e, Fortran))
-    #   e
-    # },
-
+    # Top-level entry only: quick() hands the user's closure to r2f() to
+    # start translation (new_fortran_subroutine()); expressions inside
+    # compiled code never produce a closure here.
     closure = {
       if (is.null(name <- attr(e, "name", TRUE))) {
         name <- if (is.symbol(name <- substitute(e))) {
@@ -380,54 +404,72 @@ num2fortran <- function(x) {
 
 get_r2f_handler <- function(name) {
   stopifnot("All functions called must be named as symbols" = is.symbol(name))
-  get0(name, r2f_handlers) %||%
+  handler <- get0(name, r2f_handlers) %||%
     stop("Unsupported function: ", name, call. = FALSE)
+  resolve_handler_fun(handler)
+}
+
+
+# Swap in the handler's current namespace binding, so an instrumented or
+# otherwise rebound copy is dispatched instead of the one captured at
+# registration. Only handlers registered as namespace-level named functions
+# carry a `fun_name`; for every other handler this is a property read and a
+# return. See register_r2f_handler() for why the name is recorded.
+resolve_handler_fun <- function(handler) {
+  # Only R2FHandler objects can carry a `fun_name`, so this doubles as the
+  # check that `handler` is one -- bare-function handlers read NULL here.
+  name <- handler_field(handler, "fun_name")
+  if (!is_string(name)) {
+    return(handler)
+  }
+  current <- get0(name, envir = environment(handler), mode = "function")
+  if (is.null(current) || identical(current, S7_data(handler))) {
+    return(handler)
+  }
+  S7_data(handler) <- current
+  handler
 }
 
 
 # --- Destination Helpers ---
 
-dest_supported_for_call <- function(call) {
-  if (!is.call(call)) {
-    return(FALSE)
-  }
-  unwrapped <- call
-  while (is_call(unwrapped, "(") && length(unwrapped) == 2L) {
-    unwrapped <- unwrapped[[2L]]
-  }
-  if (!is.call(unwrapped) || !is.symbol(unwrapped[[1L]])) {
-    return(FALSE)
-  }
-  handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
+# Read a handler property, whether the handler is an R2FHandler object or
+# a bare function carrying attributes. `attr_name` covers the one legacy
+# spelling difference (the "match.fun" attr vs the match_fun property).
+# NULL handlers read as NULL.
+handler_field <- function(handler, name, attr_name = name) {
   if (inherits(handler, R2FHandler)) {
-    isTRUE(handler@dest_supported)
+    prop(handler, name)
   } else {
-    isTRUE(attr(handler, "dest_supported", exact = TRUE))
+    attr(handler, attr_name, exact = TRUE)
   }
 }
 
-dest_infer_for_call <- function(call, scope) {
+# Resolve the registered handler for a (possibly parenthesized) call, or
+# NULL when it is not a named-symbol call or has no handler.
+handler_for_call <- function(call) {
   if (!is.call(call)) {
     return(NULL)
   }
-  unwrapped <- call
-  while (is_call(unwrapped, "(") && length(unwrapped) == 2L) {
-    unwrapped <- unwrapped[[2L]]
-  }
-  if (!is.call(unwrapped) || !is.symbol(unwrapped[[1L]])) {
+  call <- unwrap_parens(call)
+  if (!is.call(call) || !is.symbol(call[[1L]])) {
     return(NULL)
   }
-  handler <- get0(as.character(unwrapped[[1L]]), r2f_handlers, inherits = FALSE)
-  infer <- if (inherits(handler, R2FHandler)) {
-    handler@dest_infer
-  } else {
-    attr(handler, "dest_infer", exact = TRUE)
+  get0(as.character(call[[1L]]), r2f_handlers, inherits = FALSE)
+}
+
+dest_supported_for_call <- function(call) {
+  isTRUE(handler_field(handler_for_call(call), "dest_supported"))
+}
+
+dest_infer_for_call <- function(call, scope) {
+  handler <- handler_for_call(call)
+  if (is.null(handler)) {
+    return(NULL)
   }
-  infer_name <- if (inherits(handler, R2FHandler)) {
-    handler@dest_infer_name
-  } else {
-    attr(handler, "dest_infer_name", exact = TRUE)
-  }
+  unwrapped <- unwrap_parens(call)
+  infer <- handler_field(handler, "dest_infer")
+  infer_name <- handler_field(handler, "dest_infer_name")
 
   infer_fun <- NULL
   if (is_string(infer_name)) {
@@ -450,14 +492,6 @@ dest_infer_for_call <- function(call, scope) {
 
 
 # --- Default Handlers ---
-
-r2f_default_handler <- function(args, scope = NULL, ..., calls) {
-  # stopifnot(is.call(e), is.symbol(e[[1L]]))
-
-  x <- lapply(args, r2f, scope = scope, calls = calls, ...)
-  s <- sprintf("%s(%s)", last(calls), str_flatten_commas(x[-1]))
-  Fortran(s)
-}
 
 .r2f_handler_not_implemented_yet <- function(e, scope, ...) {
   stop(

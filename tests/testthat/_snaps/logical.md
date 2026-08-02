@@ -43,10 +43,10 @@
       
       
       extern void fn(
-        const double* const x__, 
-        const double* const left__, 
-        const double* const right__, 
-        int* const out__, 
+        const double* const x__,
+        const double* const left__,
+        const double* const right__,
+        int* const out__,
         const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
@@ -161,8 +161,8 @@
       
       
       extern void fn(
-        const double* const a__, 
-        const double* const b__, 
+        const double* const a__,
+        const double* const b__,
         int* const out__);
       
       SEXP fn_(SEXP _args) {
@@ -246,8 +246,8 @@
       
       
       extern void fn(
-        const double* const a__, 
-        const double* const b__, 
+        const double* const a__,
+        const double* const b__,
         int* const out__);
       
       SEXP fn_(SEXP _args) {
@@ -322,8 +322,8 @@
       
       
       extern void fn(
-        const double* const a__, 
-        const double* const b__, 
+        const double* const a__,
+        const double* const b__,
         int* const out__);
       
       SEXP fn_(SEXP _args) {
@@ -401,9 +401,9 @@
       
       
       extern void fn(
-        const double* const a__, 
-        const double* const b__, 
-        int* const out__, 
+        const double* const a__,
+        const double* const b__,
+        int* const out__,
         const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
@@ -480,8 +480,8 @@
       
       
       extern void fn(
-        const int* const x__, 
-        const int* const y__, 
+        const int* const x__,
+        const int* const y__,
         int* const cond__);
       
       SEXP fn_(SEXP _args) {
@@ -563,8 +563,8 @@
       
       
       extern void fn(
-        const int* const x__, 
-        const int* const y__, 
+        const int* const x__,
+        const int* const y__,
         int* const out___);
       
       SEXP fn_(SEXP _args) {
@@ -600,5 +600,178 @@
         
         UNPROTECT(1);
         return out_;
+      }
+
+# && and || short-circuit like R's scalar operators
+
+    Code
+      fn
+    Output
+      function(i, x) {
+          declare(type(i = integer(1)), type(x = double(3)))
+          out <- 0
+          if (i <= 3L && x[i] > 0) {
+            out <- 1
+          }
+          out
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(i, x, out) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        integer(c_int), intent(in) :: i
+        real(c_double), intent(in) :: x(3)
+        real(c_double), intent(out) :: out
+        ! manifest end
+      
+      
+        out = 0.0_c_double
+        block
+          logical :: btmp1_ ! logical
+      
+          btmp1_ = (i <= 3_c_int)
+          if (btmp1_) then
+            btmp1_ = (x(i) > 0.0_c_double)
+          end if
+          if (btmp1_) then
+            out = 1.0_c_double
+          end if
+        end block
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const i__,
+        const double* const x__,
+        double* const out__);
+      
+      SEXP fn_(SEXP _args) {
+        // i
+        _args = CDR(_args);
+        SEXP i = CAR(_args);
+        if (TYPEOF(i) != INTSXP) {
+          Rf_error("typeof(i) must be 'integer', not '%s'", Rf_type2char(TYPEOF(i)));
+        }
+        const int* const i__ = INTEGER(i);
+        const R_xlen_t i__len_ = Rf_xlength(i);
+        
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != REALSXP) {
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const double* const x__ = REAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        if (i__len_ != 1)
+          Rf_error("length(i) must be 1, not %0.f",
+                    (double)i__len_);
+        if (x__len_ != 3)
+          Rf_error("length(x) must be 3, not %0.f",
+                    (double)x__len_);
+        const R_xlen_t out__len_ = (1);
+        SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
+        double* out__ = REAL(out);
+        
+        fn(i__, x__, out__);
+        
+        UNPROTECT(1);
+        return out;
+      }
+
+# while re-evaluates hoisted condition code every iteration
+
+    Code
+      fn
+    Output
+      function(x) {
+          declare(type(x = double(n)))
+          i <- 1L
+          n <- length(x)
+          while (i <= n && x[i] > 0) {
+            i <- i + 1L
+          }
+          i
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(x, i, x__len_) bind(c)
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+        implicit none
+      
+        ! manifest start
+        ! sizes
+        integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! args
+        real(c_double), intent(in) :: x(x__len_)
+        integer(c_int), intent(out) :: i
+      
+        ! locals
+        integer(c_int) :: n
+        ! manifest end
+      
+      
+        i = 1_c_int
+        n = size(x)
+        do
+          block
+            logical :: btmp1_ ! logical
+      
+            btmp1_ = (i <= n)
+            if (btmp1_) then
+              btmp1_ = (x(i) > 0.0_c_double)
+            end if
+            if (.not. (btmp1_)) exit
+          end block
+          i = (i + 1_c_int)
+        end do
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const double* const x__,
+        int* const i__,
+        const R_xlen_t x__len_);
+      
+      SEXP fn_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != REALSXP) {
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const double* const x__ = REAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+        
+        const R_xlen_t i__len_ = (1);
+        SEXP i = PROTECT(Rf_allocVector(INTSXP, i__len_));
+        int* i__ = INTEGER(i);
+        
+        fn(x__, i__, x__len_);
+        
+        UNPROTECT(1);
+        return i;
       }
 

@@ -6,8 +6,22 @@ check_type_call <- function(cl) {
   if (length(names(args)) != 1) {
     stop("name must be provided as: type(<name> = <mode>(<<dims>>)")
   }
-  if (!is.call(args[[1]]) && as.character(args[[1]]) %in% .atomic_type_names) {
-    stop("only atomic modes are supported")
+  mode_expr <- args[[1]]
+  mode_sym <- if (is.call(mode_expr)) mode_expr[[1L]] else mode_expr
+  if (
+    !is.symbol(mode_sym) ||
+      !as.character(mode_sym) %in% .atomic_type_names
+  ) {
+    stop("only atomic modes are supported, not: ", deparse1(mode_sym))
+  }
+  if (!is.call(mode_expr)) {
+    stop(
+      "the mode must be a call with dimensions, as in: type(",
+      names(args),
+      " = ",
+      as.character(mode_sym),
+      "(<dims>))"
+    )
   }
 }
 
@@ -15,10 +29,21 @@ check_type_call <- function(cl) {
 type_call_to_var <- function(cl) {
   check_type_call(cl)
   r_name <- names(cl)[-1]
+  mode <- as.character(cl[[2L]][[1L]])
+  if (identical(mode, "character")) {
+    # No Fortran translation exists; refuse at the declaration instead of
+    # surfacing an internal error from the code generator.
+    stop(
+      "in declare(type(",
+      r_name,
+      " = character(...))): character values are not supported by quickr",
+      call. = FALSE
+    )
+  }
   Variable(
     name = fortranize_name(r_name),
     r_name = r_name,
-    mode = as.character(cl[[2L]][[1L]]),
+    mode = mode,
     dims = unname(as.list(cl[[2]])[-1])
   )
 }
@@ -203,6 +228,41 @@ r2size <- function(r, scope) {
 
         switch(
           op,
+          as.integer = {
+            if (length(r) != 2L) {
+              stop("as.integer() in a size expression expects one argument")
+            }
+            # A numeric literal is coerced here rather than recursed into:
+            # r2size() rejects a non-whole double, which is exactly the
+            # case as.integer() exists to handle.
+            if (is.numeric(r[[2L]]) && length(r[[2L]]) == 1L) {
+              return(as.integer(r[[2L]]))
+            }
+            # An explicit coercion is exactly what the "not an integer"
+            # warning asks for, so don't also warn about the operand.
+            inner <- withCallingHandlers(
+              r2size(r[[2L]], scope),
+              warning = function(w) {
+                if (
+                  grepl(
+                    "size is not an integer",
+                    conditionMessage(w),
+                    fixed = TRUE
+                  )
+                ) {
+                  invokeRestart("muffleWarning")
+                }
+              }
+            )
+            if (is.atomic(inner) && length(inner) == 1L) {
+              if (is.na(inner)) {
+                return(NA_integer_)
+              }
+              # truncates toward zero, as as.integer() does in R
+              return(as.integer(inner))
+            }
+            call("as.integer", inner)
+          },
           length = {
             var <- get0(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
@@ -269,6 +329,26 @@ get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {
     }
     sprintf("%s__dim_%i_", name, axis)
   }
+}
+
+# TRUE when any of `var`'s dims is its own self-size symbol
+# (`a__dim_1_`, `a__len_`), i.e. the variable was declared with unknown
+# (NA) sizes that substitute_declared_sizes() rewrote. External
+# variables receive those sizes as dummies; for locals they are
+# phantoms, so the manifest declares such locals deferred-shape and
+# relies on implicit allocation.
+# Used by: manifest.R, check_assignment_compatible()
+has_self_size_dims <- function(var) {
+  stopifnot(inherits(var, Variable))
+  any(vapply(
+    seq_along(var@dims),
+    function(i) {
+      d <- var@dims[[i]]
+      is.symbol(d) &&
+        identical(as.character(d), get_size_name(var, axis = i))
+    },
+    logical(1)
+  ))
 }
 
 # TODO: allow syntax like:

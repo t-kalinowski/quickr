@@ -627,6 +627,16 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
     return(glue("(({e1}) < 0 ? -({e1}) : ({e1}))"))
   }
 
+  if (identical(op, "as.integer")) {
+    if (length(args) != 1L) {
+      stop("as.integer() expects one argument")
+    }
+    # a C cast to an integer type truncates toward zero, as R's
+    # as.integer() does
+    e1 <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)
+    return(glue("((R_xlen_t)({e1}))"))
+  }
+
   if (op %in% c("+", "-", "*", "/", "%/%", "%%", "^")) {
     if (length(args) == 1L && op %in% c("+", "-")) {
       e1 <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)
@@ -837,9 +847,13 @@ fsub_extern_decl <- function(fsub) {
       glue("{fsub_arg_var_c_type(var)} {var@name}__")
     }
   })
-  if (length(fsub_c_sig) >= 3L) {
-    fsub_c_sig <- paste0("\n  ", fsub_c_sig)
+  args_sig <- if (length(fsub_c_sig) >= 3L) {
+    # one arg per line; join with a bare comma -- joining "\n  "-prefixed
+    # elements with ", " leaves a trailing space on every line
+    paste0("\n  ", fsub_c_sig, collapse = ",")
+  } else {
+    str_flatten_commas(fsub_c_sig)
   }
 
-  glue("extern void {fsub@name}({str_flatten_commas(fsub_c_sig)});")
+  glue("extern void {fsub@name}({args_sig});")
 }

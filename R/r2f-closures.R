@@ -1394,38 +1394,16 @@ compile_subset_designator <- function(
   # silent out-of-bounds Fortran writes.
   check_subscript_exprs(base_var, idx_args)
 
-  idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(idxs, function(idx, i) {
-    if (is_missing(idx)) {
-      Fortran(":", Variable("integer", base_var@dims[[i]]))
-    } else {
-      sub <- r2f(idx, scope, ..., hoist = hoist)
-      if (sub@value@mode == "double") {
-        Fortran(
-          glue("int({sub}, kind=c_ptrdiff_t)"),
-          Variable("integer", sub@value@dims)
-        )
-      } else {
-        sub
-      }
-    }
-  })
+  idxs <- lower_subscript_args(
+    idx_args,
+    base_var@dims,
+    scope,
+    ...,
+    hoist = hoist
+  )
 
-  # Indexing a scalar (rank-1 length-1) with `[1]` is valid in R, but Fortran
-  # scalars cannot be subscripted. Treat it as a no-op.
-  if (
-    passes_as_scalar(base_var) &&
-      length(idxs) == 1 &&
-      idxs[[1]]@value@mode == "integer" &&
-      passes_as_scalar(idxs[[1]]@value)
-  ) {
-    idx_r <- attr(idxs[[1]], "r", exact = TRUE)
-    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      return(base_name)
-    }
-    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
-      return(base_name)
-    }
+  if (subscript_is_scalar_noop(base_var, idxs)) {
+    return(base_name)
   }
 
   # R-style linear indexing for rank>1 arrays: x[i]
@@ -1462,13 +1440,13 @@ compile_subset_designator <- function(
         mask <- booleanize_logical_as_int(subscript)
         it <- scope_unique_var(scope, "integer")
         f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
-        Fortran(f, Variable("int", NA))
+        Fortran(f, Variable("integer", NA))
       },
       integer0 = {
         if (drop) {
           subscript
         } else {
-          Fortran(glue("{subscript}:{subscript}"), Variable("int", 1))
+          Fortran(glue("{subscript}:{subscript}"), Variable("integer", 1))
         }
       },
       integer1 = {
@@ -1570,15 +1548,7 @@ compile_subscript_lhs <- function(
   }
   name <- as.character(base)
 
-  host_scope <- scope_host_scope(scope) %||%
-    stop("internal error: missing host scope")
-  host_var <- get0(name, host_scope)
-  if (!inherits(host_var, Variable)) {
-    stop(
-      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-      name
-    )
-  }
+  host_var <- resolve_superassign_target(name, scope)
 
   idx_args <- as.list(subset_call)[-1L]
   idx_args <- idx_args[-1L]

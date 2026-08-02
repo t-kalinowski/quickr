@@ -38,7 +38,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         do i = 1, size(out)
           out(i) = (a(i) + b(i))
         end do
@@ -52,10 +52,10 @@
       
       
       extern void fn(
-        const int* const n__, 
-        const int* const m__, 
-        const double* const a__, 
-        const double* const b__, 
+        const int* const n__,
+        const int* const m__,
+        const double* const a__,
+        const double* const b__,
         double* const out__);
       
       SEXP fn_(SEXP _args) {
