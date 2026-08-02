@@ -416,10 +416,9 @@ get_r2f_handler <- function(name) {
 # carry a `fun_name`; for every other handler this is a property read and a
 # return. See register_r2f_handler() for why the name is recorded.
 resolve_handler_fun <- function(handler) {
-  if (!inherits(handler, R2FHandler)) {
-    return(handler)
-  }
-  name <- handler@fun_name
+  # Only R2FHandler objects can carry a `fun_name`, so this doubles as the
+  # check that `handler` is one -- bare-function handlers read NULL here.
+  name <- handler_field(handler, "fun_name")
   if (!is_string(name)) {
     return(handler)
   }
