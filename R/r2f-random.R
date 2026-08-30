@@ -17,9 +17,16 @@ r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
   # R evaluates runif() bounds exactly once, but `min` is spliced twice below
   # and the implied-do re-evaluates the whole expression per element; hoist
   # non-trivial bounds (e.g. an impure runif(1)) so they are evaluated once.
-  bound <- function(r_arg) {
-    b <- r2f(r_arg, scope, ..., hoist = hoist)
-    if (is.atomic(r_arg)) b else hoist_unless_name(b, hoist)
+  # (hoist_unless_name() leaves names and literals alone.)
+  bound <- function(r_arg, later_args = list()) {
+    operand <- lower_r2f_operand_in_order(
+      r_arg,
+      scope,
+      ...,
+      hoist = hoist,
+      later_args = later_args
+    )
+    hoist_unless_name(operand, hoist)
   }
 
   if (default_min && default_max) {
@@ -28,7 +35,7 @@ r2f_handlers[["runif"]] <- function(args, scope, ..., hoist = NULL) {
     max <- bound(max)
     get1rand <- glue("unif_rand() * {max}")
   } else {
-    min <- bound(min)
+    min <- bound(min, later_args = list(max))
     max <- bound(max)
     get1rand <- glue("({min} + (unif_rand() * ({max} - {min})))")
   }

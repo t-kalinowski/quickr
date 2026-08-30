@@ -339,6 +339,14 @@ Variable := new_class(
     # storage (0/1) rather than Fortran LOGICAL.
     logical_as_int = prop_bool(default = FALSE),
 
+    # Fortran kind for integer variables. User-facing R integers remain c_int;
+    # pointer-sized compiler locals opt into c_ptrdiff_t explicitly.
+    integer_kind = prop_enum(
+      c("c_int", "c_ptrdiff_t"),
+      default = "c_int",
+      exact = TRUE
+    ),
+
     # TRUE when the variable is available via host association and should not
     # be redeclared in the local scope.
     host_associated = prop_bool(default = FALSE),
@@ -350,7 +358,13 @@ Variable := new_class(
 
   validator = function(self) {
     if (isTRUE(self@logical_as_int) && !identical(self@mode, "logical")) {
-      "`logical_as_int` can only be TRUE when `mode` is 'logical'"
+      return("`logical_as_int` can only be TRUE when `mode` is 'logical'")
+    }
+    if (
+      !identical(self@integer_kind, "c_int") &&
+        !identical(self@mode, "integer")
+    ) {
+      "`integer_kind` can only differ from 'c_int' when `mode` is 'integer'"
     }
   }
 )
@@ -426,6 +440,9 @@ R2FHandler := new_class(
     dest_supported = prop_bool(default = FALSE),
     dest_infer = new_property(NULL | class_function),
     dest_infer_name = prop_string(default = NULL, allow_null = TRUE),
+    # Set when the handler was registered as a namespace-level named function,
+    # so dispatch can re-resolve it by name. See register_r2f_handler().
+    fun_name = prop_string(default = NULL, allow_null = TRUE),
     # When NULL, r2f will resolve the callable by name and use match.call().
     # When FALSE, r2f will not attempt match.call().
     match_fun = new_property(

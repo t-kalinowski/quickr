@@ -23,25 +23,35 @@ register_r2f_handler(
       )
     }
 
+    call_name <- last(list(...)$calls)
     intrinsic <- switch(
-      last(list(...)$calls),
+      call_name,
       max = "maxval",
       min = "minval",
       sum = "sum",
       prod = "product"
     )
 
-    reduce_arg <- function(arg) {
+    empty_extrema_message <- "min()/max() of empty inputs are not supported"
+
+    reduce_arg <- function(
+      arg,
+      ordered = FALSE,
+      allow_empty = FALSE,
+      later_args = list()
+    ) {
+      stopifnot(is.list(later_args))
       mask_hoist <- create_mask_hoist()
       # Nested reductions (e.g., min(max(...), ...)) can thread an existing
       # hoist_mask through `...`. We always want a single mask hoister per
       # reduction context, so we ignore any inherited one and install ours.
       dots <- list(...)
+      arg_hoist <- if (ordered) capture_hoist(dots$hoist) else dots$hoist
       x <- r2f(
         arg,
         scope,
         calls = dots$calls,
-        hoist = dots$hoist,
+        hoist = arg_hoist,
         hoist_mask = mask_hoist$try_set
       )
       if (mask_hoist$has_conflict()) {
@@ -50,40 +60,206 @@ register_r2f_handler(
           call. = FALSE
         )
       }
+      hoisted_mask <- mask_hoist$get_hoisted()
+      nonempty <- TRUE
+      empty_condition <- NULL
+      if (
+        call_name %in%
+          c("min", "max") &&
+          (!x@value@is_scalar || !is.null(hoisted_mask))
+      ) {
+        element_count <- var_element_count(x@value)
+        if (!is.null(hoisted_mask)) {
+          mask_code <- trimws(as.character(hoisted_mask))
+          mask_is_scalar <-
+            passes_as_scalar(hoisted_mask@value) &&
+            !startsWith(mask_code, "[")
+          nonempty <- if (mask_is_scalar) {
+            glue("{hoisted_mask}")
+          } else {
+            glue("any({hoisted_mask})")
+          }
+          empty_condition <- glue(".not. ({nonempty})")
+        } else if (!is.na(element_count)) {
+          nonempty <- element_count > 0
+        } else {
+          x <- hoist_unless_name(x, arg_hoist)
+          nonempty <- glue(
+            "size({x}, kind=c_ptrdiff_t) > 0_c_ptrdiff_t"
+          )
+          empty_condition <- glue(
+            "size({x}, kind=c_ptrdiff_t) == 0_c_ptrdiff_t"
+          )
+        }
+
+        if (!allow_empty) {
+          if (identical(nonempty, FALSE)) {
+            stop(empty_extrema_message, call. = FALSE)
+          }
+          if (is_string(nonempty)) {
+            emit_quickr_error_if(
+              empty_condition,
+              empty_extrema_message,
+              arg_hoist,
+              scope
+            )
+          }
+        }
+      }
       # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
       # and Fortran's sum/product/minval/maxval reject logical arrays.
       x <- cast_to_mode(
         x,
         arith_join_mode(x),
-        sprintf("%s()", last(dots$calls))
+        sprintf("%s()", call_name)
       )
-      if (x@value@is_scalar) {
-        return(x)
+      out <- if (x@value@is_scalar) {
+        x
+      } else {
+        s <- glue(
+          if (is.null(hoisted_mask)) {
+            "{intrinsic}({x})"
+          } else {
+            "{intrinsic}({x}, mask = {hoisted_mask})"
+          }
+        )
+        Fortran(s, Variable(x@value@mode))
       }
-      hoisted_mask <- mask_hoist$get_hoisted()
-      s <- glue(
-        if (is.null(hoisted_mask)) {
-          "{intrinsic}({x})"
-        } else {
-          "{intrinsic}({x}, mask = {hoisted_mask})"
+
+      if (ordered) {
+        if (!allow_empty || identical(nonempty, TRUE)) {
+          out <- snapshot_operand_before_later_effects(
+            out,
+            arg,
+            later_args,
+            scope,
+            arg_hoist
+          )
         }
-      )
-      Fortran(s, Variable(x@value@mode))
+        if (allow_empty) {
+          return(list(value = out, nonempty = nonempty, hoist = arg_hoist))
+        }
+        out <- hoist_unless_name(out, arg_hoist)
+        dots$hoist$emit(arg_hoist$render(character()))
+      }
+      out
     }
 
     if (length(args) == 1) {
       reduce_arg(args[[1]])
+    } else if (call_name %in% c("min", "max")) {
+      reduced <- lapply(seq_along(args), function(i) {
+        reduce_arg(
+          args[[i]],
+          ordered = TRUE,
+          allow_empty = TRUE,
+          later_args = tail(args, -i)
+        )
+      })
+      if (
+        all(vapply(
+          reduced,
+          function(x) identical(x$nonempty, FALSE),
+          logical(1L)
+        ))
+      ) {
+        stop(empty_extrema_message, call. = FALSE)
+      }
+
+      values <- lapply(reduced, `[[`, "value")
+      mode <- arith_join_mode(values)
+      context <- sprintf("%s()", call_name)
+      dots <- list(...)
+
+      if (
+        !any(vapply(
+          reduced,
+          function(x) is_string(x$nonempty),
+          logical(1L)
+        ))
+      ) {
+        active <- list()
+        for (i in seq_along(reduced)) {
+          if (identical(reduced[[i]]$nonempty, FALSE)) {
+            dots$hoist$emit(reduced[[i]]$hoist$render(character()))
+            next
+          }
+          value <- hoist_unless_name(values[[i]], reduced[[i]]$hoist)
+          dots$hoist$emit(reduced[[i]]$hoist$render(character()))
+          active[[length(active) + 1L]] <- value
+        }
+        active <- lapply(
+          active,
+          cast_to_mode,
+          mode = mode,
+          context = context
+        )
+        s <- if (length(active) == 1L) {
+          active[[1L]]
+        } else {
+          glue("{call_name}({str_flatten_commas(active)})")
+        }
+        return(Fortran(s, Variable(mode)))
+      }
+
+      values <- lapply(values, cast_to_mode, mode = mode, context = context)
+      result <- dots$hoist$declare_tmp(mode = mode, dims = NULL)
+      seen <- dots$hoist$declare_tmp(mode = "integer", dims = NULL)
+      dots$hoist$emit(glue("{seen@name} = 0_c_int"))
+
+      for (i in seq_along(reduced)) {
+        dots$hoist$emit(reduced[[i]]$hoist$render(character()))
+        nonempty <- reduced[[i]]$nonempty
+        if (identical(nonempty, FALSE)) {
+          next
+        }
+
+        update <- glue(
+          "
+          if ({seen@name} == 0_c_int) then
+            {result@name} = {values[[i]]}
+            {seen@name} = 1_c_int
+          else
+            {result@name} = {call_name}({result@name}, {values[[i]]})
+          end if
+          "
+        )
+        if (is_string(nonempty)) {
+          update <- glue(
+            "
+            if ({nonempty}) then
+            {indent(update)}
+            end if
+            "
+          )
+        }
+        dots$hoist$emit(update)
+      }
+
+      emit_quickr_error_if(
+        glue("{seen@name} == 0_c_int"),
+        empty_extrema_message,
+        dots$hoist,
+        scope
+      )
+      Fortran(result@name, result)
     } else {
-      args <- lapply(args, reduce_arg)
+      args <- lapply(seq_along(args), function(i) {
+        reduce_arg(
+          args[[i]],
+          ordered = TRUE,
+          later_args = tail(args, -i)
+        )
+      })
       # Fortran's max/min require uniform argument types; cast every operand
       # whose mode differs from the join. The + / * spellings for sum/prod
       # don't strictly need it, but one code path beats two. Logical
       # operands join as integer (R: max(TRUE, FALSE) is 1L).
       mode <- arith_join_mode(args)
-      context <- sprintf("%s()", last(list(...)$calls))
+      context <- sprintf("%s()", call_name)
       args <- lapply(args, cast_to_mode, mode = mode, context = context)
       s <- switch(
-        last(list(...)$calls),
+        call_name,
         max = glue("max({str_flatten_commas(args)})"),
         min = glue("min({str_flatten_commas(args)})"),
         sum = glue("({str_flatten(args, ' + ')})"),

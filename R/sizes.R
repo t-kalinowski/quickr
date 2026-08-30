@@ -15,10 +15,21 @@ check_type_call <- function(cl) {
 type_call_to_var <- function(cl) {
   check_type_call(cl)
   r_name <- names(cl)[-1]
+  mode <- as.character(cl[[2L]][[1L]])
+  if (identical(mode, "character")) {
+    # No Fortran translation exists; refuse at the declaration instead of
+    # surfacing an internal error from the code generator.
+    stop(
+      "in declare(type(",
+      r_name,
+      " = character(...))): character values are not supported by quickr",
+      call. = FALSE
+    )
+  }
   Variable(
     name = fortranize_name(r_name),
     r_name = r_name,
-    mode = as.character(cl[[2L]][[1L]]),
+    mode = mode,
     dims = unname(as.list(cl[[2]])[-1])
   )
 }

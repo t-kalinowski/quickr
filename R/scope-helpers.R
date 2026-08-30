@@ -84,6 +84,12 @@ scope_unique_var <- function(scope, ...) {
   f(...)
 }
 
+scope_generated_fortran_names <- function(scope) {
+  registry <- scope_get(scope, "generated_name_state")
+  stopifnot(is.environment(registry))
+  registry$fortran_names
+}
+
 scope_unique_proc <- function(scope, prefix = "closure") {
   stopifnot(is_string(prefix))
   f <- scope_get(scope, "get_unique_proc")

@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("sapply lowers scalar-return closures (named + inline)", {
   fn_named <- function(x) {
     declare(type(x = double(NA)))

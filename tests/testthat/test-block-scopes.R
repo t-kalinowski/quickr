@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("array-expression subscripting hoists into a block-scoped temp", {
   fn <- function(x) {
     declare(type(x = double(3, 4)))
@@ -58,4 +56,56 @@ test_that("block-scoped temps work for deferred-shape intermediates", {
 
   x <- c(-1.0, 2.0, -3.0)
   expect_quick_identical(fn, list(x))
+})
+
+test_that("generated temps do not shadow user variables", {
+  block_fn <- function(Btmp1.) {
+    declare(type(Btmp1. = double(1)))
+    Btmp1. + runif(1)
+  }
+  root_fn <- function(Tmp1.) {
+    declare(type(Tmp1. = double(2)))
+    Tmp1. + runif(2)
+  }
+  block_qfn <- quick(block_fn)
+  root_qfn <- quick(root_fn)
+
+  set.seed(144)
+  expected <- block_fn(2)
+  expected_next <- runif(1)
+
+  set.seed(144)
+  actual <- block_qfn(2)
+  actual_next <- runif(1)
+
+  expect_identical(actual, expected)
+  expect_identical(actual_next, expected_next)
+
+  set.seed(145)
+  expected <- root_fn(c(2, 3))
+  expected_next <- runif(1)
+
+  set.seed(145)
+  actual <- root_qfn(c(2, 3))
+  actual_next <- runif(1)
+
+  expect_identical(actual, expected)
+  expect_identical(actual_next, expected_next)
+})
+
+test_that("later user variables do not shadow generated temps", {
+  root_fn <- function(n) {
+    declare(type(n = integer(1)))
+    z <- seq_len(n)
+    Tmp1. <- 2L
+    sum(z) + Tmp1.
+  }
+  block_fn <- function(x) {
+    declare(type(x = double(2)))
+    Btmp1. <- x + numeric(2)
+    sum(Btmp1.)
+  }
+
+  expect_quick_identical(root_fn, list(2L))
+  expect_quick_identical(block_fn, list(c(1, 2)))
 })

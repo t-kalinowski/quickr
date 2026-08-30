@@ -31,6 +31,17 @@ local_empty_compiler_probe_cache <- function(envir = parent.frame()) {
   invisible(NULL)
 }
 
+local_flang_auto_enabled <- function(envir = parent.frame()) {
+  state <- quickr:::quickr_flang_state
+  old_auto_disabled <- state$auto_disabled
+  withr::defer(
+    state$auto_disabled <- old_auto_disabled,
+    envir = envir
+  )
+  state$auto_disabled <- FALSE
+  invisible(NULL)
+}
+
 test_that("R CMD config probe distinguishes empty values from errors", {
   probe_value <- character()
   local_mocked_bindings(
@@ -537,6 +548,7 @@ test_that("quick retries failed R CMD config probes", {
 
 test_that("quick caches successful flang probes by resolved path", {
   local_empty_compiler_probe_cache()
+  local_flang_auto_enabled()
   withr::local_options(quickr.fortran_compiler = "auto")
 
   flang <- file.path(tempdir(), "flang-one")
@@ -588,6 +600,7 @@ test_that("quick caches successful flang probes by resolved path", {
 
 test_that("quick retries failed flang probes", {
   local_empty_compiler_probe_cache()
+  local_flang_auto_enabled()
   withr::local_options(quickr.fortran_compiler = "auto")
 
   flang <- file.path(tempdir(), "flang")

@@ -1,7 +1,5 @@
 # Public API tests for optional NULL defaults in local closures
 
-skip_on_cran()
-
 test_that("optional NULL default treats explicit NULL as missing", {
   fn <- function(x) {
     declare(type(x = double(1)))
@@ -96,6 +94,43 @@ test_that("optional NULL defaults must be initialized before use", {
   expect_error(
     quick(bad),
     "optional argument\\(s\\) used without initializing when NULL: shift",
+    fixed = FALSE
+  )
+})
+
+test_that("shadowed is.null does not suppress optional argument use", {
+  bad <- function() {
+    is.null <- function(x) FALSE
+
+    f <- function(x = NULL) is.null(x) || x > 0
+
+    f()
+  }
+
+  expect_error(
+    quick(bad),
+    "optional argument\\(s\\) used without initializing when NULL: x",
+    fixed = FALSE
+  )
+})
+
+test_that("shadowed is.null does not initialize optional arguments", {
+  bad <- function() {
+    is.null <- function(x) FALSE
+
+    f <- function(x = NULL) {
+      if (is.null(x)) {
+        x <- 1
+      }
+      x
+    }
+
+    f()
+  }
+
+  expect_error(
+    quick(bad),
+    "optional argument\\(s\\) used without initializing when NULL: x",
     fixed = FALSE
   )
 })

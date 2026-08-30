@@ -112,6 +112,34 @@ new_scope <- function(closure, parent = emptyenv()) {
   state$kind <- if (is.null(closure)) "block" else "subroutine"
   state$return_names <- character()
   state$internal_procs <- list()
+  state$block_name_state <- if (
+    is.null(closure) &&
+      inherits(parent, "quickr_scope") &&
+      identical(scope_kind(parent), "block")
+  ) {
+    attr(parent, "state", exact = TRUE)$block_name_state
+  } else {
+    counter <- new.env(parent = emptyenv())
+    counter$i <- 0L
+    counter
+  }
+  state$generated_name_state <- if (
+    is.null(closure) && inherits(parent, "quickr_scope")
+  ) {
+    attr(parent, "state", exact = TRUE)$generated_name_state
+  } else {
+    registry <- new.env(parent = emptyenv())
+    registry$fortran_names <- character()
+    registry
+  }
+
+  register_generated_var <- function(name, ...) {
+    var <- Variable(..., name = name)
+    scope[[name]] <- var
+    registry <- state$generated_name_state
+    registry$fortran_names <- unique(c(registry$fortran_names, name))
+    var
+  }
 
   state$get_unique_var <- local({
     i <- 0L
@@ -123,8 +151,24 @@ new_scope <- function(closure, parent = emptyenv()) {
         subroutine = "tmp",
         "tmp"
       )
-      name <- paste0(prefix, i <<- i + 1L, "_")
-      (scope[[name]] <- Variable(..., name = name))
+      if (identical(prefix, "btmp")) {
+        counter <- state$block_name_state
+        repeat {
+          counter$i <- counter$i + 1L
+          name <- paste0(prefix, counter$i, "_")
+          if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+            break
+          }
+        }
+        return(register_generated_var(name, ...))
+      }
+      repeat {
+        name <- paste0(prefix, i <<- i + 1L, "_")
+        if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+          break
+        }
+      }
+      register_generated_var(name, ...)
     }
   })
 

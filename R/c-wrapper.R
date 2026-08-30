@@ -837,9 +837,13 @@ fsub_extern_decl <- function(fsub) {
       glue("{fsub_arg_var_c_type(var)} {var@name}__")
     }
   })
-  if (length(fsub_c_sig) >= 3L) {
-    fsub_c_sig <- paste0("\n  ", fsub_c_sig)
+  args_sig <- if (length(fsub_c_sig) >= 3L) {
+    # one arg per line; join with a bare comma -- joining "\n  "-prefixed
+    # elements with ", " leaves a trailing space on every line
+    paste0("\n  ", fsub_c_sig, collapse = ",")
+  } else {
+    str_flatten_commas(fsub_c_sig)
   }
 
-  glue("extern void {fsub@name}({str_flatten_commas(fsub_c_sig)});")
+  glue("extern void {fsub@name}({args_sig});")
 }
