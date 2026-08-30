@@ -138,8 +138,8 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(lgl1, int1, dbl1, out, dbl1__len_, int1__len_, lgl1__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(lgl1, int1, dbl1, out, dbl1__len_, int1__len_, lgl1__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -147,6 +147,9 @@
         integer(c_ptrdiff_t), intent(in), value :: lgl1__len_
         integer(c_ptrdiff_t), intent(in), value :: int1__len_
         integer(c_ptrdiff_t), intent(in), value :: dbl1__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         integer(c_int), intent(in) :: lgl1(lgl1__len_) ! logical
@@ -158,8 +161,25 @@
       
       
       
+        if (size(dbl1, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+          return
+        end if
       out = [ max(1_c_int, findloc(lgl1, 0_c_int, 1, kind=c_int)), minloc(int1, 1), minloc(dbl1, 1), max(1_c_int, findloc(lgl1, 1_c_int,&
       & 1, kind=c_int)), maxloc(int1, 1), maxloc(dbl1, 1), maxloc(pack(dbl1, (dbl1 < 0_c_int)), 1) ]
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -176,7 +196,8 @@
         int* const out__, 
         const R_xlen_t dbl1__len_, 
         const R_xlen_t int1__len_, 
-        const R_xlen_t lgl1__len_);
+        const R_xlen_t lgl1__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // lgl1
@@ -210,6 +231,10 @@
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           lgl1__,
           int1__,
@@ -217,7 +242,11 @@
           out__,
           dbl1__len_,
           int1__len_,
-          lgl1__len_);
+          lgl1__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;

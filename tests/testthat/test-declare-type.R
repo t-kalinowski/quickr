@@ -1,7 +1,5 @@
 # Unit tests for declare(type()) variants
 
-skip_on_cran()
-
 test_that("declare(type()) variants", {
   # exprs in {
   quick_seq <- (function(start, end) {
@@ -48,4 +46,15 @@ test_that("declare(type()) variants", {
     out
   })
   expect_quick_identical(quick_seq, list(1L, 5L))
+})
+
+test_that("character declarations are refused with a clean message", {
+  fn <- function(x) {
+    declare(type(x = character(1)))
+    x
+  }
+  expect_error(
+    quick(fn),
+    "character values are not supported by quickr"
+  )
 })

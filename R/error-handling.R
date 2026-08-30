@@ -128,6 +128,7 @@ emit_quickr_error_if <- function(
     inherits(scope, "quickr_scope")
   )
   mark_scope_uses_errors(scope)
+  hoist$mark_runtime_guard()
   err_lines <- quickr_error_fortran_lines(message, scope = scope)
   hoist$emit(glue(
     "

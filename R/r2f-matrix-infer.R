@@ -105,7 +105,19 @@ infer_dest_crossprod_like <- function(args, scope, trans) {
   }
   y_arg <- args$y %||% if (length(args) > 1L) args[[2L]] else NULL
   y <- if (!is.null(y_arg)) infer_symbol_var(y_arg, scope) else NULL
-  x_dims <- matrix_dims_var(x)
+  if (!is.null(y_arg) && is.null(y)) {
+    return(NULL)
+  }
+  x_dims <- matrix_dims_var(
+    x,
+    orientation = if (
+      identical(trans, "N") && x@rank == 1L && !is.null(y) && y@rank == 2L
+    ) {
+      "rowvec"
+    } else {
+      "matrix"
+    }
+  )
   if (is.null(y)) {
     n <- if (identical(trans, "T")) x_dims$cols else x_dims$rows
     return(Variable("double", list(n, n)))
@@ -185,7 +197,7 @@ infer_dest_solve <- function(args, scope) {
 
   b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
   if (is.null(b_arg)) {
-    return(Variable("double", list(n_rows, n_cols)))
+    return(Variable("double", list(n_rows, n_rows)))
   }
   B <- infer_symbol_var(b_arg, scope)
   if (is.null(B)) {
@@ -211,7 +223,7 @@ infer_dest_chol <- function(args, scope) {
     return(NULL)
   }
   x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
+  Variable("double", list(x_dims$rows, x_dims$rows))
 }
 
 # Infer destination dimensions for chol2inv().
@@ -225,7 +237,7 @@ infer_dest_chol2inv <- function(args, scope) {
     return(NULL)
   }
   x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
+  Variable("double", list(x_dims$rows, x_dims$rows))
 }
 
 # Helper to infer a size from a literal or symbol.

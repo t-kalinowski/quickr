@@ -17,7 +17,7 @@ r2f_handlers[["["]] <- function(
   #   converted to an integer with
 
   var <- args[[1]]
-  var <- r2f(var, scope, ..., hoist = hoist)
+  var <- lower_r2f_operand_in_order(var, scope, ..., hoist = hoist)
 
   idx_args <- args[-1]
   drop <- idx_args$drop %||% TRUE
@@ -34,7 +34,7 @@ r2f_handlers[["["]] <- function(
       # subscript expressions that need temporaries (e.g. rev(seq_len(n)))
       # will self-render as an inline `block ... end block` *expression*,
       # which is invalid Fortran inside an array designator.
-      sub <- r2f(idx, scope, ..., hoist = hoist)
+      sub <- lower_r2f_operand_in_order(idx, scope, ..., hoist = hoist)
       if (sub@value@mode == "double") {
         # Fortran subscripts must be integers; coerce numeric expressions
         Fortran(

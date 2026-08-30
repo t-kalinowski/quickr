@@ -412,13 +412,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out_, x__len_) bind(c)
-        use iso_c_binding, only: c_int, c_ptrdiff_t
+      subroutine fn(x, out_, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         integer(c_int), intent(in) :: x(x__len_)
@@ -426,7 +429,24 @@
         ! manifest end
       
       
+        if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+          return
+        end if
         out_ = (x + 1_c_int)
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -439,7 +459,8 @@
       extern void fn(
         const int* const x__, 
         int* const out___, 
-        const R_xlen_t x__len_);
+        const R_xlen_t x__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -455,9 +476,170 @@
         SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
         int* out___ = INTEGER(out_);
         
-        fn(x__, out___, x__len_);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          x__,
+          out___,
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
+      }
+
+# single-statement while/repeat bodies re-run their hoisted statements
+
+    Code
+      fn
+    Output
+      function(m) {
+          declare(type(m = double(2, 2)))
+          while (m[1, 1] < 100) m <- m %*% m
+          m
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(m) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        real(c_double), intent(in out) :: m(2, 2)
+        ! manifest end
+      
+      
+        do while ((m(1_c_int, 1_c_int) < 100.0_c_double))
+          block
+            real(c_double) :: btmp1_(2, 2)
+      
+      call dgemm('N','N', int(2, kind=c_int), int(2, kind=c_int), int(2, kind=c_int), 1.0_c_double, m, int(2, kind=c_int), m, int(2,&
+      & kind=c_int), 0.0_c_double, btmp1_, int(2, kind=c_int))
+            m = btmp1_
+          end block
+        end do
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(double* const m__);
+      
+      SEXP fn_(SEXP _args) {
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != REALSXP) {
+          Rf_error("typeof(m) must be 'double', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        m = Rf_duplicate(m);
+        SETCAR(_args, m);
+        double* const m__ = REAL(m);
+        const int* const m__dim_ = ({
+        SEXP dim_ = Rf_getAttrib(m, R_DimSymbol);
+        if (Rf_length(dim_) != 2) Rf_error(
+          "m must be a 2D-array, but length(dim(m)) is %i",
+          (int) Rf_length(dim_));
+        INTEGER(dim_);});
+        const int m__dim_1_ = m__dim_[0];
+        const int m__dim_2_ = m__dim_[1];
+        
+        if (m__dim_1_ != 2)
+          Rf_error("dim(m)[1] must be 2, not %0.f",
+                    (double)m__dim_1_);
+        if (m__dim_2_ != 2)
+          Rf_error("dim(m)[2] must be 2, not %0.f",
+                    (double)m__dim_2_);
+        
+        fn(m__);
+        
+        return m;
+      }
+
+---
+
+    Code
+      fn
+    Output
+      function(m) {
+          declare(type(m = double(2, 2)))
+          repeat m <- m %*% m
+          m
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(m) bind(c)
+        use iso_c_binding, only: c_double, c_int
+        implicit none
+      
+        ! manifest start
+        ! args
+        real(c_double), intent(in out) :: m(2, 2)
+        ! manifest end
+      
+      
+        do
+          block
+            real(c_double) :: btmp1_(2, 2)
+      
+      call dgemm('N','N', int(2, kind=c_int), int(2, kind=c_int), int(2, kind=c_int), 1.0_c_double, m, int(2, kind=c_int), m, int(2,&
+      & kind=c_int), 0.0_c_double, btmp1_, int(2, kind=c_int))
+            m = btmp1_
+          end block
+        end do
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(double* const m__);
+      
+      SEXP fn_(SEXP _args) {
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != REALSXP) {
+          Rf_error("typeof(m) must be 'double', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        m = Rf_duplicate(m);
+        SETCAR(_args, m);
+        double* const m__ = REAL(m);
+        const int* const m__dim_ = ({
+        SEXP dim_ = Rf_getAttrib(m, R_DimSymbol);
+        if (Rf_length(dim_) != 2) Rf_error(
+          "m must be a 2D-array, but length(dim(m)) is %i",
+          (int) Rf_length(dim_));
+        INTEGER(dim_);});
+        const int m__dim_1_ = m__dim_[0];
+        const int m__dim_2_ = m__dim_[1];
+        
+        if (m__dim_1_ != 2)
+          Rf_error("dim(m)[1] must be 2, not %0.f",
+                    (double)m__dim_1_);
+        if (m__dim_2_ != 2)
+          Rf_error("dim(m)[2] must be 2, not %0.f",
+                    (double)m__dim_2_);
+        
+        fn(m__);
+        
+        return m;
       }
 

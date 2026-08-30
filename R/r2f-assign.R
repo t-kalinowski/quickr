@@ -39,8 +39,15 @@ assignment_extract_fallthrough <- function(rhs) {
 assignment_fortran_name <- function(name, scope) {
   stopifnot(is_string(name))
   base <- fortranize_name(name)
-  if (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) {
-    make_shadow_fortran_name(scope, base)
+  used <- unique(c(
+    scope_fortran_names(scope),
+    scope_generated_fortran_names(scope)
+  ))
+  if (
+    (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) ||
+      tolower(base) %in% tolower(used)
+  ) {
+    make_shadow_fortran_name(scope, base, used = used)
   } else {
     base
   }
@@ -165,7 +172,16 @@ register_r2f_handler(
       }
     } else if (inherits(inferred_var, Variable)) {
       var <- inferred_var
+      var@r_name <- name
       var@name <- fortran_name
+      return_names <- scope_get(scope, "return_names", character()) %||%
+        character()
+      if (name %in% return_names) {
+        var@is_return <- TRUE
+        if (identical(var@mode, "logical")) {
+          var@logical_as_int <- TRUE
+        }
+      }
       value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
     } else {
       value <- r2f(rhs, scope, ..., hoist = hoist)

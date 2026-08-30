@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("min handles scalar arguments without reduction", {
   fn <- function(a, b, m) {
     declare(
@@ -56,6 +54,89 @@ test_that("reductions over vectors still use intrinsics", {
   expect_identical(fn(x1), -2L)
   expect_identical(fn(x2), 1L)
   expect_quick_identical(fn, x1, x2)
+})
+
+test_that("empty extrema are rejected explicitly", {
+  static_min <- function() {
+    min(numeric())
+  }
+  static_max <- function() {
+    max(integer())
+  }
+  static_logical <- function() {
+    min(logical())
+  }
+  message <- "min()/max() of empty inputs are not supported"
+
+  expect_error(quick(static_min), message, fixed = TRUE)
+  expect_error(quick(static_max), message, fixed = TRUE)
+  expect_error(quick(static_logical), message, fixed = TRUE)
+
+  dynamic_min <- function(x) {
+    declare(type(x = double(NA)))
+    min(x)
+  }
+  qmin <- quick(dynamic_min)
+  expect_equal(qmin(c(3, -1, 2)), -1)
+  expect_error(qmin(numeric()), message, fixed = TRUE)
+
+  dynamic_max <- function(x) {
+    declare(type(x = double(NA)))
+    max(x)
+  }
+  qmax <- quick(dynamic_max)
+  expect_equal(qmax(c(3, -1, 2)), 3)
+  expect_error(qmax(numeric()), message, fixed = TRUE)
+
+  masked_scalar_min <- function(x, mask) {
+    declare(type(x = double(1)), type(mask = logical(1)))
+    min(x[mask])
+  }
+  qmasked_scalar_min <- quick(masked_scalar_min)
+  expect_equal(qmasked_scalar_min(3, TRUE), 3)
+  expect_error(qmasked_scalar_min(3, FALSE), message, fixed = TRUE)
+})
+
+test_that("multi-argument extrema ignore empty inputs", {
+  static_extrema <- function() {
+    min(numeric(), 5)
+  }
+  dynamic_min <- function(x) {
+    declare(type(x = double(NA)))
+    min(x, 5)
+  }
+  dynamic_max <- function(x) {
+    declare(type(x = double(NA)))
+    max(x, -5)
+  }
+  dynamic_pair <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    min(x, y)
+  }
+
+  expect_identical(quick(static_extrema)(), static_extrema())
+
+  qmin <- quick(dynamic_min)
+  expect_identical(qmin(numeric()), dynamic_min(numeric()))
+  expect_identical(qmin(c(9, 2)), dynamic_min(c(9, 2)))
+
+  qmax <- quick(dynamic_max)
+  expect_identical(qmax(numeric()), dynamic_max(numeric()))
+  expect_identical(qmax(c(-9, -2)), dynamic_max(c(-9, -2)))
+
+  qpair <- quick(dynamic_pair)
+  for (args in list(
+    list(numeric(), c(9, 2)),
+    list(c(9, 2), numeric()),
+    list(c(9, 2), c(8, 1))
+  )) {
+    expect_identical(do.call(qpair, args), do.call(dynamic_pair, args))
+  }
+  expect_error(
+    qpair(numeric(), numeric()),
+    "min()/max() of empty inputs are not supported",
+    fixed = TRUE
+  )
 })
 
 

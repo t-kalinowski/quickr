@@ -167,9 +167,18 @@ quickr_r_cmd_config_probe <- function(name) {
 
 `add<-` <- `+` #function(x, value) x + value
 
-map_int <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = 0L, ...)
-map_lgl <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)
-map_chr <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = "", ...)
+map_int <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = 0L, ...)
+}
+map_lgl <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)
+}
+map_chr <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = "", ...)
+}
 
 imap <- function(.x, .f, ...) {
   out <- .mapply(.f, list(.x, names(.x) %||% seq_along(.x)), list(...))

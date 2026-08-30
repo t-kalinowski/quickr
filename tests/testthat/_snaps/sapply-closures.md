@@ -18,13 +18,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, out, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -35,11 +38,15 @@
         ! manifest end
       
       
-        out = 0
+        if (x__len_ < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        out = 0.0_c_double
       
         do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
@@ -54,6 +61,16 @@
       
             res = (x(i) * 2.0_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -66,7 +83,8 @@
       extern void fn(
         const double* const x__, 
         double* const out__, 
-        const R_xlen_t x__len_);
+        const R_xlen_t x__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -82,7 +100,18 @@
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
-        fn(x__, out__, x__len_);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          x__,
+          out__,
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;
@@ -107,13 +136,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, thresh, out, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, thresh, out, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -125,10 +157,14 @@
         ! manifest end
       
       
+        if (x__len_ < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
         out = .false.
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
@@ -143,6 +179,16 @@
       
             res = (x(i) > thresh)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -156,7 +202,8 @@
         const double* const x__, 
         const double* const thresh__, 
         int* const out__, 
-        const R_xlen_t x__len_);
+        const R_xlen_t x__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -184,11 +231,19 @@
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           thresh__,
           out__,
-          x__len_);
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;
@@ -213,13 +268,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, out, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -230,10 +288,14 @@
         ! manifest end
       
       
-        out = 0
+        if (x__len_ < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        out = 0_c_int
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
@@ -248,6 +310,16 @@
       
             res = (i * 2_c_int)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -260,7 +332,8 @@
       extern void fn(
         const double* const x__, 
         int* const out__, 
-        const R_xlen_t x__len_);
+        const R_xlen_t x__len_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -276,7 +349,18 @@
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
         
-        fn(x__, out__, x__len_);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          x__,
+          out__,
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;
@@ -301,14 +385,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
@@ -322,21 +409,36 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
         contains
           subroutine closure1_(j, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: j
             real(c_double), intent(out) :: res(:)
       
       
+            if (size(x(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+          & supported")
+              return
+            end if
             res = (x(:, j) * 2.0_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -350,7 +452,8 @@
         const double* const x__, 
         double* const out__, 
         const R_len_t x__dim_1_, 
-        const R_len_t x__dim_2_);
+        const R_len_t x__dim_2_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -380,11 +483,19 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           out__,
           x__dim_1_,
-          x__dim_2_);
+          x__dim_2_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -409,14 +520,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, thresh, out, x__dim_1_, x__dim_2_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, thresh, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
@@ -431,21 +545,36 @@
         out = .false.
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
         contains
           subroutine closure1_(j, res)
-            use iso_c_binding, only: c_int
+            use iso_c_binding, only: c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: j
             integer(c_int), intent(out) :: res(:) ! logical
       
       
+            if (size(x(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+          & supported")
+              return
+            end if
             res = (x(:, j) > thresh)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -460,7 +589,8 @@
         const double* const thresh__, 
         int* const out__, 
         const R_len_t x__dim_1_, 
-        const R_len_t x__dim_2_);
+        const R_len_t x__dim_2_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -502,12 +632,20 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           thresh__,
           out__,
           x__dim_1_,
-          x__dim_2_);
+          x__dim_2_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -532,14 +670,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, k, out, x__dim_1_, x__dim_2_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, k, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
@@ -554,21 +695,39 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
         contains
           subroutine closure1_(t, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: t
             real(c_double), intent(out) :: res(:, :)
       
       
+            if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
             res = (x + real(t, kind=c_double))
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -583,7 +742,8 @@
         const int* const k__, 
         double* const out__, 
         const R_len_t x__dim_1_, 
-        const R_len_t x__dim_2_);
+        const R_len_t x__dim_2_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -627,12 +787,20 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           k__,
           out__,
           x__dim_1_,
-          x__dim_2_);
+          x__dim_2_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -661,8 +829,8 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -670,6 +838,9 @@
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
         integer(c_int), intent(in), value :: x__dim_3_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_, x__dim_3_)
@@ -687,22 +858,40 @@
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, x__dim_3_
             call closure1_(tmp1_, out(:, :, tmp1_))
-      
+            if (quickr_err_msg(1) /= c_null_char) return
           end do
       
         end block
       
         contains
           subroutine closure1_(t, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: t
             real(c_double), intent(out) :: res(:, :)
       
       
+            if (size(x(:, :, t), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x(:, :, t), 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
             res = (x(:, :, t) + 1.0_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -717,7 +906,8 @@
         double* const out__, 
         const R_len_t x__dim_1_, 
         const R_len_t x__dim_2_, 
-        const R_len_t x__dim_3_);
+        const R_len_t x__dim_3_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -749,12 +939,20 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           out__,
           x__dim_1_,
           x__dim_2_,
-          x__dim_3_);
+          x__dim_3_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -783,8 +981,8 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_, x__dim_4_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_, x__dim_4_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -793,6 +991,9 @@
         integer(c_int), intent(in), value :: x__dim_2_
         integer(c_int), intent(in), value :: x__dim_3_
         integer(c_int), intent(in), value :: x__dim_4_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_, x__dim_3_, x__dim_4_)
@@ -810,22 +1011,44 @@
           btmp1_ = shape(x)
           do tmp1_ = 1_c_int, x__dim_4_
             call closure1_(tmp1_, out(:, :, :, tmp1_))
-      
+            if (quickr_err_msg(1) /= c_null_char) return
           end do
       
         end block
       
         contains
           subroutine closure1_(t, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: t
             real(c_double), intent(out) :: res(:, :, :)
       
       
+            if (size(x(:, :, :, t), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x(:, :, :, t), 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x(:, :, :, t), 3, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
             res = (x(:, :, :, t) * 2.0_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -841,7 +1064,8 @@
         const R_len_t x__dim_1_, 
         const R_len_t x__dim_2_, 
         const R_len_t x__dim_3_, 
-        const R_len_t x__dim_4_);
+        const R_len_t x__dim_4_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -875,13 +1099,21 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           out__,
           x__dim_1_,
           x__dim_2_,
           x__dim_3_,
-          x__dim_4_);
+          x__dim_4_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -906,8 +1138,8 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, k, out, x__dim_1_, x__dim_2_, x__dim_3_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, k, out, x__dim_1_, x__dim_2_, x__dim_3_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -915,6 +1147,9 @@
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
         integer(c_int), intent(in), value :: x__dim_3_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_, x__dim_3_)
@@ -929,21 +1164,43 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, :, tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
         contains
           subroutine closure1_(t, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: t
             real(c_double), intent(out) :: res(:, :, :)
       
       
+            if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size(x, 3, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
             res = (x + real(t, kind=c_double))
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -959,7 +1216,8 @@
         double* const out__, 
         const R_len_t x__dim_1_, 
         const R_len_t x__dim_2_, 
-        const R_len_t x__dim_3_);
+        const R_len_t x__dim_3_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1005,13 +1263,21 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           k__,
           out__,
           x__dim_1_,
           x__dim_2_,
-          x__dim_3_);
+          x__dim_3_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;
@@ -1050,7 +1316,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         do tmp1_ = 1_c_int, 12_c_int
           call closure1_(tmp1_, out(tmp1_))
       
@@ -1133,14 +1399,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
@@ -1159,7 +1428,7 @@
           allocate(btmp1_(x__dim_1_, x__dim_2_))
           do tmp1_ = 1_c_int, x__dim_2_
             call closure1_(tmp1_, btmp1_(:, tmp1_))
-      
+            if (quickr_err_msg(1) /= c_null_char) return
           end do
       
       
@@ -1168,15 +1437,30 @@
       
         contains
           subroutine closure1_(j, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: j
             real(c_double), intent(out) :: res(:)
       
       
+            if (size(out(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+          & supported")
+              return
+            end if
             res = (out(:, j) + 1.0_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -1190,7 +1474,8 @@
         const double* const x__, 
         double* const out__, 
         const R_len_t x__dim_1_, 
-        const R_len_t x__dim_2_);
+        const R_len_t x__dim_2_, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1220,11 +1505,19 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           out__,
           x__dim_1_,
-          x__dim_2_);
+          x__dim_2_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return out;

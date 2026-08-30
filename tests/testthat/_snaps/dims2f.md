@@ -13,11 +13,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(n, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(n, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: n
         integer(c_int), intent(out) :: out_
@@ -31,9 +34,29 @@
         allocate(y((n - 1)))
       
       
-        x = 0
-        y = 0
+        if ((n * 2) < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        x = 0.0_c_double
+        if ((n - 1) < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        y = 0.0_c_double
         out_ = (size(x) + size(y))
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -43,7 +66,10 @@
       #include <Rinternals.h>
       
       
-      extern void fn(const int* const n__, int* const out___);
+      extern void fn(
+        const int* const n__, 
+        int* const out___, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // n
@@ -62,7 +88,14 @@
         SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
         int* out___ = INTEGER(out_);
         
-        fn(n__, out___);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(n__, out___, quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
@@ -82,11 +115,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(n, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(n, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: n
         integer(c_int), intent(out) :: out_
@@ -98,8 +134,24 @@
         allocate(out((int(n) / int(2) + mod(int(n), int(2)))))
       
       
-        out = 0
+        if ((int(n) / int(2) + mod(int(n), int(2))) < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        out = 0.0_c_double
         out_ = size(out)
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -109,7 +161,10 @@
       #include <Rinternals.h>
       
       
-      extern void fn(const int* const n__, int* const out___);
+      extern void fn(
+        const int* const n__, 
+        int* const out___, 
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // n
@@ -128,7 +183,14 @@
         SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
         int* out___ = INTEGER(out_);
         
-        fn(n__, out___);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(n__, out___, quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;

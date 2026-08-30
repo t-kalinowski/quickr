@@ -2,16 +2,91 @@
 # Handlers for value constructors: c, logical, integer, double, numeric,
 # character, raw, matrix, array
 
+# --- Helpers ---
+
+# TRUE for calls to the zero-fill constructors: logical(k), integer(k),
+# double(k), numeric(k). These lower to a single scalar literal carrying
+# array dims, so splicing contexts must spread them explicitly.
+# Used by: c(), array()
+is_fill_constructor_call <- function(e, scope) {
+  e <- unwrap_parens(e)
+  if (!is.call(e)) {
+    return(FALSE)
+  }
+  callable <- e[[1L]]
+  while (is_call(callable, quote(`(`)) && length(callable) == 2L) {
+    callable <- callable[[2L]]
+  }
+  if (!is.symbol(callable)) {
+    return(FALSE)
+  }
+  name <- as.character(callable)
+  name %in%
+    c("logical", "integer", "double", "numeric") &&
+    (is.null(scope) || !inherits(scope[[name]], LocalClosure))
+}
+
+# Name of the call one frame above the current handler ("" at top level).
+# The materialization decisions below branch on it: a fill constructor or
+# matrix(scalar, ...) may stay a scalar only where the parent broadcasts,
+# spreads, or pads it.
+parent_call_name <- function(calls) {
+  if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
+}
+
+# Materialize `code` into a hoisted temporary and return the temporary.
+# `hoist` is always available in a handler: r2f() opens one per statement
+# before dispatching, and the constructor handlers forward what they got.
+materialize_via_hoist <- function(code, mode, dims, hoist) {
+  stopifnot(is.environment(hoist))
+  tmp <- hoist$declare_tmp(mode = mode, dims = dims)
+  hoist$emit(glue("{tmp@name} = {code}"))
+  Fortran(tmp@name, tmp)
+}
+
 # --- Handlers ---
 
-r2f_handlers[["c"]] <- function(args, scope = NULL, ...) {
-  ff <- lapply(args, r2f, scope, ...)
+r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
+  ff <- lower_operands_in_order(args, scope, ..., hoist = hoist)
   # Fortran array constructors require uniform element types; cast every
   # element whose mode differs from the promoted mode (R: c(1L, 2.5) is
   # double, c(TRUE, 2L) is integer).
   promoted <- promote_operands(ff, context = "c()")
   ff <- promoted$args
   mode <- promoted$mode
+  # Fill constructors are one scalar literal claiming length k; spread them
+  # as implied-dos so the emitted element count matches the claimed length.
+  fill_idx <- which(map_lgl(args, is_fill_constructor_call, scope = scope))
+  if (length(fill_idx)) {
+    spread_var <- NULL
+    for (j in fill_idx) {
+      len_f <- dims2f(ff[[j]]@value@dims, scope)
+      if (!nzchar(len_f)) {
+        next # statically length 1: a single spliced scalar is already right
+      }
+      if (grepl(":", len_f, fixed = TRUE)) {
+        stop(
+          "the length of ",
+          deparse1(args[[j]]),
+          " inside c() must be known",
+          call. = FALSE
+        )
+      }
+      spread_var <- spread_var %||%
+        scope_unique_var(
+          scope,
+          "integer",
+          integer_kind = "c_ptrdiff_t"
+        )
+      register_openmp_private(scope, spread_var@name)
+      ff[[j]] <- Fortran(
+        glue(
+          "({ff[[j]]}, {spread_var}=1_c_ptrdiff_t, int({len_f}, kind=c_ptrdiff_t))"
+        ),
+        ff[[j]]@value
+      )
+    }
+  }
   s <- glue("[ {str_flatten_commas(ff)} ]")
   lens <- lapply(ff[order(map_int(ff, \(f) f@value@rank))], function(e) {
     rank <- e@value@rank
@@ -106,26 +181,82 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 
+# Compile a zero-fill constructor call: a single scalar literal carrying
+# array dims. Whole-array assignment broadcasts that correctly, and
+# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
+# the scalar form. Any other consumer (elementwise ops, reductions, ...)
+# needs a real array expression -- an expression like `numeric(2) + 1`
+# would otherwise contribute one element where its dims claim two -- so
+# materialize the fill into a hoisted temporary there.
+fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
+  dims <- if (length(args)) r2dims(args, scope) else list(0L)
+  var <- Variable(mode = mode, dims = dims)
+  length_dim <- var@dims[[1L]]
+  if (is_wholenumber(length_dim)) {
+    if (as.integer(length_dim) < 0L) {
+      stop("invalid 'length' argument", call. = FALSE)
+    }
+  } else if (!is_scalar_na(length_dim)) {
+    length_f <- dims2f(list(length_dim), scope)
+    emit_quickr_error_if(
+      glue("{length_f} < 0"),
+      "invalid 'length' argument",
+      hoist,
+      scope
+    )
+  }
+  out <- Fortran(literal, var)
+  if (passes_as_scalar(var)) {
+    return(out)
+  }
+  parent_call <- parent_call_name(list(...)$calls)
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
+    return(out)
+  }
+  materialize_via_hoist(literal, mode, var@dims, hoist)
+}
+
 register_r2f_handler(
   "logical",
-  function(args, scope, ...) {
-    Fortran(".false.", Variable(mode = "logical", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      ".false.",
+      "logical",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   "integer",
-  function(args, scope, ...) {
-    Fortran("0", Variable(mode = "integer", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      "0_c_int",
+      "integer",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
 
 register_r2f_handler(
   c("double", "numeric"),
-  function(args, scope, ...) {
-    Fortran("0", Variable(mode = "double", dims = r2dims(args, scope)))
+  function(args, scope, ..., hoist = NULL) {
+    fill_constructor_value(
+      "0.0_c_double",
+      "double",
+      args,
+      scope,
+      ...,
+      hoist = hoist
+    )
   },
   match_fun = FALSE
 )
@@ -154,14 +285,42 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   dims <- r2dims(list(args$nrow, args$ncol), scope)
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
-  # Scalars can be broadcast into an array on assignment, so keep them as-is.
+  # A scalar broadcasts natively on direct whole-array assignment, so keep
+  # it as-is there; in any other context (sum(...), %*%, ...) the expression
+  # must be a real rank-2 array, so materialize it into a hoisted temporary.
   if (passes_as_scalar(src@value)) {
-    src@value <- out_val
-    return(src)
+    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
+      src@value <- out_val
+      return(src)
+    }
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
   rows <- dims[[1L]]
   cols <- dims[[2L]]
+
+  if (is_fill_constructor_call(args$data, scope)) {
+    source_len <- src@value@dims[[1L]]
+    source_may_be_empty <- !is_wholenumber(source_len) || source_len == 0
+    if (source_may_be_empty) {
+      source_len_f <- dims2f(list(source_len), scope)
+      if (!nzchar(source_len_f) || grepl(":", source_len_f, fixed = TRUE)) {
+        stop("matrix() fill length must be known", call. = FALSE)
+      }
+      row_count <- dims2f(list(rows), scope)
+      col_count <- dims2f(list(cols), scope)
+      row_count <- if (nzchar(row_count)) row_count else "1"
+      col_count <- if (nzchar(col_count)) col_count else "1"
+      emit_quickr_error_if(
+        glue(
+          "({source_len_f}) == 0 .and. ({row_count}) > 0 .and. ({col_count}) > 0"
+        ),
+        "matrix() with empty data would produce NA values, which are not supported",
+        hoist,
+        scope
+      )
+    }
+  }
 
   # Avoid double-evaluating non-trivial expressions when used in both the
   # `source` and `pad` args.
@@ -249,6 +408,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   }
 
   out <- r2f(args$data, scope, ..., hoist = hoist)
+  data_scalar <- passes_as_scalar(out@value)
   target_dims <- dim_to_dims(args$dim)
   if (!length(target_dims)) {
     stop("array(dim=) must not be empty", call. = FALSE)
@@ -258,6 +418,57 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     # We implement this as Fortran `reshape()`. Recycling (i.e. expanding a
     # shorter SOURCE to a larger target shape) is not supported.
     dims_f <- dims2f(target_dims, scope)
+    if (grepl(":", dims_f, fixed = TRUE)) {
+      stop("array(dim=) must be known", call. = FALSE)
+    }
+
+    axis_terms <- vapply(
+      target_dims,
+      function(d) {
+        axis <- dims2f(list(d), scope)
+        if (!nzchar(axis)) "1" else axis
+      },
+      character(1L)
+    )
+    # R array extents are integers, but their product may be a long-vector
+    # length. Promote each axis before multiplying so the product cannot
+    # overflow c_int.
+    axis_terms_ptrdiff <- paste0(
+      "int(",
+      axis_terms,
+      ", kind=c_ptrdiff_t)"
+    )
+    n_expr_ptrdiff <- if (length(axis_terms_ptrdiff) == 1L) {
+      axis_terms_ptrdiff[[1L]]
+    } else {
+      paste0("(", paste0(axis_terms_ptrdiff, collapse = " * "), ")")
+    }
+
+    is_fill_constructor <- is_fill_constructor_call(args$data, scope)
+    if (is_fill_constructor) {
+      source_len <- out@value@dims[[1L]]
+      source_may_be_empty <- !is_wholenumber(source_len) || source_len == 0
+      if (source_may_be_empty) {
+        # Base R pads an empty source with NA; quickr does not support NA values.
+        source_len_f <- dims2f(list(source_len), scope)
+        if (!nzchar(source_len_f) || grepl(":", source_len_f, fixed = TRUE)) {
+          stop("array() fill length must be known", call. = FALSE)
+        }
+        target_nonempty <- paste0(
+          "(",
+          axis_terms,
+          ") > 0",
+          collapse = " .and. "
+        )
+        emit_quickr_error_if(
+          glue("({source_len_f}) == 0 .and. {target_nonempty}"),
+          "array() with empty data would produce NA values, which are not supported",
+          hoist,
+          scope
+        )
+      }
+    }
+
     scalar_target <- !nzchar(dims_f) && length(target_dims) == 1L
     if (scalar_target) {
       # `dim = 1` is scalar-like in quickr (rank-1 length-1 is declared scalar).
@@ -277,41 +488,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       if (!nzchar(dims_f)) {
         dims_f <- "1"
       }
-      if (grepl(":", dims_f, fixed = TRUE)) {
-        stop("array(dim=) must be known", call. = FALSE)
-      }
       shape <- glue("int([{dims_f}])")
-
-      data_r <- args$data
-      is_fill_constructor <-
-        is.call(data_r) &&
-        is.symbol(data_r[[1L]]) &&
-        as.character(data_r[[1L]]) %in%
-          c(
-            "logical",
-            "integer",
-            "double",
-            "numeric"
-          )
-
-      axis_terms <- vapply(
-        target_dims,
-        function(d) {
-          axis <- dims2f(list(d), scope)
-          if (!nzchar(axis)) {
-            "1"
-          } else {
-            axis
-          }
-        },
-        character(1L)
-      )
-      n_expr <- if (length(axis_terms) == 1L) {
-        axis_terms[[1L]]
-      } else {
-        paste0("(", paste0("(", axis_terms, ")", collapse = " * "), ")")
-      }
-
       known_prod <- function(dims) {
         if (is.null(dims) || !length(dims)) {
           return(1)
@@ -339,8 +516,12 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       }
 
       source <- if (is_fill_constructor) {
-        i <- scope_unique_var(scope, "integer")
-        glue("[({out}, {i}=1, int({n_expr}))]")
+        i <- scope_unique_var(
+          scope,
+          "integer",
+          integer_kind = "c_ptrdiff_t"
+        )
+        glue("[({out}, {i}=1_c_ptrdiff_t, {n_expr_ptrdiff})]")
       } else {
         n_target <- known_prod(target_dims)
         n_source <- known_prod(out@value@dims)
@@ -359,7 +540,11 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
             "array() reshape does not support recycling (data shorter than prod(dim))",
             scope = scope
           )
-          hoist$emit(glue("if (int({n_expr}) > size({out})) then"))
+          hoist$emit(
+            glue(
+              "if ({n_expr_ptrdiff} > size({out}, kind=c_ptrdiff_t)) then"
+            )
+          )
           hoist$emit(paste0("  ", err))
           hoist$emit("end if")
         }
@@ -377,5 +562,12 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     mode = out@value@mode,
     dims = target_dims
   )
+  if (
+    data_scalar &&
+      !passes_as_scalar(out@value) &&
+      !parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")
+  ) {
+    return(materialize_via_hoist(out, out@value@mode, target_dims, hoist))
+  }
   out
 }
