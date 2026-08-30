@@ -142,3 +142,18 @@ test_that("impure runif() bounds are evaluated exactly once", {
   r_next <- runif(1L)
   expect_identical(q_next, r_next)
 })
+test_that("runif evaluates bounds before rejecting a dynamic count", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    sum(runif(n, runif(1L), runif(1L)))
+  }
+  qfn <- quick(fn)
+
+  set.seed(1)
+  expect_error(fn(-1L), "invalid arguments")
+  expected_seed <- .Random.seed
+
+  set.seed(1)
+  expect_error(qfn(-1L), "sample count must be non-negative")
+  expect_identical(.Random.seed, expected_seed)
+})

@@ -19,6 +19,59 @@ r2f_iterable_context <- function(calls) {
   }
 }
 
+# Flatten a rank>1 value to a rank-1 vector, matching R's column-major
+# drop-dims semantics for as.double()/as.integer()/as.vector() and
+# matrix arguments to c(). Scalars and rank-1 values pass through
+# unchanged. The canonical `reshape(source, [len])` spelling lives here
+# so every flatten site shares it; the output length is
+# value_length_expr(x@value) (NA -> a runtime size() query). The output
+# mode is x's own mode -- callers cast before flattening if they want a
+# different one.
+# Used by: r2f-coercions.R, r2f-constructors.R
+flatten_to_vector <- function(x, scope) {
+  stopifnot(inherits(x, Fortran))
+  if (passes_as_scalar(x@value) || x@value@rank <= 1L) {
+    return(x)
+  }
+  dim_names <- unique(unlist(lapply(x@value@dims, function(dim) {
+    if (is.symbol(dim)) {
+      return(as.character(dim))
+    }
+    if (is.call(dim)) {
+      return(all.names(dim, functions = FALSE))
+    }
+    character()
+  })))
+  for (name in dim_names) {
+    var <- get0(name, scope, inherits = TRUE)
+    if (
+      inherits(var, Variable) &&
+        passes_as_scalar(var) &&
+        isTRUE(var@modified)
+    ) {
+      stop(
+        "flattening: dimension variable `",
+        name,
+        "` has been reassigned and no longer describes the array extent",
+        call. = FALSE
+      )
+    }
+  }
+  len_expr <- value_length_expr(x@value)
+  len_str <- if (is_scalar_na(len_expr)) {
+    glue("size({x})")
+  } else {
+    # dims2f() returns "" for a scalar "1", but we need a literal length.
+    out <- dims2f(list(len_expr), scope)
+    if (!nzchar(out)) "1" else out
+  }
+  out_val <- Variable(
+    x@value@mode,
+    list(if (is_scalar_na(len_expr)) NA else len_expr)
+  )
+  Fortran(glue("reshape({x}, [{len_str}])"), out_val)
+}
+
 # Compute the length expression for a Variable value.
 # Used by: r2f-sequences.R, r2f-control-flow.R
 value_length_expr <- function(value) {
@@ -249,6 +302,9 @@ seq_like_r2f <- function(
       if (is_scalar_na(len_expr)) {
         len_expr <- NA_integer_
       }
+      if (is_scalar_integerish(len_expr) && as.integer(len_expr) < 0L) {
+        stop("seq_len() bound must be non-negative", call. = FALSE)
+      }
       list(
         from = Fortran("1", Variable("integer")),
         to = n,
@@ -283,6 +339,19 @@ seq_like_r2f <- function(
   context <- context %||% r2f_iterable_context(list(...)$calls)
   if (is.null(context)) {
     context <- "value"
+  }
+
+  if (kind == "seq_len" && context == "for") {
+    if (!size_expr_is_known_nonnegative(len_expr)) {
+      hoist <- list(...)$hoist
+      to <- hoist_unless_name(to, hoist)
+      emit_quickr_error_if(
+        glue("{to} < 0"),
+        "seq_len() bound must be non-negative",
+        hoist,
+        scope
+      )
+    }
   }
 
   check_step_at_runtime <- kind == "seq" &&
@@ -352,11 +421,16 @@ seq_like_r2f <- function(
       glue("{start}:{end}:{step}")
     }
   } else {
-    i <- scope_unique_var(scope, "integer")
+    i <- scope_unique_implied_do_var(
+      scope,
+      integer_kind = "c_ptrdiff_t"
+    )
     fr <- if (omit_step) {
-      glue("[ ({i}, {i} = {start}, {end}) ]")
+      glue("[ (int({i}, kind=c_int), {i} = {start}, {end}) ]")
     } else {
-      glue("[ ({i}, {i} = {start}, {end}, {step}) ]")
+      glue(
+        "[ (int({i}, kind=c_int), {i} = {start}, {end}, {step}) ]"
+      )
     }
   }
 

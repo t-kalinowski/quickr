@@ -56,11 +56,14 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -81,13 +84,17 @@
       & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
+        if (steps < 0) then
+          call quickr_set_error_msg("seq_len() bound must be non-negative")
+          return
+        end if
         do step = 1, steps
           block
             real(c_double), allocatable :: btmp1_(:, :)
       
             allocate(btmp1_(nx, ny))
             call apply_boundary_conditions(temp, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
           block
@@ -95,7 +102,7 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
         end do
@@ -140,6 +147,16 @@
             end do
             res = temp_new
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -150,14 +167,15 @@
       
       
       extern void diffuse_heat(
-        const int* const nx__, 
-        const int* const ny__, 
-        const int* const dx__, 
-        const int* const dy__, 
-        const double* const dt__, 
-        const double* const k__, 
-        const int* const steps__, 
-        double* const temp__);
+        const int* const nx__,
+        const int* const ny__,
+        const int* const dx__,
+        const int* const dy__,
+        const double* const dt__,
+        const double* const k__,
+        const int* const steps__,
+        double* const temp__,
+        char* quickr_err_msg);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -246,7 +264,11 @@
                     (double)steps__len_);
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
-        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
+        if ((double)(_as_int_nx) < 0)
+          Rf_error("return dimensions must be non-negative");
+        if ((double)(_as_int_ny) < 0)
+          Rf_error("return dimensions must be non-negative");
+        const R_xlen_t temp__len_ = ((R_xlen_t)(_as_int_nx)) * ((R_xlen_t)(_as_int_ny));
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
@@ -257,6 +279,10 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         diffuse_heat(
           nx__,
           ny__,
@@ -265,7 +291,11 @@
           dt__,
           k__,
           steps__,
-          temp__);
+          temp__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return temp;
@@ -323,11 +353,14 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -348,14 +381,19 @@
       & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
+        if (steps < 0) then
+          call quickr_set_error_msg("seq_len() bound must be non-negative")
+          return
+        end if
         do step = 1, steps
           call apply_boundary_conditions()
+          if (quickr_err_msg(1) /= c_null_char) return
           block
             real(c_double), allocatable :: btmp1_(:, :)
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
         end do
@@ -396,6 +434,16 @@
             end do
             res = temp_new
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -406,14 +454,15 @@
       
       
       extern void diffuse_heat(
-        const int* const nx__, 
-        const int* const ny__, 
-        const int* const dx__, 
-        const int* const dy__, 
-        const double* const dt__, 
-        const double* const k__, 
-        const int* const steps__, 
-        double* const temp__);
+        const int* const nx__,
+        const int* const ny__,
+        const int* const dx__,
+        const int* const dy__,
+        const double* const dt__,
+        const double* const k__,
+        const int* const steps__,
+        double* const temp__,
+        char* quickr_err_msg);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -502,7 +551,11 @@
                     (double)steps__len_);
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
-        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
+        if ((double)(_as_int_nx) < 0)
+          Rf_error("return dimensions must be non-negative");
+        if ((double)(_as_int_ny) < 0)
+          Rf_error("return dimensions must be non-negative");
+        const R_xlen_t temp__len_ = ((R_xlen_t)(_as_int_nx)) * ((R_xlen_t)(_as_int_ny));
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
@@ -513,6 +566,10 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         diffuse_heat(
           nx__,
           ny__,
@@ -521,7 +578,11 @@
           dt__,
           k__,
           steps__,
-          temp__);
+          temp__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return temp;

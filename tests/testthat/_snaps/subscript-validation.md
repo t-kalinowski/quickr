@@ -22,7 +22,7 @@
         ! args
         real(c_double), intent(in) :: x(x__len_)
         integer(c_int), intent(in) :: n
-        real(c_double), intent(out) :: out_((abs((n - 1)) + 1))
+        real(c_double), intent(out) :: out_(int(((abs((n - 1)) + 1)), kind=c_ptrdiff_t))
         ! manifest end
       
       
@@ -37,9 +37,9 @@
       
       
       extern void fn(
-        const double* const x__, 
-        const int* const n__, 
-        double* const out___, 
+        const double* const x__,
+        const int* const n__,
+        double* const out___,
         const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {

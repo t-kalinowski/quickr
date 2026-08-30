@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   skip_if_no_openmp()
 
@@ -25,6 +23,68 @@ test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   x <- runif(5)
   expect_quick_identical(parallel_for, list(x, 5L))
   expect_quick_identical(parallel_sapply, list(x))
+})
+
+test_that("parallel nested guarded loops report errors without cancellation", {
+  withr::local_envvar(c(
+    OMP_CANCELLATION = "false",
+    OMP_NUM_THREADS = "1",
+    OMP_THREAD_LIMIT = "1",
+    OMP_DYNAMIC = "false"
+  ))
+  skip_if_no_openmp()
+
+  guarded <- function(x) {
+    declare(type(x = double(1)))
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      while (TRUE) {
+        stop("boom")
+      }
+    }
+    x
+  }
+
+  expect_error(quick(guarded)(-1), "boom", fixed = TRUE)
+})
+
+test_that("parallel array constructors privatize implied-do iterators", {
+  skip_if_no_openmp()
+
+  fn <- function(out, n) {
+    declare(type(out = double(n)), type(n = integer(1)))
+    declare(parallel())
+    for (k in seq_len(n)) {
+      out[k] <-
+        sum(c(double(4L), 1)) +
+        sum(array(double(4L), dim = c(2L, 2L)))
+    }
+    out
+  }
+
+  code <- as.character(r2f(fn))
+  expect_match(
+    code,
+    "!$omp parallel do private(tmp1_, tmp2_)",
+    fixed = TRUE
+  )
+  expect_quick_identical(fn, list(double(128), 128L))
+})
+
+test_that("parallel loops execute fill constructors with private indices", {
+  skip_if_no_openmp()
+
+  fn <- function(n) {
+    declare(type(n = integer(1)), type(out = integer(n)))
+    out <- integer(n)
+    declare(parallel())
+    for (i in seq_len(n)) {
+      out[i] <- sum(c(integer(n), i))
+    }
+    out
+  }
+
+  expect_quick_identical(fn, list(256L))
 })
 
 test_that("parallel quick avoids unsupported R CMD config probes", {

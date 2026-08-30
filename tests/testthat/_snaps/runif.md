@@ -11,11 +11,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(n, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(n, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: n
         real(c_double), intent(out) :: out_(n)
@@ -32,7 +35,23 @@
         end interface
       
       
+        if (n < 0) then
+          call quickr_set_error_msg("runif() sample count must be non-negative")
+          return
+        end if
         out_ = [(unif_rand(), tmp1_=1, n)]
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -43,7 +62,10 @@
       #include <R_ext/Random.h>
       
       
-      extern void fn(const int* const n__, double* const out___);
+      extern void fn(
+        const int* const n__,
+        double* const out___,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // n
@@ -63,9 +85,16 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         GetRNGstate();
-        fn(n__, out___);
+        fn(n__, out___, quickr_err_msg);
         PutRNGstate();
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
@@ -84,13 +113,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out_, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_ptrdiff_t
+      subroutine fn(x, out_, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -105,7 +137,29 @@
         end interface
       
       
-        out_ = (x * unif_rand())
+        block
+          real(c_double) :: btmp1_
+      
+          btmp1_ = unif_rand()
+          if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
+          out_ = (x * btmp1_)
+        end block
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -117,9 +171,10 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out___, 
-        const R_xlen_t x__len_);
+        const double* const x__,
+        double* const out___,
+        const R_xlen_t x__len_,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -135,9 +190,20 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         GetRNGstate();
-        fn(x__, out___, x__len_);
+        fn(
+          x__,
+          out___,
+          x__len_,
+          quickr_err_msg);
         PutRNGstate();
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
@@ -156,13 +222,16 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out_, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, out_, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -180,7 +249,30 @@
         end interface
       
       
-        out_ = (x * [(unif_rand(), tmp1_=1, x__len_)])
+        block
+          real(c_double), allocatable :: btmp1_(:)
+      
+          allocate(btmp1_(x__len_))
+          btmp1_ = [(unif_rand(), tmp1_=1, x__len_)]
+          if (size(x, kind=c_ptrdiff_t) == 0 .or. size(x, kind=c_ptrdiff_t) /= size(btmp1_, kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
+          out_ = (x * btmp1_)
+        end block
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -192,9 +284,10 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out___, 
-        const R_xlen_t x__len_);
+        const double* const x__,
+        double* const out___,
+        const R_xlen_t x__len_,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -210,9 +303,20 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         GetRNGstate();
-        fn(x__, out___, x__len_);
+        fn(
+          x__,
+          out___,
+          x__len_,
+          quickr_err_msg);
         PutRNGstate();
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
@@ -235,11 +339,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(n, a, b, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(n, a, b, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: n
         real(c_double), intent(in) :: a
@@ -258,7 +365,23 @@
         end interface
       
       
+        if (n < 0) then
+          call quickr_set_error_msg("runif() sample count must be non-negative")
+          return
+        end if
         out_ = [((a + (unif_rand() * (b - a))), tmp1_=1, n)]
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -270,10 +393,11 @@
       
       
       extern void fn(
-        const int* const n__, 
-        const double* const a__, 
-        const double* const b__, 
-        double* const out___);
+        const int* const n__,
+        const double* const a__,
+        const double* const b__,
+        double* const out___,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // n
@@ -317,13 +441,21 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         GetRNGstate();
         fn(
           n__,
           a__,
           b__,
-          out___);
+          out___,
+          quickr_err_msg);
         PutRNGstate();
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;
@@ -345,11 +477,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(n, b, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(n, b, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: n
         real(c_double), intent(in) :: b
@@ -367,7 +502,23 @@
         end interface
       
       
+        if (n < 0) then
+          call quickr_set_error_msg("runif() sample count must be non-negative")
+          return
+        end if
         out_ = [(unif_rand() * b, tmp1_=1, n)]
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -379,9 +530,10 @@
       
       
       extern void fn(
-        const int* const n__, 
-        const double* const b__, 
-        double* const out___);
+        const int* const n__,
+        const double* const b__,
+        double* const out___,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // n
@@ -413,9 +565,20 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         GetRNGstate();
-        fn(n__, b__, out___);
+        fn(
+          n__,
+          b__,
+          out___,
+          quickr_err_msg);
         PutRNGstate();
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out_;

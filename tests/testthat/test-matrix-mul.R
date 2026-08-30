@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("matrix multiplication matches R for common shapes", {
   mat_mat <- function(mat_A, mat_B) {
     declare(
@@ -286,6 +284,20 @@ test_that("matrix multiplication avoids unsafe in-place aliasing", {
   expect_equal(out, fn(A_orig, B))
 })
 
+test_that("renamed matrix bindings avoid unsafe in-place aliasing", {
+  fn <- function(A, B) {
+    declare(type(A = double(2, 2)), type(B = double(2, 2)))
+    unused <- ifelse(c(TRUE, FALSE), c(1, 2), c(3, 4))
+    btmp1. <- A
+    btmp1. <- btmp1. %*% B
+    btmp1.
+  }
+
+  A <- matrix(c(1, 2, 3, 4), nrow = 2)
+  B <- matrix(c(2, 0, 1, -1), nrow = 2)
+  expect_quick_equal(fn, list(A, B))
+})
+
 test_that("matrix multiplication handles expression inputs without mutating sources", {
   fn <- function(A, B) {
     declare(type(A = double(2, 2)), type(B = double(2, 2)))
@@ -451,6 +463,49 @@ test_that("crossprod and tcrossprod handle vector inputs", {
   expect_quick_equal(tcross_vec_vec, list(x = x, y = y_vec_long))
 })
 
+test_that("tcrossprod uses vector length against matrix columns", {
+  fn <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA, NA)))
+    tcrossprod(x, y)
+  }
+
+  qfn <- quick(fn)
+  x <- as.double(1:3)
+  y <- matrix(as.double(1:6), nrow = 2L)
+  expect_equal(qfn(x, y), fn(x, y))
+  expect_error(
+    qfn(x, matrix(as.double(1:4), nrow = 2L)),
+    "non-conformable arguments in tcrossprod",
+    fixed = TRUE
+  )
+})
+
+test_that("tcrossprod treats right-hand vectors as columns", {
+  static <- function(x, y) {
+    declare(type(x = double(2, 1)), type(y = double(3)))
+    tcrossprod(x, y)
+  }
+  dynamic <- function(x, y) {
+    declare(type(x = double(NA, NA)), type(y = double(NA)))
+    tcrossprod(x, y)
+  }
+
+  code <- as.character(r2f(dynamic))
+  expect_match(code, "size(x, 2, kind=c_ptrdiff_t) /= 1", fixed = TRUE)
+  expect_false(grepl("size(y, 2", code, fixed = TRUE))
+
+  x <- matrix(as.double(1:2), nrow = 2L)
+  y <- as.double(1:3)
+  expect_quick_equal(static, list(x, y))
+
+  qfn <- quick(dynamic)
+  expect_equal(qfn(x, y), dynamic(x, y))
+
+  wide <- matrix(as.double(1:6), nrow = 2L)
+  expect_error(dynamic(wide, y), "non-conformable arguments", fixed = TRUE)
+  expect_error(qfn(wide, y), "non-conformable arguments", fixed = TRUE)
+})
+
 test_that("crossprod rejects incompatible destination dimensions", {
   crossprod_bad_dest <- function(x) {
     declare(type(x = double(4, 3)), type(out = double(2, 2)))
@@ -461,6 +516,25 @@ test_that("crossprod rejects incompatible destination dimensions", {
   expect_error(
     quick(crossprod_bad_dest),
     "assignment target has incompatible dimensions"
+  )
+})
+
+test_that("BLAS output rejects unproven external destination shapes", {
+  # A pre-declared destination whose symbolic dims are not *proven* equal
+  # to the BLAS result shape must not be written directly (that passed the
+  # wrong leading dimensions to dsyrk and could corrupt or overflow the
+  # output). An external (m, m) destination cannot be safely reallocated,
+  # so translation rejects it instead of passing it to dsyrk.
+  fn <- function(x, m) {
+    declare(type(x = double(n, 3)), type(m = integer(1)))
+    out <- matrix(0, m, m)
+    out <- crossprod(x)
+    out
+  }
+  expect_error(
+    quick(fn),
+    "cannot change the shape of an external assignment target",
+    fixed = TRUE
   )
 })
 
@@ -665,6 +739,18 @@ test_that("forwardsolve and backsolve match R", {
     backsolve(L, b, upper.tri = FALSE)
   }
 
+  back_alias_coefficient <- function(A) {
+    declare(type(A = double(4, 4)))
+    A <- backsolve(A, A, transpose = TRUE)
+    A
+  }
+
+  forward_alias_coefficient <- function(A) {
+    declare(type(A = double(4, 4)))
+    A <- forwardsolve(A, A, transpose = TRUE)
+    A
+  }
+
   set.seed(11)
   base <- matrix(rnorm(16), nrow = 4)
   L <- base
@@ -684,4 +770,6 @@ test_that("forwardsolve and backsolve match R", {
   expect_quick_equal(forward_upper, list(U = U, b = b_vec))
   expect_quick_equal(forward_transpose, list(L = L, b = b_vec))
   expect_quick_equal(back_lower, list(L = L, b = b_vec))
+  expect_quick_equal(back_alias_coefficient, list(A = U))
+  expect_quick_equal(forward_alias_coefficient, list(A = L))
 })

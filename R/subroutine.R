@@ -98,7 +98,7 @@ new_fortran_subroutine <- function(
   uses_rng <- scope_uses_rng(scope)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = scope_vars(scope),
-    body_code = body,
+    body_code = str_flatten_lines(manifest, body_code),
     logical_is_c_int = function(var) var@name %in% fsub_arg_names,
     uses_rng = uses_rng,
     include_errors = uses_errors

@@ -37,7 +37,6 @@ names.quickr_ordered_env <- function(x) {
   all_names <- ls(envir = x, sorted = FALSE)
   ordered_names <- attr(x, "ordered_names", TRUE)
   if (!setequal(all_names, ordered_names)) {
-    warning("untracked name")
     stop("untracked name")
   }
   ordered_names
@@ -56,52 +55,6 @@ print.quickr_ordered_env <- function(x, ...) {
 }
 
 
-check_assignment_compatible <- function(target, value) {
-  if (is.null(value)) {
-    return()
-  }
-  stopifnot(exprs = {
-    inherits(target, Variable)
-    inherits(value, Variable)
-    passes_as_scalar(target) ||
-      passes_as_scalar(value) ||
-      target@rank == value@rank
-  })
-}
-
-# Reassignment cannot re-type a Fortran variable the way R promotes an R
-# binding, so a value whose mode sits above the variable's on the lattice
-# (logical < integer < double < complex) would be silently truncated by the
-# assignment. Refuse at compile time instead.
-check_reassignment_narrowing <- function(name, target, value) {
-  if (
-    !inherits(target, Variable) ||
-      !inherits(value, Variable) ||
-      is.null(target@mode) ||
-      is.null(value@mode)
-  ) {
-    return()
-  }
-  target_rank <- mode_rank(target@mode)
-  value_rank <- mode_rank(value@mode)
-  if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
-    return()
-  }
-  stop(
-    "cannot reassign `",
-    name,
-    "`: assignment would narrow ",
-    value@mode,
-    " to ",
-    target@mode,
-    "; R would promote `",
-    name,
-    "` to ",
-    value@mode,
-    call. = FALSE
-  )
-}
-
 new_scope <- function(closure, parent = emptyenv()) {
   scope <- new_ordered_env(parent = parent)
   class(scope) <- unique(c("quickr_scope", class(scope)))
@@ -112,6 +65,34 @@ new_scope <- function(closure, parent = emptyenv()) {
   state$kind <- if (is.null(closure)) "block" else "subroutine"
   state$return_names <- character()
   state$internal_procs <- list()
+  state$block_name_state <- if (
+    is.null(closure) &&
+      inherits(parent, "quickr_scope") &&
+      identical(scope_kind(parent), "block")
+  ) {
+    attr(parent, "state", exact = TRUE)$block_name_state
+  } else {
+    counter <- new.env(parent = emptyenv())
+    counter$i <- 0L
+    counter
+  }
+  state$generated_name_state <- if (
+    is.null(closure) && inherits(parent, "quickr_scope")
+  ) {
+    attr(parent, "state", exact = TRUE)$generated_name_state
+  } else {
+    registry <- new.env(parent = emptyenv())
+    registry$fortran_names <- character()
+    registry
+  }
+
+  register_generated_var <- function(name, ...) {
+    var <- Variable(..., name = name)
+    scope[[name]] <- var
+    registry <- state$generated_name_state
+    registry$fortran_names <- unique(c(registry$fortran_names, name))
+    var
+  }
 
   state$get_unique_var <- local({
     i <- 0L
@@ -123,8 +104,24 @@ new_scope <- function(closure, parent = emptyenv()) {
         subroutine = "tmp",
         "tmp"
       )
-      name <- paste0(prefix, i <<- i + 1L, "_")
-      (scope[[name]] <- Variable(..., name = name))
+      if (identical(prefix, "btmp")) {
+        counter <- state$block_name_state
+        repeat {
+          counter$i <- counter$i + 1L
+          name <- paste0(prefix, counter$i, "_")
+          if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+            break
+          }
+        }
+        return(register_generated_var(name, ...))
+      }
+      repeat {
+        name <- paste0(prefix, i <<- i + 1L, "_")
+        if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+          break
+        }
+      }
+      register_generated_var(name, ...)
     }
   })
 
@@ -148,7 +145,7 @@ new_scope <- function(closure, parent = emptyenv()) {
     name <- as.character(name)
     existing <- get0(name, scope)
     if (inherits(existing, Variable)) {
-      check_assignment_compatible(existing, value)
+      check_assignment_compatible(name, existing, value)
     }
     value@name <- name
     assign(name, value, scope)

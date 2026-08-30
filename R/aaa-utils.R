@@ -167,9 +167,18 @@ quickr_r_cmd_config_probe <- function(name) {
 
 `add<-` <- `+` #function(x, value) x + value
 
-map_int <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = 0L, ...)
-map_lgl <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)
-map_chr <- function(.x, .f, ...) vapply(X = .x, FUN = .f, FUN.VALUE = "", ...)
+map_int <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = 0L, ...)
+}
+map_lgl <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = TRUE, ...)
+}
+map_chr <- function(.x, .f, ...) {
+  .f <- match.fun(.f)
+  vapply(X = .x, FUN = .f, FUN.VALUE = "", ...)
+}
 
 imap <- function(.x, .f, ...) {
   out <- .mapply(.f, list(.x, names(.x) %||% seq_along(.x)), list(...))
@@ -272,16 +281,6 @@ str_flatten_lines <- function(...) {
 
 str_flatten_commas <- function(...) {
   paste0(unlist(c(character(), ...), use.names = FALSE), collapse = ", ")
-}
-
-str_flatten_args <- function(..., multiline = length(dots) >= 3) {
-  dots <- unlist(c(character(), ...), use.names = FALSE)
-  if (multiline) {
-    dots <- paste0("\n  ", dots, collapse = ",")
-    paste(dots, "\n")
-  } else {
-    paste0(dots, collapse = ",")
-  }
 }
 
 interleave <- function(x, y) {

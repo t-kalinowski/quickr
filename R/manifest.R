@@ -39,6 +39,21 @@ logical_as_int <- function(var) {
   identical(var@mode, "logical") && isTRUE(var@logical_as_int)
 }
 
+# A mode with no Fortran translation reached the code generator. Declared
+# modes are validated at declare() time; this is the backstop for values
+# created mid-translation, so it must still read as a user-facing message,
+# not an internal object dump.
+stop_unsupported_mode <- function(var) {
+  name <- var@r_name %||% var@name
+  stop(
+    if (is.null(name)) "" else paste0("variable `", name, "`: "),
+    "mode '",
+    var@mode %||% "?",
+    "' is not supported by quickr",
+    call. = FALSE
+  )
+}
+
 block_tmp_allocatable_threshold <- 16L
 
 subroutine_local_allocatable_threshold_bytes <- 256L * 1024L
@@ -73,7 +88,11 @@ var_storage_bytes <- function(var) {
   switch(
     var@mode,
     double = 8,
-    integer = 4,
+    integer = if (identical(var@integer_kind, "c_ptrdiff_t")) {
+      .Machine$sizeof.pointer
+    } else {
+      4
+    },
     complex = 16,
     logical = 4,
     raw = 1,
@@ -94,21 +113,7 @@ subroutine_local_allocatable <- function(
   # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
   # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
   # explicit allocation, so treat these as implicitly-sized locals.
-  self_size_names <- vapply(
-    seq_along(var@dims),
-    function(i) get_size_name(var, axis = as.integer(i)),
-    character(1)
-  )
-  if (
-    any(vapply(
-      seq_along(var@dims),
-      function(i) {
-        d <- var@dims[[i]]
-        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
-      },
-      logical(1)
-    ))
-  ) {
+  if (has_self_size_dims(var)) {
     return(FALSE)
   }
 
@@ -196,11 +201,11 @@ iso_c_binding_symbols <- function(
         switch(
           var@mode,
           double = "c_double",
-          integer = "c_int",
+          integer = var@integer_kind,
           complex = "c_double_complex",
           logical = if (isTRUE(logical_is_c_int(var))) "c_int",
           raw = "c_int8_t",
-          stop("unrecognized kind: ", format(var))
+          stop_unsupported_mode(var)
         ),
         lapply(var@dims, function(size) {
           syms <- all.vars(size)
@@ -262,11 +267,11 @@ emit_decl_line <- function(
   type <- switch(
     var@mode,
     double = "real(c_double)",
-    integer = "integer(c_int)",
+    integer = glue("integer({var@integer_kind})"),
     complex = "complex(c_double_complex)",
     logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
     raw = "integer(c_int8_t)",
-    stop("unrecognized kind: ", format(var))
+    stop_unsupported_mode(var)
   )
 
   # Block-scoped temporaries are explicitly marked allocatable so we can
@@ -348,6 +353,11 @@ emit_block <- function(decls, stmts) {
 r2f.scope <- function(scope, include_errors = FALSE) {
   return_var_names <- unname(scope_return_var_names(scope))
   vars <- scope_vars(scope)
+  point_allocated_local_names <- tolower(scope_get(
+    scope,
+    "point_allocated_local_names",
+    character()
+  ))
 
   local_allocs <- character()
   vars <- lapply(vars, function(var) {
@@ -371,11 +381,11 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     type <- switch(
       var@mode,
       double = "real(c_double)",
-      integer = "integer(c_int)",
+      integer = glue("integer({var@integer_kind})"),
       complex = "complex(c_double_complex)",
       logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
       raw = "integer(c_int8_t)",
-      stop("unrecognized kind: ", format(var))
+      stop_unsupported_mode(var)
     )
 
     dims <- if (passes_as_scalar(var)) {
@@ -386,19 +396,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
 
     # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
     # are emitted as deferred-shape allocatables and rely on implicit allocation.
-    if (
-      is.null(intent) &&
-        !is.null(dims) &&
-        any(vapply(
-          seq_along(var@dims),
-          function(i) {
-            d <- var@dims[[i]]
-            is.symbol(d) &&
-              identical(as.character(d), get_size_name(var, axis = i))
-          },
-          logical(1)
-        ))
-    ) {
+    if (is.null(intent) && !is.null(dims) && has_self_size_dims(var)) {
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
     }
 
@@ -406,10 +404,12 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     if (isTRUE(heap_local)) {
       # Deferred-shape allocatable avoids large stack allocations (notably flang).
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
-      local_allocs <<- c(
-        local_allocs,
-        glue("allocate({var@name}({dims2f(var@dims, scope)}))")
-      )
+      if (!tolower(var@name) %in% point_allocated_local_names) {
+        local_allocs <<- c(
+          local_allocs,
+          glue("allocate({var@name}({dims2f(var@dims, scope)}))")
+        )
+      }
     }
 
     allocatable <- if (isTRUE(heap_local)) {
@@ -514,17 +514,39 @@ dims2f_eval_base_env[["("]] <- baseenv()[["("]]
 dims2f_eval_base_env[["+"]] <- function(e1, e2) glue("({e1} + {e2})")
 dims2f_eval_base_env[["-"]] <- function(e1, e2) glue("({e1} - {e2})")
 dims2f_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
-dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("real({e1}) / real({e2})")
-# dividing integers truncates towards 0
-dims2f_eval_base_env[["%/%"]] <- function(e1, e2) glue("int({e1}) / int({e2})")
-dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
-  glue("mod(int({e1}), int({e2}))")
+dims2f_eval_base_env[["/"]] <- function(e1, e2) {
+  glue("real({e1}, kind=c_double) / real({e2}, kind=c_double)")
 }
-dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
+dims2f_eval_base_env[["%/%"]] <- function(e1, e2) {
+  quotient <- glue(
+    "(real({e1}, kind=c_double) / real({e2}, kind=c_double))"
+  )
+  real_floor_expr(quotient)
+}
+dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
+  glue(
+    "modulo(real({e1}, kind=c_double), real({e2}, kind=c_double))"
+  )
+}
+dims2f_eval_base_env[["^"]] <- function(e1, e2) {
+  if (!grepl("^[A-Za-z][A-Za-z0-9_]*$|^-?[0-9]+(_c_int)?$", e2)) {
+    e2 <- glue("int(({e2}), kind=c_ptrdiff_t)")
+  }
+  glue("(real({e1}, kind=c_double))**({e2})")
+}
 dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
+# Fortran INT() truncates toward zero, like as.integer() in R.
+dims2f_eval_base_env[["as.integer"]] <- function(x) {
+  glue("int({x}, kind=c_ptrdiff_t)")
+}
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
-  safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
-  glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")
+  from <- glue("int({from}, kind=c_ptrdiff_t)")
+  to <- glue("int({to}, kind=c_ptrdiff_t)")
+  by <- glue("int({by}, kind=c_ptrdiff_t)")
+  safe_by <- glue(
+    "merge({by}, 1_c_ptrdiff_t, {by} /= 0_c_ptrdiff_t)"
+  )
+  glue("(abs(({to} - {from}) / {safe_by}) + 1_c_ptrdiff_t)")
 }
 dims2f_eval_base_env[["length"]] <- function(x) {
   if (is.symbol(x)) {
@@ -558,17 +580,121 @@ dims2f_eval_base_env[["["]] <- function(x, i) {
     glue("size({x}, {as.integer(i)})")
   }
 }
+# Fortran min()/max() require operands of one type and kind. Normalize their
+# operands to c_double, then apply the single final extent cast in dims2f().
 dims2f_eval_base_env[["min"]] <- function(...) {
   args <- list(...)
+  if (!length(args)) {
+    stop("min() size expressions require at least one argument", call. = FALSE)
+  }
+  args <- map_chr(
+    args,
+    \(arg) glue("real({arg}, kind=c_double)")
+  )
+  if (length(args) == 1L) {
+    return(args[[1L]])
+  }
   glue("min({str_flatten_commas(args)})")
 }
 dims2f_eval_base_env[["max"]] <- function(...) {
   args <- list(...)
+  if (!length(args)) {
+    stop("max() size expressions require at least one argument", call. = FALSE)
+  }
+  args <- map_chr(
+    args,
+    \(arg) glue("real({arg}, kind=c_double)")
+  )
+  if (length(args) == 1L) {
+    return(args[[1L]])
+  }
   glue("max({str_flatten_commas(args)})")
 }
 
+dims2f_needs_final_size_cast <- function(e) {
+  if (!is.call(e)) {
+    return(FALSE)
+  }
+  if (
+    as.character(e[[1L]]) %in%
+      c("/", "%/%", "%%", "^", "abs", "as.integer", "min", "max")
+  ) {
+    return(TRUE)
+  }
+  any(vapply(as.list(e)[-1L], dims2f_needs_final_size_cast, logical(1)))
+}
 
-dims2f <- function(dims, scope) {
+size_expr_needs_r_integer_guard <- function(e, scope) {
+  e <- unwrap_parens(e)
+  if (is.atomic(e) || is_size_name(e)) {
+    return(FALSE)
+  }
+  if (is.symbol(e)) {
+    var <- get0(as.character(e), scope)
+    if (!inherits(var, Variable)) {
+      var <- scope_var_by_fortran_name(scope, as.character(e))
+    }
+    return(inherits(var, Variable) && identical(var@mode, "double"))
+  }
+  if (!is.call(e) || !is.symbol(e[[1L]])) {
+    return(FALSE)
+  }
+  op <- as.character(e[[1L]])
+  args <- as.list(e)[-1L]
+  if (op %in% c("length", "nrow", "ncol", "quickr_seq_length")) {
+    return(FALSE)
+  }
+  if (
+    identical(op, "[") &&
+      length(args) == 2L &&
+      is_call(args[[1L]], quote(dim))
+  ) {
+    return(FALSE)
+  }
+  if (op %in% c("/", "%/%", "%%", "^")) {
+    return(TRUE)
+  }
+  if (op %in% c("abs", "as.integer", "min", "max")) {
+    return(any(vapply(
+      args,
+      size_expr_needs_r_integer_guard,
+      logical(1L),
+      scope = scope
+    )))
+  }
+  any(vapply(
+    args,
+    size_expr_needs_r_integer_guard,
+    logical(1L),
+    scope = scope
+  ))
+}
+
+size_expr_integer_conversion_inputs <- function(e) {
+  e <- unwrap_parens(e)
+  if (!is.call(e)) {
+    return(list())
+  }
+  args <- as.list(e)[-1L]
+  nested <- unlist(
+    lapply(args, size_expr_integer_conversion_inputs),
+    recursive = FALSE
+  )
+  if (is_call(e, quote(as.integer)) && length(args) == 1L) {
+    c(nested, list(args[[1L]]))
+  } else {
+    nested
+  }
+}
+
+
+dims2f <- function(
+  dims,
+  scope,
+  collapse = TRUE,
+  final_size_cast = TRUE
+) {
+  stopifnot(is_bool(collapse), is_bool(final_size_cast))
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
   vars <- lapply(syms, function(sym) {
     scope_fortran_symbol(as.symbol(sym), scope)
@@ -576,15 +702,16 @@ dims2f <- function(dims, scope) {
   names(vars) <- syms
   eval_env <- list2env(vars, parent = dims2f_eval_base_env)
   dims <- map_chr(dims, function(d) {
+    original <- d
     d <- eval(d, eval_env)
     if (is.symbol(d)) {
-      as.character(d)
+      d <- as.character(d)
     } else if (is_wholenumber(d)) {
-      as.character(d)
+      d <- as.character(d)
     } else if (is_scalar_na(d)) {
-      ":"
+      return(":")
     } else if (is_string(d)) {
-      d
+      d <- d
     } else if (inherits(d, Variable)) {
       # a locally allocated var that is a return var
       if (!d@modified && d@is_arg) {
@@ -592,7 +719,18 @@ dims2f <- function(dims, scope) {
       }
       stop("unexpected axis size value")
     }
+    if (
+      final_size_cast &&
+        (size_expr_needs_r_integer_guard(original, scope) ||
+          dims2f_needs_final_size_cast(original))
+    ) {
+      d <- glue("int(({d}), kind=c_ptrdiff_t)")
+    }
+    d
   })
+  if (!collapse) {
+    return(dims)
+  }
   if (!length(dims) || identical(dims, "1")) {
     ""
   } else {

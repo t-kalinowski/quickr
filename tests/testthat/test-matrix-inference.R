@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("matrix ops infer destination sizes for assignments", {
   matmul_infer <- function(A, B) {
     declare(type(A = double(2, 3)), type(B = double(3, 2)))
@@ -137,26 +135,23 @@ test_that("matrix ops infer destination sizes for assignments", {
   expect_quick_equal(chol2inv_infer, list(A = A_pd))
 })
 
-test_that("crossprod requires conformability at compile time", {
-  fn <- function(x, y, n, p, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(p = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(x = double(n, m)),
-      type(y = double(p, k))
-    )
-    crossprod(x, y)
+test_that("crossprod inference defers expression operands to lowering", {
+  cross_expr <- function(x, y) {
+    declare(type(x = double(3)), type(y = double(6)))
+    out <- crossprod(x, matrix(y, 3, 2))
+    out
+  }
+  tcross_expr <- function(x, y) {
+    declare(type(x = double(3)), type(y = double(6)))
+    out <- tcrossprod(x, matrix(y, 2, 3))
+    out
   }
 
-  expect_error(
-    quick(fn),
-    "cannot verify conformability in crossprod",
-    fixed = TRUE
-  )
+  x <- c(1, 2, 3)
+  y <- as.double(1:6)
+  expect_quick_equal(cross_expr, list(x, y))
+  expect_quick_equal(tcross_expr, list(x, y))
 })
-
 test_that("matrix helpers report unsupported inputs", {
   matmul_bad_rank <- function(a, b) {
     declare(type(a = double(2, 2, 2)), type(b = double(2, 2)))
@@ -210,22 +205,4 @@ test_that("matrix helpers report unsupported inputs", {
   expect_error(quick(back_bad_upper), "only supports literal upper\\.tri")
   expect_error(quick(back_bad_A), "triangular solve expects a matrix")
   expect_error(quick(back_bad_B), "triangular solve only supports vector")
-})
-
-test_that("matrix conformability warnings are surfaced", {
-  matmul_warn <- function(A, B, n, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(A = double(n, m)),
-      type(B = double(k, n))
-    )
-    A %*% B
-  }
-
-  expect_warning(
-    quick(matmul_warn),
-    "cannot verify conformability in %\\*%"
-  )
 })

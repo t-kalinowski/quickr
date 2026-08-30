@@ -42,12 +42,12 @@ test_that("declare() size expressions support dim(x)[axis] indices", {
 test_that("declare() size expressions validate nrow()/ncol() arity", {
   bad_nrow <- function(x) {
     declare(type(x = double(NA, NA)), type(out = double(nrow(x, 1L))))
-    out <- double(1L)
+    out <- double(nrow(x, 1L))
     out
   }
   bad_ncol <- function(x) {
     declare(type(x = double(NA, NA)), type(out = double(ncol(x, 1L))))
-    out <- double(1L)
+    out <- double(ncol(x, 1L))
     out
   }
 
@@ -68,7 +68,7 @@ test_that("declare() size expressions reject ncol() beyond variable rank", {
 test_that("declare() size expressions reject unsupported calls", {
   bad <- function(n) {
     declare(type(n = integer(1)), type(out = double(sum(n))))
-    out <- double(1L)
+    out <- double(sum(n))
     out
   }
 

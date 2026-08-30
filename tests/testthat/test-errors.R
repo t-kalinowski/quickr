@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("case-sensitive variable name clashes", {
   expect_snapshot(
     quick(function(j) {
@@ -36,6 +34,61 @@ test_that("non-final expressions must be assigned", {
       x
     })
   })
+})
+
+test_that("guarded OpenMP iterations stop when cancellation is disabled", {
+  withr::local_envvar(c(
+    OMP_CANCELLATION = "false",
+    OMP_NUM_THREADS = "1",
+    OMP_THREAD_LIMIT = "1",
+    OMP_DYNAMIC = "false"
+  ))
+  skip_if_no_openmp()
+
+  guarded <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    out <- 0
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      out <- sum(x + y)
+      out <- out + 1
+    }
+    out
+  }
+
+  code <- as.character(r2f(guarded))
+  guard <- regexpr("elementwise vector operations", code, fixed = TRUE)
+  cycle <- regexpr("cycle", code, fixed = TRUE)
+  later_statement <- regexpr(
+    "out = (out + 1.0_c_double)",
+    code,
+    fixed = TRUE
+  )
+  expect_true(all(c(guard, cycle, later_statement) > 0L))
+  expect_lt(guard, cycle)
+  expect_lt(cycle, later_statement)
+
+  qguarded <- quick(guarded)
+  expect_error(
+    qguarded(c(1, 2), c(1, 2, 3)),
+    "elementwise vector operations"
+  )
+})
+
+test_that("nested guarded loops cycle the OpenMP worksharing loop", {
+  guarded <- function(x) {
+    declare(type(x = double(1)))
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      while (TRUE) {
+        stop("boom")
+      }
+    }
+    x
+  }
+
+  code <- as.character(r2f(guarded))
+  expect_match(code, "cycle quickr_omp_loop", fixed = TRUE)
 })
 
 test_that("value-returning local closures can be called as statements", {
@@ -159,13 +212,36 @@ test_that("declare() type() calls validate syntax", {
     fixed = TRUE
   )
 
-  bad_mode <- function(x) {
+  # A bare atomic mode symbol is a form error (dims are missing), not a
+  # mode error; the old check fired "only atomic modes are supported"
+  # precisely when the mode *was* atomic.
+  missing_dims <- function(x) {
     declare(type(x = double))
     x
   }
   expect_error(
-    quick(bad_mode),
-    "only atomic modes are supported",
+    quick(missing_dims),
+    "the mode must be a call with dimensions, as in: type(x = double(<dims>))",
+    fixed = TRUE
+  )
+
+  bad_mode_call <- function(x) {
+    declare(type(x = foo(1)))
+    x
+  }
+  expect_error(
+    quick(bad_mode_call),
+    "only atomic modes are supported, not: foo",
+    fixed = TRUE
+  )
+
+  bad_mode_symbol <- function(x) {
+    declare(type(x = foo))
+    x
+  }
+  expect_error(
+    quick(bad_mode_symbol),
+    "only atomic modes are supported, not: foo",
     fixed = TRUE
   )
 })

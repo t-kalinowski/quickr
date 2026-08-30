@@ -1,7 +1,5 @@
 # Public API tests for drop()
 
-skip_on_cran()
-
 test_that("drop() translation snapshots", {
   drop_row <- function(A) {
     declare(type(A = double(1L, 3L)))
@@ -77,6 +75,31 @@ test_that("drop() matches base R for singleton matrices", {
   expect_quick_identical(drop_row_n, list(matrix(runif(4), nrow = 1L), 4L))
   expect_quick_identical(drop_col_n, list(matrix(runif(6), ncol = 1L), 6L))
   expect_quick_identical(drop_none, list(matrix(runif(6), nrow = 3L)))
+})
+
+test_that("drop() rejects runtime-dependent singleton axes", {
+  unresolved <- function(A) {
+    declare(type(A = double(NA, NA)))
+    drop(A)
+  }
+  qunresolved <- quick(unresolved)
+  A <- matrix(as.double(1:6), 2, 3)
+  expect_identical(qunresolved(A), unresolved(A))
+  expect_error(
+    qunresolved(matrix(as.double(1:3), 1, 3)),
+    "singleton dimensions to be known"
+  )
+
+  known_row <- function(A) {
+    declare(type(A = double(1, NA)))
+    drop(A)
+  }
+  qknown_row <- quick(known_row)
+  expect_identical(
+    qknown_row(matrix(as.double(1:3), 1, 3)),
+    known_row(matrix(as.double(1:3), 1, 3))
+  )
+  expect_error(qknown_row(matrix(1, 1, 1)), "singleton dimensions to be known")
 })
 
 test_that("drop() errors for rank > 2 inputs", {

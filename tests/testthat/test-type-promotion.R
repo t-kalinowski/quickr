@@ -237,6 +237,20 @@ test_that("reassignment that would narrow the mode is a compile error", {
   expect_quick_equal(fn_ok, list(1.5))
 })
 
+test_that("whole-variable reassignment rejects lower replacement modes", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    x <- 1L
+    x
+  }
+
+  expect_error(
+    quick(fn),
+    "replacement mode integer differs from the declared mode double",
+    fixed = TRUE
+  )
+})
+
 test_that("subassignment that would narrow the mode is a compile error", {
   # R promotes the whole vector to double; the emitted element assignment
   # used to silently truncate (quickr returned c(2L, 2L, 3L))

@@ -264,3 +264,21 @@ test_that("expression indexing with logical mask avoids extra materialization", 
   a <- 0.5
   expect_quick_identical(fn, list(x, y, z, a))
 })
+
+test_that("logical masks require the source dimensions", {
+  fn <- function(x, mask) {
+    declare(type(x = double(NA)), type(mask = logical(NA)))
+    sum(x[mask])
+  }
+
+  qfn <- quick(fn)
+  x <- as.double(1:4)
+  expect_identical(
+    qfn(x, c(TRUE, FALSE, TRUE, FALSE)),
+    sum(x[c(TRUE, FALSE, TRUE, FALSE)])
+  )
+  expect_error(
+    qfn(x, c(TRUE, FALSE)),
+    "logical subscript dimensions must match source dimensions"
+  )
+})
