@@ -39,8 +39,15 @@ assignment_extract_fallthrough <- function(rhs) {
 assignment_fortran_name <- function(name, scope) {
   stopifnot(is_string(name))
   base <- fortranize_name(name)
-  if (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) {
-    make_shadow_fortran_name(scope, base)
+  used <- unique(c(
+    scope_fortran_names(scope),
+    scope_generated_fortran_names(scope)
+  ))
+  if (
+    (scope_is_closure(scope) && inherits(get0(name, scope), Variable)) ||
+      tolower(base) %in% tolower(used)
+  ) {
+    make_shadow_fortran_name(scope, base, used = used)
   } else {
     base
   }
@@ -100,11 +107,19 @@ register_r2f_handler(
 
     # Local closure definition: `f <- function(i) ...`
     if (is_function_call(rhs)) {
-      scope[[name]] <- as_local_closure(
+      closure <- as_local_closure(
         rhs,
         environment(scope_closure(scope)),
         name = name
       )
+      # Nested R scopes share the root Fortran CONTAINS section. Give their
+      # procedures distinct names even when the R bindings shadow each other.
+      closure@proc_name <- if (scope_is_closure(scope)) {
+        scope_unique_proc(scope_root(scope), prefix = "nested_closure")
+      } else {
+        name
+      }
+      scope[[name]] <- closure
       return(Fortran(""))
     }
 
@@ -165,7 +180,16 @@ register_r2f_handler(
       }
     } else if (inherits(inferred_var, Variable)) {
       var <- inferred_var
+      var@r_name <- name
       var@name <- fortran_name
+      return_names <- scope_get(scope, "return_names", character()) %||%
+        character()
+      if (name %in% return_names) {
+        var@is_return <- TRUE
+        if (identical(var@mode, "logical")) {
+          var@logical_as_int <- TRUE
+        }
+      }
       value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
     } else {
       value <- r2f(rhs, scope, ..., hoist = hoist)
@@ -185,7 +209,11 @@ register_r2f_handler(
       }
       if (!inherits(var, Variable)) {
         src <- value@value
-        var <- Variable(mode = src@mode, dims = src@dims)
+        var <- Variable(
+          mode = src@mode,
+          dims = src@dims,
+          c_bridge_dim_checks = src@c_bridge_dim_checks
+        )
       }
       if (
         inherits(value, Fortran) &&
@@ -209,6 +237,7 @@ register_r2f_handler(
         error = function(e) NULL
       )
       scope[[name]] <- var
+      register_openmp_private(scope, var@name)
     } else {
       # The var already exists, this assignment is a modification / reassignment
       if (is.null(var@r_name)) {
@@ -230,6 +259,17 @@ register_r2f_handler(
       # address, or by attaching a unique id to each var, or ???)
       assign(name, var, scope)
     }
+
+    initialized_local_names <- scope_get(
+      scope,
+      "initialized_local_names",
+      character()
+    )
+    scope_set(
+      scope,
+      "initialized_local_names",
+      unique(c(initialized_local_names, var@name))
+    )
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
@@ -380,3 +420,195 @@ register_r2f_handler(
 )
 
 register_r2f_handler("=", r2f_handlers[["<-"]])
+
+# A Fortran declaration does not establish an R binding. Check source-level
+# control flow before accepting reads of locals, including the final return.
+check_definite_assignment <- function(closure, scope, captured = character()) {
+  locals <- character()
+  # Closure bindings are static and unique within this lexical scope, so build
+  # their registry once before walking control flow.
+  # Fortran host association makes captures readable regardless of the R
+  # control flow that created them, so check them wherever a closure is reached.
+  closures <- list()
+  collect <- function(expr) {
+    if (is_missing(expr) || !is.call(expr) || is_function_call(expr)) {
+      return(invisible(NULL))
+    }
+    if (
+      (is_call(expr, "<-") || is_call(expr, "=")) &&
+        length(expr) == 3L &&
+        is.symbol(expr[[2L]])
+    ) {
+      name <- as.character(expr[[2L]])
+      locals <<- union(locals, name)
+      if (is_function_call(expr[[3L]])) {
+        closures[[name]] <<- list(
+          definition = expr[[3L]],
+          captures = closure_free_names(expr[[3L]])
+        )
+      }
+    }
+    if (is_call(expr, "for") && length(expr) == 4L) {
+      locals <<- union(locals, as.character(expr[[2L]]))
+    }
+    if (!is_call(expr, "declare")) {
+      lapply(as.list(expr)[-1L], collect)
+    }
+    invisible(NULL)
+  }
+  collect(body(closure))
+
+  # NULL denotes a path that cannot reach the following statement.
+  join <- function(left, right) {
+    if (is.null(left)) {
+      return(right)
+    }
+    if (is.null(right)) {
+      return(left)
+    }
+    intersect(left, right)
+  }
+  require_assigned <- function(name, assigned) {
+    if (name %in% locals && !name %in% assigned) {
+      stop(
+        "local variable `",
+        name,
+        "` may be uninitialized; assign it before use on every path",
+        call. = FALSE
+      )
+    }
+    invisible(NULL)
+  }
+  read <- function(
+    name,
+    assigned,
+    seen = character(),
+    captures = closures[[name]]$captures %||% character()
+  ) {
+    require_assigned(name, assigned)
+    # Follow closure dependencies at this use point, checking each cycle only
+    # once while still visiting its remaining captures.
+    if (name %in% seen) {
+      return(invisible(NULL))
+    }
+    for (capture in captures) {
+      read(capture, assigned, union(seen, name))
+    }
+    invisible(NULL)
+  }
+  walk <- function(expr, assigned) {
+    if (is.null(assigned) || is_missing(expr)) {
+      return(assigned)
+    }
+    if (is.symbol(expr)) {
+      read(as.character(expr), assigned)
+      return(assigned)
+    }
+    if (!is.call(expr)) {
+      return(assigned)
+    }
+    if (is_function_call(expr)) {
+      # An anonymous closure is reached where it appears, e.g. as a sapply()
+      # argument, so its captures must be initialized by that point.
+      for (capture in closure_free_names(expr)) {
+        read(capture, assigned)
+      }
+      return(assigned)
+    }
+    if (is_call(expr, "declare")) {
+      return(assigned)
+    }
+    if ((is_call(expr, "<-") || is_call(expr, "=")) && length(expr) == 3L) {
+      if (is.symbol(expr[[2L]]) && is_function_call(expr[[3L]])) {
+        # Defining a closure establishes its binding but reads no captures yet.
+        return(union(assigned, as.character(expr[[2L]])))
+      }
+      assigned <- walk(expr[[3L]], assigned)
+      if (is.null(assigned)) {
+        return(NULL)
+      }
+      if (is.symbol(expr[[2L]])) {
+        return(union(assigned, as.character(expr[[2L]])))
+      }
+      return(walk(expr[[2L]], assigned))
+    }
+    if (is_call(expr, "if") && length(expr) %in% c(3L, 4L)) {
+      assigned <- walk(expr[[2L]], assigned)
+      yes <- walk(expr[[3L]], assigned)
+      no <- if (length(expr) == 4L) walk(expr[[4L]], assigned) else assigned
+      return(join(yes, no))
+    }
+    if (is_call(expr, "for") && length(expr) == 4L) {
+      assigned <- walk(expr[[3L]], assigned)
+      iterator <- as.character(expr[[2L]])
+      after <- walk(expr[[4L]], union(assigned, iterator))
+      iterable <- unwrap_parens(expr[[3L]])
+      nonempty <- is_call(iterable, "seq_len") &&
+        length(iterable) == 2L &&
+        is_scalar_integerish(iterable[[2L]]) &&
+        iterable[[2L]] > 0L
+      if (is.symbol(iterable)) {
+        var <- get0(as.character(iterable), scope)
+        nonempty <- inherits(var, Variable) &&
+          all(vapply(var@dims, is_scalar_integerish, logical(1L))) &&
+          all(unlist(var@dims) > 0L)
+        if (nonempty) assigned <- union(assigned, iterator)
+      }
+      if (nonempty && !any(all.names(expr[[4L]]) %in% c("break", "next"))) {
+        return(union(assigned, setdiff(after, iterator)))
+      }
+      # The iterable may be empty; neither its variable nor body assignments
+      # establish bindings after the loop.
+      return(assigned)
+    }
+    if (is_call(expr, "while") && length(expr) == 3L) {
+      assigned <- walk(expr[[2L]], assigned)
+      walk(expr[[3L]], assigned)
+      return(assigned)
+    }
+    if (is_call(expr, "repeat") && length(expr) == 2L) {
+      walk(expr[[2L]], assigned)
+      # Conservatively require initialization before loops, including repeat:
+      # an earlier break/next can bypass an assignment in the body.
+      return(assigned)
+    }
+    if (is_call(expr, "break") || is_call(expr, "next")) {
+      return(NULL)
+    }
+    if ((is_call(expr, "&&") || is_call(expr, "||")) && length(expr) == 3L) {
+      assigned <- walk(expr[[2L]], assigned)
+      return(join(assigned, walk(expr[[3L]], assigned)))
+    }
+    # The callee may be parenthesized, as `maybe_lower_local_closure_call()`
+    # also allows, and is not visited by the argument walk below.
+    callee <- unwrap_parens(expr[[1L]])
+    if (is.symbol(callee)) {
+      name <- as.character(callee)
+      definition <- closures[[name]]$definition
+      if (is.null(definition)) {
+        read(name, assigned)
+      } else {
+        read(
+          name,
+          assigned,
+          captures = closure_call_free_names(definition, expr)
+        )
+      }
+    } else if (is_function_call(callee)) {
+      for (capture in closure_call_free_names(callee, expr)) {
+        read(capture, assigned)
+      }
+    } else {
+      assigned <- walk(callee, assigned)
+      if (is.null(assigned)) {
+        return(NULL)
+      }
+    }
+    for (arg in as.list(expr)[-1L]) {
+      assigned <- walk(arg, assigned)
+    }
+    assigned
+  }
+  walk(body(closure), union(names(formals(closure)), captured))
+  invisible(NULL)
+}

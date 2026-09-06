@@ -24,14 +24,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, weights, normalize, out, weights__len_, x__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine fn(x, weights, normalize, out, weights__len_, x__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
         integer(c_ptrdiff_t), intent(in), value :: weights__len_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -45,14 +48,46 @@
         ! manifest end
       
       
-        out = 0
+        if (((x__len_ - weights__len_) + 1) < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        out = 0.0_c_double
         n = size(weights)
         if ((normalize/=0)) then
+          if (size(weights, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
+          if (size((weights / sum(weights)), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)
+      if (size(x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) == 0 .or. size(x(i:(((i + n) -&
+      & 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) /= size(weights, kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+            return
+          end if
           out(i) = (sum((x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)) * weights)) / real(size(weights), kind=c_double))
         end do
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -62,13 +97,38 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void fn(
-        const double* const x__, 
-        double* const weights__, 
-        const int* const normalize__, 
-        double* const out__, 
-        const R_xlen_t weights__len_, 
-        const R_xlen_t x__len_);
+        const double* const x__,
+        double* const weights__,
+        const int* const normalize__,
+        double* const out__,
+        const R_xlen_t weights__len_,
+        const R_xlen_t x__len_,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -103,9 +163,13 @@
         if (normalize__len_ != 1)
           Rf_error("length(normalize) must be 1, not %0.f",
                     (double)normalize__len_);
-        const R_xlen_t out__len_ = ((x__len_ - weights__len_) + 1);
+        const R_xlen_t out__len_ = quickr_return_length((const double[]){((x__len_ - weights__len_) + 1)}, 1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
+        
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
         
         fn(
           x__,
@@ -113,7 +177,11 @@
           normalize__,
           out__,
           weights__len_,
-          x__len_);
+          x__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;

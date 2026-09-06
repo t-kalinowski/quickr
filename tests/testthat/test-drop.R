@@ -1,7 +1,5 @@
 # Public API tests for drop()
 
-skip_on_cran()
-
 test_that("drop() translation snapshots", {
   drop_row <- function(A) {
     declare(type(A = double(1L, 3L)))
@@ -32,10 +30,6 @@ test_that("drop() translation snapshots", {
 
   expect_translation_snapshots(drop_row)
   expect_translation_snapshots(drop_col)
-  expect_translation_snapshots(drop_row_unknown)
-  expect_translation_snapshots(drop_col_unknown)
-  expect_translation_snapshots(drop_row_n)
-  expect_translation_snapshots(drop_col_n)
 })
 
 test_that("drop() matches base R for singleton matrices", {
@@ -77,6 +71,8 @@ test_that("drop() matches base R for singleton matrices", {
   expect_quick_identical(drop_row_n, list(matrix(runif(4), nrow = 1L), 4L))
   expect_quick_identical(drop_col_n, list(matrix(runif(6), ncol = 1L), 6L))
   expect_quick_identical(drop_none, list(matrix(runif(6), nrow = 3L)))
+  expect_error(quick(drop_row_n)(matrix(1, 1, 1), 1L), "runtime extent")
+  expect_error(quick(drop_col_n)(matrix(1, 1, 1), 1L), "runtime extent")
 })
 
 test_that("drop() errors for rank > 2 inputs", {

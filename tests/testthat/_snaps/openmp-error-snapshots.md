@@ -44,6 +44,7 @@
           if ((x < 0.0_c_double)) then
             call quickr_set_error_msg("x must be nonnegative")
             !$omp cancel do
+            cycle
           end if
         end do
         !$omp end parallel do
@@ -73,8 +74,8 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out___, 
+        const double* const x__,
+        double* const out___,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
@@ -160,11 +161,13 @@
             if ((x < 0.0_c_double)) then
               call quickr_set_error_msg("x must be nonnegative")
               !$omp cancel do
+              cycle
             end if
           end do
           !$omp end parallel do
           if (quickr_err_msg(1) /= c_null_char) then
             !$omp cancel do
+            cycle
           end if
         end do
         !$omp end parallel do
@@ -194,8 +197,8 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out___, 
+        const double* const x__,
+        double* const out___,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {

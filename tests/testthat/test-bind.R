@@ -1,7 +1,5 @@
 # Unit tests for cbind() and rbind()
 
-skip_on_cran()
-
 expect_bind_equal <- function(fn, ...) {
   qfn := quick(fn)
   args_list <- rlang::list2(...)
@@ -27,6 +25,7 @@ test_that("cbind binds vectors and matrices with scalar recycling", {
   y <- runif(4)
   s <- 2.5
   expect_bind_equal(cbind_vec, list(x, y, s))
+  expect_error(quick(cbind_vec)(double(), double(), s), "empty inputs")
 
   cbind_mat <- function(A, v) {
     declare(type(A = double(n, m)), type(v = double(n)))
@@ -58,6 +57,7 @@ test_that("rbind binds vectors and matrices with scalar recycling", {
   y <- runif(5)
   s <- -1.25
   expect_bind_equal(rbind_vec, list(x, y, s))
+  expect_error(quick(rbind_vec)(double(), double(), s), "empty inputs")
 
   rbind_mat <- function(A, v) {
     declare(type(A = double(n, m)), type(v = double(m)))
@@ -104,7 +104,7 @@ test_that("cbind/rbind enforce common lengths", {
 
 test_that("cbind/rbind reject rank > 2 inputs with clear errors", {
   capture_bind_error <- function(expr) {
-    tryCatch(expr, error = function(e) cat(conditionMessage(e), "\n"))
+    tryCatch(expr, error = function(e) cat(conditionMessage(e), "\n", sep = ""))
   }
 
   bad_cbind <- function(x) {

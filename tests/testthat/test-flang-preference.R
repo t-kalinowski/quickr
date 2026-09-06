@@ -87,6 +87,11 @@ test_that("quickr_fcompiler_env returns empty when disabled or unavailable", {
 })
 
 test_that("quickr_fcompiler_env uses caller-provided sysname for flang auto preference", {
+  state <- quickr:::quickr_flang_state
+  old_auto_disabled <- state$auto_disabled
+  state$auto_disabled <- FALSE
+  on.exit(state$auto_disabled <- old_auto_disabled, add = TRUE)
+
   temp <- withr::local_tempdir()
   prefix <- file.path(temp, "flang")
   dir.create(file.path(prefix, "bin"), recursive = TRUE)

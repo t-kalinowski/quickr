@@ -883,7 +883,7 @@ test_that("elementwise vector lengths must recycle cleanly", {
 
   expect_error(
     quick(fn),
-    "elementwise vector operations require lengths that recycle cleanly",
+    "elementwise vector operations require equal lengths",
     fixed = TRUE
   )
 })

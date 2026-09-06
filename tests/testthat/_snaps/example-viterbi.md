@@ -75,8 +75,8 @@
       cat(fsub)
     Output
       subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_,&
-      & observations__len_, states__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      & observations__len_, states__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -84,6 +84,9 @@
         integer(c_ptrdiff_t), intent(in), value :: observations__len_
         integer(c_ptrdiff_t), intent(in), value :: states__len_
         integer(c_int), intent(in), value :: emission_probs__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         integer(c_int), intent(in) :: observations(observations__len_)
@@ -112,22 +115,70 @@
       
         num_states = size(states)
         num_steps = size(observations)
+        if (states__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
         trellis = 0.0_c_double
+        if (states__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
         backpointer = 0_c_int
+      if (size(initial_probs, kind=c_ptrdiff_t) == 0 .or. size(initial_probs, kind=c_ptrdiff_t) /= size(emission_probs(:,&
+      & observations(1_c_int)), kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+          return
+        end if
         trellis(:, 1_c_int) = (initial_probs * emission_probs(:, observations(1_c_int)))
         do step = 2_c_int, num_steps, sign(1, num_steps-2_c_int)
           do current_state = 1_c_int, num_states, sign(1, num_states-1_c_int)
+      if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) == 0 .or. size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /=&
+      & size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+              return
+            end if
             probabilities = (trellis(:, (step - 1_c_int)) * transition_probs(:, current_state))
+            if (size(probabilities, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("min()/max() of empty inputs are not supported")
+              return
+            end if
             trellis(current_state, step) = (maxval(probabilities) * emission_probs(current_state, observations(step)))
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        path = 0_c_int
         path(num_steps) = maxloc(trellis(:, num_steps), 1)
         do step = ((num_steps - 1_c_int)), 1_c_int, sign(1, 1_c_int-((num_steps - 1_c_int)))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
         end do
         out = states(path)
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -137,16 +188,41 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
-        const R_xlen_t states__len_);
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
+        const R_xlen_t states__len_,
+        char* quickr_err_msg);
       
       SEXP viterbi_(SEXP _args) {
         // observations
@@ -224,9 +300,13 @@
           Rf_error("dim(emission_probs)[1] must equal length(states),"
                    " but are %0.f and %0.f",
                     (double)emission_probs__dim_1_, (double)states__len_);
-        const R_xlen_t out__len_ = observations__len_;
+        const R_xlen_t out__len_ = quickr_return_length((const double[]){observations__len_}, 1);
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
+        
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
         
         viterbi(
           observations__,
@@ -237,7 +317,11 @@
           out__,
           emission_probs__dim_2_,
           observations__len_,
-          states__len_);
+          states__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;
@@ -294,8 +378,8 @@
       cat(fsub <- r2f(viterbi))
     Output
       subroutine viterbi(observations, states, initial_probs, transition_probs, emission_probs, out, emission_probs__dim_2_,&
-      & observations__len_, states__len_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      & observations__len_, states__len_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -303,6 +387,9 @@
         integer(c_ptrdiff_t), intent(in), value :: observations__len_
         integer(c_ptrdiff_t), intent(in), value :: states__len_
         integer(c_int), intent(in), value :: emission_probs__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         integer(c_int), intent(in) :: observations(observations__len_)
@@ -327,22 +414,70 @@
         allocate(path(observations__len_))
       
       
+        if (states__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
         trellis = 0.0_c_double
+        if (states__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
         backpointer = 0_c_int
+      if (size(initial_probs, kind=c_ptrdiff_t) == 0 .or. size(initial_probs, kind=c_ptrdiff_t) /= size(emission_probs(:,&
+      & observations(1_c_int)), kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+          return
+        end if
         trellis(:, 1_c_int) = (initial_probs * emission_probs(:, observations(1_c_int)))
         do step = 2_c_int, size(observations), sign(1, size(observations)-2_c_int)
           do current_state = 1_c_int, size(states), sign(1, size(states)-1_c_int)
+      if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) == 0 .or. size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /=&
+      & size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
+      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+      & supported")
+              return
+            end if
             probabilities = (trellis(:, (step - 1_c_int)) * transition_probs(:, current_state))
+            if (size(probabilities, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              call quickr_set_error_msg("min()/max() of empty inputs are not supported")
+              return
+            end if
             trellis(current_state, step) = (maxval(probabilities) * emission_probs(current_state, observations(step)))
             backpointer(current_state, step) = maxloc(probabilities, 1)
           end do
         end do
-        path = 0
+        if (observations__len_ < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        path = 0_c_int
         path(size(observations)) = maxloc(trellis(:, size(observations)), 1)
         do step = (size(observations) - 1_c_int), 1_c_int, sign(1, 1_c_int-(size(observations) - 1_c_int))
           path(step) = backpointer(path((step + 1_c_int)), (step + 1_c_int))
         end do
         out = states(path)
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -352,16 +487,41 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void viterbi(
-        const int* const observations__, 
-        const int* const states__, 
-        const double* const initial_probs__, 
-        const double* const transition_probs__, 
-        const double* const emission_probs__, 
-        int* const out__, 
-        const R_len_t emission_probs__dim_2_, 
-        const R_xlen_t observations__len_, 
-        const R_xlen_t states__len_);
+        const int* const observations__,
+        const int* const states__,
+        const double* const initial_probs__,
+        const double* const transition_probs__,
+        const double* const emission_probs__,
+        int* const out__,
+        const R_len_t emission_probs__dim_2_,
+        const R_xlen_t observations__len_,
+        const R_xlen_t states__len_,
+        char* quickr_err_msg);
       
       SEXP viterbi_(SEXP _args) {
         // observations
@@ -439,9 +599,13 @@
           Rf_error("dim(emission_probs)[1] must equal length(states),"
                    " but are %0.f and %0.f",
                     (double)emission_probs__dim_1_, (double)states__len_);
-        const R_xlen_t out__len_ = observations__len_;
+        const R_xlen_t out__len_ = quickr_return_length((const double[]){observations__len_}, 1);
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
+        
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
         
         viterbi(
           observations__,
@@ -452,7 +616,11 @@
           out__,
           emission_probs__dim_2_,
           observations__len_,
-          states__len_);
+          states__len_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(1);
         return out;

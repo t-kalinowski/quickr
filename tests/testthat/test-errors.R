@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("case-sensitive variable name clashes", {
   expect_snapshot(
     quick(function(j) {
@@ -36,6 +34,53 @@ test_that("non-final expressions must be assigned", {
       x
     })
   })
+})
+
+test_that("guarded OpenMP iterations stop when cancellation is disabled", {
+  withr::local_envvar(c(
+    OMP_CANCELLATION = "false",
+    OMP_NUM_THREADS = "1",
+    OMP_THREAD_LIMIT = "1",
+    OMP_DYNAMIC = "false"
+  ))
+  skip_if_no_openmp()
+
+  guarded <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    out <- 0
+    declare(parallel())
+    for (i in seq_len(1L)) {
+      for (j in seq_len(1L)) {
+        while (TRUE) {
+          out <- sum(x + y)
+          break
+        }
+      }
+      out <- out + 1
+    }
+    out
+  }
+
+  code <- as.character(r2f(guarded))
+  guard <- regexpr("elementwise vector operations", code, fixed = TRUE)
+  cycles <- gregexpr("cycle", code, fixed = TRUE)[[1L]]
+  later_statement <- regexpr(
+    "out = (out + 1.0_c_double)",
+    code,
+    fixed = TRUE
+  )
+  expect_true(all(c(guard, cycles, later_statement) > 0L))
+  expect_length(cycles, 3L)
+  expect_lt(guard, cycles[[1L]])
+  expect_lt(cycles[[3L]], later_statement)
+  exits <- gregexpr("c_null_char) exit", code, fixed = TRUE)[[1L]]
+  expect_length(exits, 2L)
+
+  qguarded <- quick(guarded)
+  expect_error(
+    qguarded(c(1, 2), c(1, 2, 3)),
+    "elementwise vector operations"
+  )
 })
 
 test_that("value-returning local closures can be called as statements", {

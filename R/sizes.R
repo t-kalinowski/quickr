@@ -15,10 +15,21 @@ check_type_call <- function(cl) {
 type_call_to_var <- function(cl) {
   check_type_call(cl)
   r_name <- names(cl)[-1]
+  mode <- as.character(cl[[2L]][[1L]])
+  if (identical(mode, "character")) {
+    # No Fortran translation exists; refuse at the declaration instead of
+    # surfacing an internal error from the code generator.
+    stop(
+      "in declare(type(",
+      r_name,
+      " = character(...))): character values are not supported by quickr",
+      call. = FALSE
+    )
+  }
   Variable(
     name = fortranize_name(r_name),
     r_name = r_name,
-    mode = as.character(cl[[2L]][[1L]]),
+    mode = mode,
     dims = unname(as.list(cl[[2]])[-1])
   )
 }
@@ -154,11 +165,13 @@ r2size <- function(r, scope) {
     switch(
       integer = r,
       double = {
-        if (is_wholenumber(r)) {
-          as.integer(r)
-        } else {
-          stop("size must be an integer, found: ", r)
+        invalid <- !is.finite(r) ||
+          !is_wholenumber(r) ||
+          abs(r) > .Machine$integer.max
+        if (invalid) {
+          stop("size must be an integer in R's supported range, found: ", r)
         }
+        as.integer(r)
       },
       symbol = {
         if (is_size_name(r)) {
@@ -169,7 +182,8 @@ r2size <- function(r, scope) {
           stop("could not resolve size: ", as.character(r))
         }
         # !identical(): @mode can be NULL (deferred-mode binding)
-        if (!identical(var@mode, "integer") || !passes_as_scalar(var)) {
+        valid_mode <- isTRUE(var@mode %in% c("integer", "double"))
+        if (!valid_mode || !passes_as_scalar(var)) {
           warning("size is not an integer:", as.character(r))
         }
         if (var@is_arg && !var@modified) {
@@ -257,6 +271,25 @@ r2dims <- function(r, scope) {
       )
   }
   lapply(r, r2size, scope)
+}
+
+size_expr_is_known_nonnegative <- function(x) {
+  if (is_scalar_integerish(x)) {
+    return(as.integer(x) >= 0L)
+  }
+  # Source symbols cannot end in `_`; this spelling is reserved for extents
+  # synthesized after check_all_var_names_valid() accepts the source closure.
+  if (is_size_name(x)) {
+    return(TRUE)
+  }
+  if (!is.call(x) || !identical(x[[1L]], quote(`*`))) {
+    return(FALSE)
+  }
+  all(vapply(
+    as.list(x)[-1L],
+    size_expr_is_known_nonnegative,
+    logical(1L)
+  ))
 }
 
 get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {

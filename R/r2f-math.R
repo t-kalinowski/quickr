@@ -46,37 +46,37 @@ r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
+  arg <- maybe_cast_double(arg)
+  if (!identical(arg@value@mode, "double")) {
+    stop_static_mode_error(
+      "floor() only implemented for logical, integer, and double",
+      hoist
+    )
+  }
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
   arg <- hoist_unless_name(arg, hoist)
-  arg <- maybe_cast_double(arg)
-  if (!identical(arg@value@mode, "double")) {
-    stop("floor() only implemented for logical, integer, and double")
-  }
   out_val <- Variable("double", arg@value@dims)
 
-  # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in the
-  # real domain:
-  # - aint(x) truncates toward 0 (real result)
-  # - adjust by -1 where trunc differs from floor (negative non-integers)
-  aint <- glue("aint({arg})")
-  Fortran(
-    glue("({aint} - merge(1.0_c_double, 0.0_c_double, ({arg} < {aint})))"),
-    out_val
-  )
+  # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in
+  # the real domain; real_floor_expr() shares the spelling with `%/%`.
+  Fortran(real_floor_expr(arg), out_val)
 }
 
 r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
+  arg <- maybe_cast_double(arg)
+  if (!identical(arg@value@mode, "double")) {
+    stop_static_mode_error(
+      "ceiling() only implemented for logical, integer, and double",
+      hoist
+    )
+  }
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
   arg <- hoist_unless_name(arg, hoist)
-  arg <- maybe_cast_double(arg)
-  if (!identical(arg@value@mode, "double")) {
-    stop("ceiling() only implemented for logical, integer, and double")
-  }
   out_val <- Variable("double", arg@value@dims)
 
   # As with floor(): avoid integer overflow by implementing in real arithmetic.
@@ -87,9 +87,9 @@ r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {
   )
 }
 
-r2f_handlers[["trunc"]] <- function(args, scope, ...) {
+r2f_handlers[["trunc"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1L]], scope, ...)
+  arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
   # R's trunc() always returns a double and truncates toward 0.
   # - For double input we can use Fortran AINT(), which returns a real.
@@ -100,7 +100,10 @@ r2f_handlers[["trunc"]] <- function(args, scope, ...) {
   if (arg@value@mode %in% c("integer", "logical")) {
     return(maybe_cast_double(arg))
   }
-  stop("trunc() only implemented for logical, integer, and double")
+  stop_static_mode_error(
+    "trunc() only implemented for logical, integer, and double",
+    hoist
+  )
 }
 
 r2f_handlers[["log10"]] <- function(args, scope, ...) {

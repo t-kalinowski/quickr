@@ -53,17 +53,43 @@ make_c_bridge <- function(
   n_protected <- 0L
   return_var_names <- scope_return_var_names(scope)
   return_defs <- character()
-  # Deduplicate by the underlying variable name to avoid duplicate C defs
-  for (return_var in mget(unique(unname(return_var_names)), scope)) {
+  return_checks <- character()
+  return_sizes <- character()
+  # Input-only shape checks can move ahead of straight-line pure computation.
+  # Keep them in Fortran if that would skip RNG effects or reject an operation
+  # on a path that is not executed.
+  preflight_safe <- !uses_rng &&
+    !any(
+      all.names(body(closure)) %in%
+        c("if", "for", "while", "repeat", "ifelse", "&&", "||")
+    )
+  # Generate all checks and their scalar conversions before any allocation
+  # definitions, so a later check cannot refer to a declaration in an earlier
+  # result's allocation block.
+  return_vars <- mget(unique(unname(return_var_names)), scope)
+  for (return_var in return_vars) {
+    return_var_r_name <- return_var@r_name %||% return_var@name
+    if (preflight_safe && !return_var_r_name %in% closure_arg_names) {
+      append(return_checks) <- return_var_c_checks(
+        return_var,
+        fsub@scope,
+        c_hoist
+      )
+    }
+  }
+  # Deduplicate by the underlying variable name to avoid duplicate C defs.
+  for (return_var in return_vars) {
     return_var_r_name <- return_var@r_name %||% return_var@name
     if (!return_var_r_name %in% closure_arg_names) {
       return_var@modified <- TRUE
       assign(return_var_r_name, return_var, scope)
-      append(return_defs) <- return_var_c_defs(
+      defs <- return_var_c_defs(
         return_var,
         fsub@scope,
         c_hoist = c_hoist
       )
+      append(return_sizes) <- defs$sizes
+      append(return_defs) <- defs$allocation
       add(n_protected) <- 1L # allocated return var
       if (return_var@rank > 1) {
         add(n_protected) <- 1L # allocated _dim_sexp
@@ -73,6 +99,8 @@ make_c_bridge <- function(
 
   c_body <- c(arg_defs)
   append(c_body) <- size_checks
+  append(c_body) <- return_checks
+  append(c_body) <- return_sizes
   append(c_body) <- return_defs
 
   if (uses_errors) {
@@ -163,6 +191,11 @@ make_c_bridge <- function(
 
   c_args <- paste("SEXP", names(formals(closure)), collapse = ", ")
   needs_rmath <- any(grepl("R_pow(", c_body, fixed = TRUE))
+  needs_return_length <- any(grepl(
+    "quickr_return_length(",
+    c_body,
+    fixed = TRUE
+  ))
   c_body <- as_glue(str_flatten_lines(c_body))
 
   c_func_def <- glue("SEXP {fsub@name}_(SEXP _args) {c_block(c_body)}")
@@ -181,6 +214,7 @@ make_c_bridge <- function(
 
   as_glue(str_flatten_lines(c(
     if (headers) c_headers,
+    if (needs_return_length) c_return_length_helper(),
     fsub_extern_decl,
     "",
     c_func_def
@@ -355,6 +389,19 @@ closure_arg_size_checks <- function(var, scope, c_hoist = NULL) {
 }
 
 
+# Check all returned operations before allocating any return buffer, including
+# list results whose first element could otherwise hide a later shape error.
+return_var_c_checks <- function(var, scope, c_hoist) {
+  unlist(lapply(var@c_bridge_dim_checks, function(check) {
+    left <- dims2c_expr(check$left, scope, c_hoist = c_hoist)
+    right <- dims2c_expr(check$right, scope, c_hoist = c_hoist)
+    c(
+      c_bridge_hoist_take_pending(c_hoist),
+      glue('if ({left} != {right}) Rf_error("%s", "{check$message}");')
+    )
+  }))
+}
+
 return_var_c_defs <- function(var, scope, c_hoist = NULL) {
   # allocate the return var.
   name <- var@name
@@ -368,9 +415,11 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
     character()
   }
 
-  c_code <- c(
+  size_code <- c(
     decls,
-    glue("const R_xlen_t {len_name} = {c_len};"),
+    glue("const R_xlen_t {len_name} = {c_len};")
+  )
+  c_code <- c(
     glue(switch(
       var@mode,
       double = "
@@ -402,7 +451,10 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
     )
   }
 
-  str_flatten_lines(c_code)
+  list(
+    sizes = str_flatten_lines(size_code),
+    allocation = str_flatten_lines(c_code)
+  )
 }
 
 
@@ -410,6 +462,7 @@ c_bridge_hoist <- function() {
   hoist <- new.env(parent = emptyenv())
   hoist$as_int <- new.env(parent = emptyenv())
   hoist$as_int_tmp <- new.env(parent = emptyenv())
+  hoist$checked_size_int <- new.env(parent = emptyenv())
   hoist$used_tmp <- new.env(parent = emptyenv())
   hoist$pending <- character()
   hoist
@@ -477,6 +530,23 @@ c_bridge_hoist_seq_checks <- function(hoist, from, to, by) {
         Rf_error("wrong sign in \'by\' argument");'
     )
   )
+}
+
+c_bridge_hoist_size_int_check <- function(hoist, size) {
+  stopifnot(is.environment(hoist), is_string(size))
+  if (isTRUE(get0(size, envir = hoist$checked_size_int, inherits = FALSE))) {
+    return(invisible())
+  }
+  assign(size, TRUE, envir = hoist$checked_size_int)
+  hoist$pending <- c(
+    hoist$pending,
+    glue(
+      '
+      if ({size} == NA_INTEGER)
+        Rf_error("diag() identity size must be representable as an R integer");'
+    )
+  )
+  invisible()
 }
 
 
@@ -619,6 +689,33 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
     ))
   }
 
+  if (identical(op, "quickr_extent_int")) {
+    arg <- args[[1L]]
+    stopifnot(length(args) == 2L, is.symbol(arg), is.environment(c_hoist))
+    var <- get(as.character(arg), scope)
+    stopifnot(
+      inherits(var, Variable),
+      var@mode == "double",
+      is_string(args[[2L]])
+    )
+    size <- glue("Rf_asReal({var@name})")
+    check <- glue(
+      'if (!R_FINITE({size}) || {size} < 0 || {size} > 2147483647)
+       Rf_error("{args[[2L]]}");'
+    )
+    c_hoist$pending <- c(c_hoist$pending, check)
+    return(glue("((R_xlen_t)({size}))"))
+  }
+
+  if (identical(op, "quickr_size_int")) {
+    if (length(args) != 1L || is.null(c_hoist)) {
+      stop("quickr_size_int() requires one argument and a C bridge hoist")
+    }
+    size <- dims2c_expr(args[[1L]], scope, c_hoist = c_hoist)
+    c_bridge_hoist_size_int_check(c_hoist, size)
+    return(glue("((R_xlen_t)({size}))"))
+  }
+
   if (identical(op, "abs")) {
     if (length(args) != 1L) {
       stop("abs() expects one argument")
@@ -669,13 +766,56 @@ dims2c <- function(dims, scope, c_hoist = NULL) {
 }
 
 c_dims2c_len <- function(c_dims) {
-  if (length(c_dims) == 1) {
-    c_dims[[1L]]
-  } else {
-    paste0("(", unlist(c_dims), ")", collapse = " * ")
+  original_dims <- c_dims
+  c_dims <- unlist(c_dims, use.names = FALSE)
+  if (all(grepl("^[0-9]+$", c_dims))) {
+    lengths <- cumprod(as.double(c_dims))
+    if (all(is.finite(lengths) & lengths <= .Machine$integer.max)) {
+      return(
+        if (length(original_dims) == 1L) {
+          c_dims[[1L]]
+        } else {
+          paste0("(", c_dims, ")", collapse = " * ")
+        }
+      )
+    }
   }
-  # eval(Reduce(\(a, b) { call("*", as.symbol(a@name), as.symbol(b@name)) }, dims),
-  #      eval_env)
+  glue(
+    "quickr_return_length((const double[]){{{str_flatten_commas(c_dims)}}}, {length(c_dims)})"
+  )
+}
+
+c_return_length_helper <- function() {
+  # Scan all axes before multiplying so a later zero axis keeps an empty
+  # result valid even when the preceding dimensions have a huge product.
+  trimws(
+    r"(
+#ifndef QUICKR_RETURN_LENGTH_DEFINED
+#define QUICKR_RETURN_LENGTH_DEFINED
+static R_xlen_t quickr_return_length(const double *dims, int rank) {
+  int empty = 0;
+  for (int i = 0; i < rank; ++i) {
+    if (!R_FINITE(dims[i]))
+      Rf_error("return dimensions must be finite");
+    if (dims[i] < 0)
+      Rf_error("return dimensions must be non-negative");
+    if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+      Rf_error("return dimensions exceed the supported range");
+    if ((R_xlen_t)dims[i] == 0) empty = 1;
+  }
+  if (empty) return 0;
+  R_xlen_t length = 1;
+  for (int i = 0; i < rank; ++i) {
+    R_xlen_t extent = (R_xlen_t)dims[i];
+    if (extent > R_XLEN_T_MAX / length)
+      Rf_error("return length exceeds R's vector limit");
+    length *= extent;
+  }
+  return length;
+}
+#endif
+ )"
+  )
 }
 
 
@@ -837,9 +977,13 @@ fsub_extern_decl <- function(fsub) {
       glue("{fsub_arg_var_c_type(var)} {var@name}__")
     }
   })
-  if (length(fsub_c_sig) >= 3L) {
-    fsub_c_sig <- paste0("\n  ", fsub_c_sig)
+  args_sig <- if (length(fsub_c_sig) >= 3L) {
+    # one arg per line; join with a bare comma -- joining "\n  "-prefixed
+    # elements with ", " leaves a trailing space on every line
+    paste0("\n  ", fsub_c_sig, collapse = ",")
+  } else {
+    str_flatten_commas(fsub_c_sig)
   }
 
-  glue("extern void {fsub@name}({str_flatten_commas(fsub_c_sig)});")
+  glue("extern void {fsub@name}({args_sig});")
 }

@@ -39,6 +39,21 @@ logical_as_int <- function(var) {
   identical(var@mode, "logical") && isTRUE(var@logical_as_int)
 }
 
+# A mode with no Fortran translation reached the code generator. Declared
+# modes are validated at declare() time; this is the backstop for values
+# created mid-translation, so it must still read as a user-facing message,
+# not an internal object dump.
+stop_unsupported_mode <- function(var) {
+  name <- var@r_name %||% var@name
+  stop(
+    if (is.null(name)) "" else paste0("variable `", name, "`: "),
+    "mode '",
+    var@mode %||% "?",
+    "' is not supported by quickr",
+    call. = FALSE
+  )
+}
+
 block_tmp_allocatable_threshold <- 16L
 
 subroutine_local_allocatable_threshold_bytes <- 256L * 1024L
@@ -73,7 +88,11 @@ var_storage_bytes <- function(var) {
   switch(
     var@mode,
     double = 8,
-    integer = 4,
+    integer = if (identical(var@integer_kind, "c_ptrdiff_t")) {
+      .Machine$sizeof.pointer
+    } else {
+      4
+    },
     complex = 16,
     logical = 4,
     raw = 1,
@@ -196,11 +215,11 @@ iso_c_binding_symbols <- function(
         switch(
           var@mode,
           double = "c_double",
-          integer = "c_int",
+          integer = var@integer_kind,
           complex = "c_double_complex",
           logical = if (isTRUE(logical_is_c_int(var))) "c_int",
           raw = "c_int8_t",
-          stop("unrecognized kind: ", format(var))
+          stop_unsupported_mode(var)
         ),
         lapply(var@dims, function(size) {
           syms <- all.vars(size)
@@ -262,11 +281,11 @@ emit_decl_line <- function(
   type <- switch(
     var@mode,
     double = "real(c_double)",
-    integer = "integer(c_int)",
+    integer = glue("integer({var@integer_kind})"),
     complex = "complex(c_double_complex)",
     logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
     raw = "integer(c_int8_t)",
-    stop("unrecognized kind: ", format(var))
+    stop_unsupported_mode(var)
   )
 
   # Block-scoped temporaries are explicitly marked allocatable so we can
@@ -348,6 +367,11 @@ emit_block <- function(decls, stmts) {
 r2f.scope <- function(scope, include_errors = FALSE) {
   return_var_names <- unname(scope_return_var_names(scope))
   vars <- scope_vars(scope)
+  point_allocated_local_names <- tolower(scope_get(
+    scope,
+    "point_allocated_local_names",
+    character()
+  ))
 
   local_allocs <- character()
   vars <- lapply(vars, function(var) {
@@ -371,11 +395,11 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     type <- switch(
       var@mode,
       double = "real(c_double)",
-      integer = "integer(c_int)",
+      integer = glue("integer({var@integer_kind})"),
       complex = "complex(c_double_complex)",
       logical = if (logical_as_int(var)) "integer(c_int)" else "logical",
       raw = "integer(c_int8_t)",
-      stop("unrecognized kind: ", format(var))
+      stop_unsupported_mode(var)
     )
 
     dims <- if (passes_as_scalar(var)) {
@@ -406,10 +430,12 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     if (isTRUE(heap_local)) {
       # Deferred-shape allocatable avoids large stack allocations (notably flang).
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
-      local_allocs <<- c(
-        local_allocs,
-        glue("allocate({var@name}({dims2f(var@dims, scope)}))")
-      )
+      if (!tolower(var@name) %in% point_allocated_local_names) {
+        local_allocs <<- c(
+          local_allocs,
+          glue("allocate({var@name}({dims2f(var@dims, scope)}))")
+        )
+      }
     }
 
     allocatable <- if (isTRUE(heap_local)) {
@@ -525,6 +551,12 @@ dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
   safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
   glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")
+}
+dims2f_eval_base_env[["quickr_extent_int"]] <- function(x, message = NULL) {
+  glue("int({x}, kind=c_ptrdiff_t)")
+}
+dims2f_eval_base_env[["quickr_size_int"]] <- function(x) {
+  glue("int({x}, kind=c_ptrdiff_t)")
 }
 dims2f_eval_base_env[["length"]] <- function(x) {
   if (is.symbol(x)) {

@@ -26,11 +26,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(nx, ny, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(nx, ny, temp, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -38,9 +41,18 @@
         ! manifest end
       
       
+        if (nx < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
+        if (ny < 0) then
+          call quickr_set_error_msg("matrix() dimensions must be non-negative")
+          return
+        end if
         temp = 0.0_c_double
       
         call bc()
+        if (quickr_err_msg(1) /= c_null_char) return
       
         contains
           subroutine bc()
@@ -54,6 +66,16 @@
             temp(:, 1_c_int) = 3.0_c_double
             temp(:, ny) = 4.0_c_double
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -63,10 +85,35 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void fn(
-        const int* const nx__, 
-        const int* const ny__, 
-        double* const temp__);
+        const int* const nx__,
+        const int* const ny__,
+        double* const temp__,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // nx
@@ -95,7 +142,7 @@
                     (double)ny__len_);
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
-        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
+        const R_xlen_t temp__len_ = quickr_return_length((const double[]){_as_int_nx, _as_int_ny}, 2);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
@@ -106,7 +153,18 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
-        fn(nx__, ny__, temp__);
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          nx__,
+          ny__,
+          temp__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return temp;
@@ -178,9 +236,33 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void fn(
-        double* const x__, 
-        double* const out__, 
+        double* const x__,
+        double* const out__,
         const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
@@ -195,7 +277,7 @@
         double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
         
-        const R_xlen_t out__len_ = x__len_;
+        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
@@ -239,11 +321,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(nx, ny, nz, a) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(nx, ny, nz, a, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -252,10 +337,24 @@
         ! manifest end
       
       
+        if (nx < 0) then
+          call quickr_set_error_msg("array() dimensions must be non-negative")
+          return
+        end if
+        if (ny < 0) then
+          call quickr_set_error_msg("array() dimensions must be non-negative")
+          return
+        end if
+        if (nz < 0) then
+          call quickr_set_error_msg("array() dimensions must be non-negative")
+          return
+        end if
         a = 0.0_c_double
       
         call f(1_c_int)
+        if (quickr_err_msg(1) /= c_null_char) return
         call f(nz)
+        if (quickr_err_msg(1) /= c_null_char) return
       
         contains
           subroutine f(k)
@@ -267,6 +366,16 @@
             a(:, :, k) = real(k, kind=c_double)
             a(1_c_int, 1_c_int, k) = (a(1_c_int, 1_c_int, k) + 0.5_c_double)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -276,11 +385,36 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void fn(
-        const int* const nx__, 
-        const int* const ny__, 
-        const int* const nz__, 
-        double* const a__);
+        const int* const nx__,
+        const int* const ny__,
+        const int* const nz__,
+        double* const a__,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // nx
@@ -322,7 +456,7 @@
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
         const int _as_int_nz = Rf_asInteger(nz);
-        const R_xlen_t a__len_ = (_as_int_nx) * (_as_int_ny) * (_as_int_nz);
+        const R_xlen_t a__len_ = quickr_return_length((const double[]){_as_int_nx, _as_int_ny, _as_int_nz}, 3);
         SEXP a = PROTECT(Rf_allocVector(REALSXP, a__len_));
         double* a__ = REAL(a);
         {
@@ -334,11 +468,19 @@
           Rf_dimgets(a, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           nx__,
           ny__,
           nz__,
-          a__);
+          a__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return a;
@@ -367,14 +509,17 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_) bind(c)
-        use iso_c_binding, only: c_double, c_int
+      subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
+      
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in out) :: x(x__dim_1_, x__dim_2_)
@@ -389,21 +534,36 @@
       
         do tmp1_ = 1_c_int, x__dim_2_
           call f(tmp1_, out(:, tmp1_))
-      
+          if (quickr_err_msg(1) /= c_null_char) return
         end do
       
       
         contains
           subroutine f(j, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             integer(c_int), intent(in) :: j
             real(c_double), intent(out) :: res(:)
       
+            if (size(x(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
+          & supported")
+              return
+            end if
             x(:, j) = (x(:, j) * 2.0_c_double)
             res = x(:, j)
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -413,11 +573,36 @@
       #include <Rinternals.h>
       
       
+      #ifndef QUICKR_RETURN_LENGTH_DEFINED
+      #define QUICKR_RETURN_LENGTH_DEFINED
+      static R_xlen_t quickr_return_length(const double *dims, int rank) {
+        int empty = 0;
+        for (int i = 0; i < rank; ++i) {
+          if (!R_FINITE(dims[i]))
+            Rf_error("return dimensions must be finite");
+          if (dims[i] < 0)
+            Rf_error("return dimensions must be non-negative");
+          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
+            Rf_error("return dimensions exceed the supported range");
+          if ((R_xlen_t)dims[i] == 0) empty = 1;
+        }
+        if (empty) return 0;
+        R_xlen_t length = 1;
+        for (int i = 0; i < rank; ++i) {
+          R_xlen_t extent = (R_xlen_t)dims[i];
+          if (extent > R_XLEN_T_MAX / length)
+            Rf_error("return length exceeds R's vector limit");
+          length *= extent;
+        }
+        return length;
+      }
+      #endif
       extern void fn(
-        double* const x__, 
-        double* const out__, 
-        const R_len_t x__dim_1_, 
-        const R_len_t x__dim_2_);
+        double* const x__,
+        double* const out__,
+        const R_len_t x__dim_1_,
+        const R_len_t x__dim_2_,
+        char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -438,7 +623,7 @@
         const int x__dim_1_ = x__dim_[0];
         const int x__dim_2_ = x__dim_[1];
         
-        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_);
+        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_}, 2);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -449,11 +634,19 @@
           Rf_dimgets(out, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         fn(
           x__,
           out__,
           x__dim_1_,
-          x__dim_2_);
+          x__dim_2_,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         SEXP _ans = PROTECT(Rf_allocVector(VECSXP, 2));
         SET_VECTOR_ELT(_ans, 0, x);

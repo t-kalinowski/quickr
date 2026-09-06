@@ -66,17 +66,9 @@ test_that("discard and drop_nulls behave as expected", {
   expect_identical(names(quickr:::drop_nulls(x, c("a", "c"))), c("b", "c"))
 })
 
-test_that("new_function and str_flatten_args are usable", {
+test_that("new_function is usable", {
   f <- quickr:::new_function(args = alist(x = ), body = quote(x + 1L))
   expect_identical(f(1L), 2L)
-
-  expect_identical(
-    quickr:::str_flatten_args("a", "b", multiline = FALSE),
-    "a,b"
-  )
-  expect_true(
-    grepl("\n", quickr:::str_flatten_args("a", "b", "c", multiline = TRUE))
-  )
 })
 
 test_that("parent.pkg detects namespaces and set_names mutates names", {

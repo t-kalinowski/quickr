@@ -5,6 +5,7 @@ new_fortran_subroutine <- function(
 ) {
   check_fortran_subroutine_name_valid(name)
   check_all_var_names_valid(closure)
+  check_static_closure_bindings(body(closure), names(formals(closure)))
 
   # translate body, and populate scope with variables
   body <- body(closure)
@@ -35,6 +36,7 @@ new_fortran_subroutine <- function(
   body <- substitute_declared_sizes(body)
   stmts <- as.list(body)[-1L]
   body <- compile_nonreturn_statements(drop_last(stmts), scope)
+  check_definite_assignment(closure, scope)
 
   # check all input vars were declared
   # TODO: this check might be too late, because r2f() might throw cryptic errors

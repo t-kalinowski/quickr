@@ -1,12 +1,43 @@
 # Matrix-specific r2f handlers and wiring
 
+lower_transposed_operand_in_order <- function(
+  arg,
+  scope,
+  ...,
+  hoist,
+  later_args = list()
+) {
+  captured_hoist <- capture_hoist(hoist)
+  info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
+  info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
+  info$value <- snapshot_operand_before_later_effects(
+    info$value,
+    arg,
+    later_args,
+    scope,
+    hoist
+  )
+  info
+}
+
 # %*% handler with optional destination hint
 register_r2f_handler(
   "%*%",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     stopifnot(length(args) == 2L)
-    left_info <- unwrap_transpose_arg(args[[1L]], scope, ..., hoist = hoist)
-    right_info <- unwrap_transpose_arg(args[[2L]], scope, ..., hoist = hoist)
+    left_info <- lower_transposed_operand_in_order(
+      args[[1L]],
+      scope,
+      ...,
+      hoist = hoist,
+      later_args = list(args[[2L]])
+    )
+    right_info <- lower_transposed_operand_in_order(
+      args[[2L]],
+      scope,
+      ...,
+      hoist = hoist
+    )
     left <- left_info$value
     right <- right_info$value
     left_trans <- left_info$trans
@@ -18,6 +49,9 @@ register_r2f_handler(
     if (left_rank > 2 || right_rank > 2) {
       stop("%*% only supports vectors/matrices (rank <= 2)")
     }
+
+    left <- hoist_unless_name(left, hoist)
+    right <- hoist_unless_name(right, hoist)
 
     left_dims <- matrix_dims(
       left,
@@ -53,13 +87,17 @@ register_r2f_handler(
     # Matrix-Vector: use GEMV
     if (left_rank == 2 && right_rank == 1) {
       expected_len <- if (left_trans == "N") left_dims$cols else left_dims$rows
-      conform <- check_conformable(expected_len, right_dims$rows)
-      if (!conform$ok) {
-        stop("non-conformable arguments in %*%", call. = FALSE)
-      }
-      if (conform$unknown) {
-        warn_conformability_unknown(expected_len, right_dims$rows, "%*%")
-      }
+      guard_conformable_dims(
+        expected_len,
+        right_dims$rows,
+        "non-conformable arguments in %*%",
+        hoist,
+        scope,
+        left = left,
+        right = right,
+        left_axis = if (left_trans == "N") 2L else 1L,
+        checker = check_blas_dims
+      )
       out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
       return(gemv(
         transA = left_trans,
@@ -79,13 +117,17 @@ register_r2f_handler(
     if (left_rank == 1 && right_rank == 2) {
       transA <- if (right_trans == "N") "T" else "N"
       expected_len <- if (transA == "N") right_dims$cols else right_dims$rows
-      conform <- check_conformable(left_dims$cols, expected_len)
-      if (!conform$ok) {
-        stop("non-conformable arguments in %*%", call. = FALSE)
-      }
-      if (conform$unknown) {
-        warn_conformability_unknown(left_dims$cols, expected_len, "%*%")
-      }
+      guard_conformable_dims(
+        left_dims$cols,
+        expected_len,
+        "non-conformable arguments in %*%",
+        hoist,
+        scope,
+        left = left,
+        right = right,
+        right_axis = if (transA == "N") 2L else 1L,
+        checker = check_blas_dims
+      )
       out_len <- if (transA == "N") right_dims$rows else right_dims$cols
       return(gemv(
         transA = transA,
@@ -102,13 +144,32 @@ register_r2f_handler(
       ))
     }
 
-    conform <- check_conformable(k, right_eff$rows)
-    if (!conform$ok) {
-      stop("non-conformable arguments in %*%", call. = FALSE)
-    }
-    if (conform$unknown) {
-      warn_conformability_unknown(k, right_eff$rows, "%*%")
-    }
+    # Vector operands (vector %*% vector reaches here) are rank-1: their
+    # extent is their whole size, not a rank-2 axis.
+    guard_conformable_dims(
+      k,
+      right_eff$rows,
+      "non-conformable arguments in %*%",
+      hoist,
+      scope,
+      left = left,
+      right = right,
+      left_axis = if (left_rank == 1) {
+        NULL
+      } else if (left_trans == "N") {
+        2L
+      } else {
+        1L
+      },
+      right_axis = if (right_rank == 1) {
+        NULL
+      } else if (right_trans == "N") {
+        1L
+      } else {
+        2L
+      },
+      checker = check_blas_dims
+    )
 
     # Matrix-Matrix
     gemm(
@@ -173,6 +234,11 @@ register_r2f_handler(
 
     row_dim <- x@value@dims[[1L]]
     col_dim <- x@value@dims[[2L]]
+    message <- "drop() cannot change rank when a runtime extent is 1"
+    for (dim in Filter(Negate(is_wholenumber), list(row_dim, col_dim))) {
+      condition <- glue("{dims2f(list(dim), scope)} == 1")
+      emit_quickr_error_if(condition, message, hoist, scope)
+    }
     row_is_one <- dim_is_one(row_dim)
     col_is_one <- dim_is_one(col_dim)
 
@@ -244,6 +310,9 @@ bind_dim_sum <- function(values, context, label) {
   reduce(values, \(a, b) call("+", a, b))
 }
 
+# Unlike the BLAS conformability checks, unknown dims here stay a compile
+# error: the common dim is needed to declare the cbind/rbind output, and a
+# runtime guard cannot conjure a declaration.
 bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   non_scalar <- which(!scalar_flags)
   if (!length(non_scalar)) {
@@ -261,17 +330,10 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   }
   if (length(non_scalar) > 1L) {
     for (idx in non_scalar[-1L]) {
-      conform <- check_conformable(target, dim_list[[idx]])
-      if (!conform$ok) {
-        stop(
-          context,
-          " requires inputs with a common ",
-          label,
-          " count",
-          call. = FALSE
-        )
-      }
-      if (conform$unknown) {
+      # A dim that is not provably equal to the common one is an error
+      # either way: the declaration needs the dim, so "unknown" cannot be
+      # deferred to a runtime guard here.
+      if (!dims_match(target, dim_list[[idx]])) {
         stop(
           context,
           " requires inputs with a common ",
@@ -283,6 +345,21 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
     }
   }
   target
+}
+
+guard_bind_empty <- function(dim, scalar, context, hoist, scope) {
+  if (!any(scalar)) {
+    return()
+  }
+  message <- glue("{context} cannot recycle scalars with empty inputs")
+  if (is_wholenumber(dim)) {
+    if (as.integer(dim) == 0L) {
+      stop(message, call. = FALSE)
+    }
+    return()
+  }
+  condition <- glue("{dims2f(list(dim), scope)} == 0")
+  emit_quickr_error_if(condition, message, hoist, scope)
 }
 
 bind_dim_string <- function(dim) {
@@ -350,7 +427,7 @@ register_r2f_handler(
       stop("cbind() requires at least one argument", call. = FALSE)
     }
 
-    values <- lapply(args, r2f, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(args, scope, ..., hoist = hoist)
     for (val in values) {
       if (is.null(val@value) || is.null(val@value@mode)) {
         stop(context, " inputs must have a value", call. = FALSE)
@@ -367,6 +444,7 @@ register_r2f_handler(
     col_sizes <- lapply(dims, `[[`, "cols")
 
     rows <- bind_common_dim(row_sizes, scalar_flags, context, "row")
+    guard_bind_empty(rows, scalar_flags, context, hoist, scope)
     cols <- bind_dim_sum(col_sizes, context, "column")
 
     col_exprs <- vector("list", length(values))
@@ -406,7 +484,7 @@ register_r2f_handler(
       stop("rbind() requires at least one argument", call. = FALSE)
     }
 
-    values <- lapply(args, r2f, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(args, scope, ..., hoist = hoist)
     for (val in values) {
       if (is.null(val@value) || is.null(val@value@mode)) {
         stop(context, " inputs must have a value", call. = FALSE)
@@ -423,6 +501,7 @@ register_r2f_handler(
     col_sizes <- lapply(dims, `[[`, "cols")
 
     cols <- bind_common_dim(col_sizes, scalar_flags, context, "column")
+    guard_bind_empty(cols, scalar_flags, context, hoist, scope)
     rows <- bind_dim_sum(row_sizes, context, "row")
 
     row_exprs <- vector("list", length(values))
@@ -508,8 +587,14 @@ register_r2f_handler(
     if (!identical(fun, "*")) {
       stop("outer() only supports FUN = \"*\"")
     }
-    x <- r2f(x_arg, scope, ..., hoist = hoist)
-    y <- r2f(y_arg, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(
+      list(x_arg, y_arg),
+      scope,
+      ...,
+      hoist = hoist
+    )
+    x <- values[[1L]]
+    y <- values[[2L]]
     outer_mul(
       x,
       y,
@@ -528,8 +613,9 @@ register_r2f_handler(
   "%o%",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     stopifnot(length(args) == 2L)
-    x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    y <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(args, scope, ..., hoist = hoist)
+    x <- values[[1L]]
+    y <- values[[2L]]
     outer_mul(
       x,
       y,
@@ -562,8 +648,8 @@ register_r2f_handler(
       b_arg <- NULL
     }
 
-    A <- r2f(a_arg, scope, ..., hoist = hoist)
     if (is.null(b_arg)) {
+      A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
       return(lapack_inverse(
         A,
         scope = scope,
@@ -573,7 +659,14 @@ register_r2f_handler(
       ))
     }
 
-    B <- r2f(b_arg, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(
+      list(a_arg, b_arg),
+      scope,
+      ...,
+      hoist = hoist
+    )
+    A <- values[[1L]]
+    B <- values[[2L]]
     lapack_solve(
       A = A,
       B = B,
@@ -600,15 +693,29 @@ register_r2f_handler(
       stop("qr.solve() expects `b`", call. = FALSE)
     }
 
-    A <- r2f(a_arg, scope, ..., hoist = hoist)
-    B <- r2f(b_arg, scope, ..., hoist = hoist)
-
     tol_arg <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
+    ordered_args <- list(a_arg, b_arg)
+    has_tol <- !is.null(tol_arg) && !is_missing(tol_arg)
+    if (has_tol) {
+      ordered_args[[3L]] <- tol_arg
+    }
+    values <- lower_operands_in_order(
+      ordered_args,
+      scope,
+      ...,
+      hoist = hoist
+    )
+    A <- values[[1L]]
+    B <- values[[2L]]
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- maybe_cast_double(r2f(tol_arg, scope, ..., hoist = hoist))
-      if (tol@value@rank != 0L) {
+      tol <- cast_linalg_double(
+        values[[3L]],
+        "qr.solve",
+        hoist
+      )
+      if (!passes_as_scalar(tol@value)) {
         stop("qr.solve() expects a scalar `tol`", call. = FALSE)
       }
       tol
@@ -624,7 +731,7 @@ register_r2f_handler(
     )
   },
   dest_supported = TRUE,
-  dest_infer = infer_dest_solve
+  dest_infer = infer_dest_qr_solve
 )
 
 register_r2f_handler(
@@ -678,6 +785,41 @@ register_r2f_handler(
   dest_supported = TRUE,
   dest_infer = infer_dest_chol2inv
 )
+
+guard_diag_identity_size <- function(size, hoist, scope) {
+  message <- "diag() identity size must be non-negative"
+  if (is_scalar_integerish(size)) {
+    if (size < 0) {
+      stop(message, call. = FALSE)
+    }
+    return(invisible())
+  }
+
+  size_f <- dims2f(list(size), scope)
+  if (nzchar(size_f) && !grepl(":", size_f, fixed = TRUE)) {
+    emit_quickr_error_if(
+      glue("{size_f} < 0"),
+      message,
+      hoist,
+      scope
+    )
+  }
+  invisible()
+}
+
+guard_diag_identity_double <- function(x, hoist, scope) {
+  stopifnot(inherits(x, Fortran))
+  unsafe <- glue(
+    "(({x} /= {x}) .or. ({x} <= -2147483648.0_c_double) .or. ({x} >= 2147483648.0_c_double))"
+  )
+  emit_quickr_error_if(
+    unsafe,
+    "diag() identity size must be representable as an R integer",
+    hoist,
+    scope
+  )
+  invisible()
+}
 
 register_r2f_handler(
   "diag",
@@ -765,8 +907,43 @@ register_r2f_handler(
       "diag() only supports scalar, vector, or matrix inputs"
     )
 
-    if (!has_nrow && !has_ncol && x_rank == 0L) {
-      nrow <- r2size(x_arg, scope)
+    numeric_size <-
+      !has_nrow &&
+      !has_ncol &&
+      passes_as_scalar(x@value) &&
+      x@value@mode %in% c("integer", "double")
+    if (numeric_size) {
+      if (grepl("unif_rand()", as.character(x), fixed = TRUE)) {
+        stop(
+          "diag() identity size cannot depend on an effectful expression",
+          call. = FALSE
+        )
+      }
+      x_var <- if (is.symbol(x_arg)) {
+        get0(as.character(x_arg), scope, inherits = TRUE)
+      }
+      local_numeric_value <-
+        inherits(x_var, Variable) &&
+        !x_var@is_arg &&
+        !x_var@modified &&
+        is_number(x_var@r) &&
+        is.finite(x_var@r)
+      if (identical(x@value@mode, "double") && !local_numeric_value) {
+        guard_diag_identity_double(x, hoist, scope)
+      }
+      nrow <- if (local_numeric_value) {
+        as.integer(x_var@r)
+      } else if (identical(x@value@mode, "integer")) {
+        r2size(x_arg, scope)
+      } else if (inherits(x_var, Variable) && !x_var@is_arg) {
+        stop(
+          "diag() identity size cannot depend on a computed local double",
+          call. = FALSE
+        )
+      } else {
+        call("quickr_size_int", x_arg)
+      }
+      guard_diag_identity_size(nrow, hoist, scope)
       ncol <- nrow
       x_val <- Fortran("1.0_c_double", Variable("double"))
       return(diag_matrix(
@@ -830,8 +1007,14 @@ register_r2f_handler(
 
     l_arg <- args$l %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    A <- r2f(l_arg, scope, ..., hoist = hoist)
-    B <- r2f(x_arg, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(
+      list(l_arg, x_arg),
+      scope,
+      ...,
+      hoist = hoist
+    )
+    A <- values[[1L]]
+    B <- values[[2L]]
 
     triangular_solve(
       A = A,
@@ -863,8 +1046,14 @@ register_r2f_handler(
 
     r_arg <- args$r %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    A <- r2f(r_arg, scope, ..., hoist = hoist)
-    B <- r2f(x_arg, scope, ..., hoist = hoist)
+    values <- lower_operands_in_order(
+      list(r_arg, x_arg),
+      scope,
+      ...,
+      hoist = hoist
+    )
+    A <- values[[1L]]
+    B <- values[[2L]]
 
     triangular_solve(
       A = A,
@@ -895,8 +1084,14 @@ crossprod_like <- function(
   opB,
   context
 ) {
-  x <- r2f(x_arg, scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
+  x <- lower_r2f_operand_in_order(
+    x_arg,
+    scope,
+    ...,
+    hoist = hoist,
+    later_args = if (is.null(y_arg)) list() else list(y_arg)
+  )
+  x <- cast_linalg_double(x, context, hoist)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -909,25 +1104,54 @@ crossprod_like <- function(
     ))
   }
 
-  y <- maybe_cast_double(r2f(y_arg, scope, ..., hoist = hoist))
+  y <- cast_linalg_double(
+    lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist),
+    context,
+    hoist
+  )
 
-  x_dims <- matrix_dims(x)
+  x <- hoist_unless_name(x, hoist)
+  y <- hoist_unless_name(y, hoist)
+
+  x_is_row_vector <- identical(context, "tcrossprod") &&
+    x@value@rank == 1L &&
+    y@value@rank == 2L
+  x_dims <- matrix_dims(
+    x,
+    orientation = if (x_is_row_vector) {
+      "rowvec"
+    } else {
+      "matrix"
+    }
+  )
   y_dims <- matrix_dims(y)
   x_eff <- effective_dims(x_dims, opA)
   y_eff <- effective_dims(y_dims, opB)
 
-  conform <- check_conformable(x_eff$cols, y_eff$rows)
-  if (!conform$ok) {
-    stop("non-conformable arguments in ", context, call. = FALSE)
-  }
-  if (conform$unknown) {
-    stop(
-      "cannot verify conformability in ",
-      context,
-      " at compile time",
-      call. = FALSE
-    )
-  }
+  guard_conformable_dims(
+    x_eff$cols,
+    y_eff$rows,
+    paste0("non-conformable arguments in ", context),
+    hoist,
+    scope,
+    left = x,
+    right = y,
+    left_axis = if (x@value@rank == 1L && (opA == "T" || x_is_row_vector)) {
+      NULL
+    } else if (opA == "N") {
+      2L
+    } else {
+      1L
+    },
+    right_axis = if (y@value@rank == 1L) {
+      NULL
+    } else if (opB == "N") {
+      1L
+    } else {
+      2L
+    },
+    checker = check_blas_dims
+  )
 
   m <- x_eff$rows
   n <- y_eff$cols

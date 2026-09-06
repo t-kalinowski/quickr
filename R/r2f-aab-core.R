@@ -7,9 +7,32 @@
 
 # --- Hoisting Infrastructure ---
 
+stop_deferred_branch_error <- function(message) {
+  stop(structure(
+    list(message = message, call = NULL),
+    class = c("quickr_deferred_branch_error", "error", "condition")
+  ))
+}
+
+stop_static_mode_error <- function(message, hoist) {
+  if (!is.null(hoist) && isTRUE(hoist$defer_static_mode_error)) {
+    stop_deferred_branch_error(message)
+  }
+  stop(message, call. = FALSE)
+}
+
+stop_static_value_error <- function(message, hoist) {
+  if (!is.null(hoist) && isTRUE(hoist$defer_static_value_error)) {
+    stop_deferred_branch_error(message)
+  }
+  stop(message, call. = FALSE)
+}
+
 new_hoist <- function(scope) {
   hoisted <- character()
+  has_runtime_guard <- FALSE
   block_scope <- NULL
+  point_allocated <- character()
 
   emit <- function(...) {
     hoisted <<- c(
@@ -18,7 +41,18 @@ new_hoist <- function(scope) {
     )
   }
 
+  mark_runtime_guard <- function() {
+    has_runtime_guard <<- TRUE
+    invisible()
+  }
+
+  contains_runtime_guard <- function() has_runtime_guard
+
   has_block <- function() !is.null(block_scope)
+
+  # TRUE when render(code) would return `code` unchanged: nothing emitted,
+  # no block-scoped temporaries declared.
+  is_empty <- function() !length(hoisted) && !has_block()
 
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
@@ -40,9 +74,102 @@ new_hoist <- function(scope) {
     )
   }
 
+  tmp_allocation_line <- function(var) {
+    local_var <- if (is.null(block_scope)) {
+      NULL
+    } else {
+      scope_var_by_fortran_name(block_scope, var@name)
+    }
+    if (is.null(local_var)) {
+      return(character())
+    }
+    if (!block_tmp_allocatable(var, block_scope)) {
+      return(character())
+    }
+    if (var@name %in% point_allocated) {
+      return(character())
+    }
+    point_allocated <<- c(point_allocated, var@name)
+    glue(
+      "allocate({var@name}({dims2f(var@dims, block_scope)}))"
+    )
+  }
+
+  allocate_tmp_at_point <- function(var, emit_at_point) {
+    line <- tmp_allocation_line(var)
+    if (length(line)) {
+      emit_at_point(line)
+    }
+    var
+  }
+
+  allocate_existing_tmp_at_point <- function(var) {
+    line <- tmp_allocation_line(var)
+    if (length(line)) {
+      first_use <- which(grepl(var@name, hoisted, fixed = TRUE))[[1L]]
+      hoisted <<- append(hoisted, line, after = first_use - 1L)
+    }
+    var
+  }
+
+  declare_tmp_at_point <- function(mode, dims, logical_as_int = FALSE) {
+    var <- declare_tmp(mode, dims, logical_as_int)
+    allocate_tmp_at_point(var, emit)
+  }
+
+  capture <- function() {
+    captured <- character()
+    captured_runtime_guard <- FALSE
+    capture_emit <- function(...) {
+      captured <<- c(
+        captured,
+        as.character(unlist(c(character(), ...), use.names = FALSE))
+      )
+    }
+    capture_render <- function(code) {
+      str_flatten_lines(str_split_lines(captured, code))
+    }
+    capture_has_code <- function() length(captured) > 0L
+    capture_allocate_existing_tmp_at_point <- function(var) {
+      line <- tmp_allocation_line(var)
+      if (length(line)) {
+        first_use <- which(grepl(var@name, captured, fixed = TRUE))[[1L]]
+        captured <<- append(captured, line, after = first_use - 1L)
+      }
+      var
+    }
+    capture_declare_tmp_at_point <- function(
+      mode,
+      dims,
+      logical_as_int = FALSE
+    ) {
+      var <- declare_tmp(mode, dims, logical_as_int)
+      allocate_tmp_at_point(var, capture_emit)
+    }
+    capture_mark_runtime_guard <- function() {
+      captured_runtime_guard <<- TRUE
+      invisible()
+    }
+    capture_contains_runtime_guard <- function() captured_runtime_guard
+    list2env(
+      list(
+        emit = capture_emit,
+        declare_tmp = declare_tmp,
+        declare_tmp_at_point = capture_declare_tmp_at_point,
+        allocate_tmp_at_point = capture_allocate_existing_tmp_at_point,
+        render = capture_render,
+        has_code = capture_has_code,
+        mark_runtime_guard = capture_mark_runtime_guard,
+        contains_runtime_guard = capture_contains_runtime_guard,
+        capture = capture
+      ),
+      parent = emptyenv()
+    )
+  }
+
   render <- function(code) {
     code <- str_split_lines(code)
-    if (!length(hoisted) && !has_block()) {
+    if (is_empty()) {
       return(str_flatten_lines(code))
     }
 
@@ -51,7 +178,11 @@ new_hoist <- function(scope) {
     if (has_block()) {
       block_vars <- scope_vars(block_scope)
       decls <- emit_decls(block_vars, block_scope)
-      allocs <- block_tmp_allocation_lines(block_vars, block_scope)
+      prologue_vars <- keep(
+        block_vars,
+        \(var) !var@name %in% point_allocated
+      )
+      allocs <- block_tmp_allocation_lines(prologue_vars, block_scope)
       if (length(allocs)) {
         stmts <- c(allocs, stmts)
       }
@@ -65,30 +196,265 @@ new_hoist <- function(scope) {
     list(
       emit = emit,
       declare_tmp = declare_tmp,
-      render = render
+      is_empty = is_empty,
+      declare_tmp_at_point = declare_tmp_at_point,
+      allocate_tmp_at_point = allocate_existing_tmp_at_point,
+      render = render,
+      mark_runtime_guard = mark_runtime_guard,
+      contains_runtime_guard = contains_runtime_guard,
+      capture = capture
     ),
     parent = emptyenv()
   )
 }
 
+capture_hoist <- function(hoist) {
+  stopifnot(inherits(hoist, "environment"))
+  captured_hoist <- hoist$capture()
+  captured_hoist$defer_static_shape_error <- isTRUE(
+    hoist$defer_static_shape_error
+  )
+  captured_hoist$defer_builtin_arity_error <- isTRUE(
+    hoist$defer_builtin_arity_error
+  )
+  captured_hoist$defer_static_mode_error <- isTRUE(
+    hoist$defer_static_mode_error
+  )
+  captured_hoist$defer_static_value_error <- isTRUE(
+    hoist$defer_static_value_error
+  )
+  captured_hoist
+}
+
 # Hoist `x` into a temporary variable unless it already renders as a bare
-# variable name. Use this whenever the same operand is spliced into generated
-# code more than once: Fortran evaluates intrinsic actual arguments before the
-# call, so repeating an expression duplicates its side effects (e.g. RNG
-# state via runif()).
-hoist_unless_name <- function(x, hoist) {
-  stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
+# variable name or a literal constant. Use this whenever the same operand is
+# spliced into generated code more than once: Fortran evaluates intrinsic
+# actual arguments before the call, so repeating an expression duplicates
+# its side effects (e.g. RNG state via runif()) -- which names and literals
+# don't have.
+hoist_unless_name <- function(
+  x,
+  hoist,
+  allocate_at_point = FALSE,
+  force = FALSE
+) {
+  stopifnot(
+    inherits(x, Fortran),
+    inherits(x@value, Variable),
+    is_bool(allocate_at_point),
+    is_bool(force)
+  )
   code <- trimws(as.character(x))
-  if (!is.null(x@value@name) && identical(code, x@value@name)) {
+  if (
+    !force &&
+      !is.null(x@value@name) &&
+      identical(code, x@value@name)
+  ) {
+    if (allocate_at_point) {
+      hoist$allocate_tmp_at_point(x@value)
+    }
     return(x)
   }
-  tmp <- hoist$declare_tmp(
+  if (
+    !force &&
+      passes_as_scalar(x@value) &&
+      grepl("^-?[0-9]+(\\.[0-9]+)?(_c_(int|double))?$", code)
+  ) {
+    return(x)
+  }
+  declare_tmp <- if (allocate_at_point) {
+    hoist$declare_tmp_at_point
+  } else {
+    hoist$declare_tmp
+  }
+  tmp <- declare_tmp(
     mode = x@value@mode,
     dims = x@value@dims,
-    logical_as_int = logical_as_int(x@value)
+    logical_as_int = logical_as_int(x@value) &&
+      !isTRUE(x@logical_booleanized)
   )
   hoist$emit(glue("{tmp@name} = {x}"))
   Fortran(tmp@name, tmp)
+}
+
+# Replay statements captured while lowering one operand before the next
+# operand is lowered. runif() is the only effectful expression that remains
+# inline; materialize it so its RNG effect also happens at this point.
+finish_captured_operand <- function(operand, captured_hoist, hoist) {
+  stopifnot(
+    inherits(operand, Fortran),
+    inherits(captured_hoist, "environment"),
+    inherits(hoist, "environment")
+  )
+
+  if (captured_hoist$contains_runtime_guard()) {
+    hoist$mark_runtime_guard()
+  }
+
+  if (!inherits(operand@value, Variable)) {
+    if (captured_hoist$has_code()) {
+      hoist$emit(captured_hoist$render(character()))
+    }
+    return(operand)
+  }
+
+  if (grepl("unif_rand()", as.character(operand), fixed = TRUE)) {
+    tmp <- hoist$declare_tmp(
+      mode = operand@value@mode,
+      dims = operand@value@dims,
+      logical_as_int = logical_as_int(operand@value) &&
+        !isTRUE(operand@logical_booleanized)
+    )
+    hoist$emit(captured_hoist$render(glue("{tmp@name} = {operand}")))
+    return(Fortran(tmp@name, tmp))
+  }
+  if (captured_hoist$has_code()) {
+    hoist$emit(captured_hoist$render(character()))
+  }
+  operand
+}
+
+snapshot_operand_before_later_effects <- function(
+  operand,
+  arg,
+  later_args,
+  scope,
+  hoist
+) {
+  stopifnot(is.list(later_args), inherits(scope, "quickr_scope"))
+  if (!inherits(operand@value, Variable)) {
+    return(operand)
+  }
+  mutation_names <- unique(unlist(lapply(
+    later_args,
+    r2f_expression_host_mutations,
+    scope = scope
+  )))
+  read_names <- if (is.null(arg)) {
+    character()
+  } else {
+    all.names(arg, functions = FALSE, unique = TRUE)
+  }
+  operand_code <- trimws(as.character(operand))
+  already_materialized <- inherits(operand@value, Variable) &&
+    !is.null(operand@value@name) &&
+    identical(operand_code, operand@value@name) &&
+    operand@value@name %in% scope_generated_fortran_names(scope)
+  if (
+    !length(later_args) ||
+      is.null(arg) ||
+      is_scalar_atomic(arg) ||
+      already_materialized ||
+      !any(read_names %in% mutation_names)
+  ) {
+    return(operand)
+  }
+  hoist_unless_name(
+    operand,
+    hoist,
+    allocate_at_point = TRUE,
+    force = TRUE
+  )
+}
+
+r2f_expression_host_mutations <- function(e, scope, seen = character()) {
+  if (!is.call(e)) {
+    return(character())
+  }
+
+  callable <- e[[1L]]
+  while (is_call(callable, quote(`(`)) && length(callable) == 2L) {
+    callable <- callable[[2L]]
+  }
+  op <- if (is.symbol(callable)) as.character(callable) else NULL
+  if (identical(op, "function")) {
+    return(character())
+  }
+
+  mutations <- character()
+  if (identical(op, "<<-")) {
+    target <- e[[2L]]
+    while (is_call(target, quote(`(`)) && length(target) == 2L) {
+      target <- target[[2L]]
+    }
+    if (is.call(target) && identical(target[[1L]], quote(`[`))) {
+      target <- target[[2L]]
+    }
+    if (is.symbol(target)) {
+      mutations <- as.character(target)
+    }
+  }
+
+  if (!is.null(op)) {
+    closure_obj <- scope[[op]]
+    if (inherits(closure_obj, LocalClosure) && !op %in% seen) {
+      mutations <- c(
+        mutations,
+        r2f_expression_host_mutations(
+          body(closure_obj@fun),
+          scope,
+          seen = c(seen, op)
+        )
+      )
+    }
+  } else if (
+    is.call(callable) &&
+      identical(callable[[1L]], quote(`function`))
+  ) {
+    mutations <- c(
+      mutations,
+      r2f_expression_host_mutations(callable[[3L]], scope, seen)
+    )
+  }
+
+  children <- as.list(e)[-1L]
+  if (length(children)) {
+    mutations <- c(
+      mutations,
+      unlist(lapply(children, r2f_expression_host_mutations, scope, seen))
+    )
+  }
+  unique(mutations)
+}
+
+lower_r2f_operand_in_order <- function(
+  arg,
+  scope,
+  ...,
+  hoist,
+  later_args = list(),
+  reject_runtime_guard = FALSE,
+  runtime_guard_message = NULL
+) {
+  stopifnot(
+    is.list(later_args),
+    is_bool(reject_runtime_guard),
+    !reject_runtime_guard || is_string(runtime_guard_message)
+  )
+  if (is.symbol(arg) || is_scalar_atomic(arg)) {
+    operand <- r2f(arg, scope, ..., hoist = hoist)
+    return(snapshot_operand_before_later_effects(
+      operand,
+      arg,
+      later_args,
+      scope,
+      hoist
+    ))
+  }
+
+  captured_hoist <- capture_hoist(hoist)
+  operand <- r2f(arg, scope, ..., hoist = captured_hoist)
+  if (reject_runtime_guard && captured_hoist$contains_runtime_guard()) {
+    stop(runtime_guard_message, call. = FALSE)
+  }
+  operand <- finish_captured_operand(operand, captured_hoist, hoist)
+  snapshot_operand_before_later_effects(
+    operand,
+    arg,
+    later_args,
+    scope,
+    hoist
+  )
 }
 
 
@@ -115,17 +481,22 @@ scope_fortran_names <- function(scope) {
   unique(out[nzchar(out)])
 }
 
-make_shadow_fortran_name <- function(scope, base, suffix = "__local_") {
+make_shadow_fortran_name <- function(
+  scope,
+  base,
+  suffix = "__local_",
+  used = scope_fortran_names(scope)
+) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(base), is_string(suffix))
-  used <- scope_fortran_names(scope)
+  used <- tolower(used)
   candidate <- paste0(base, suffix)
-  if (!candidate %in% used) {
+  if (!tolower(candidate) %in% used) {
     return(candidate)
   }
   i <- 1L
   repeat {
     candidate <- paste0(base, suffix, i, "_")
-    if (!candidate %in% used) {
+    if (!tolower(candidate) %in% used) {
       return(candidate)
     }
     i <- i + 1L
@@ -161,6 +532,13 @@ lang2fortran <- r2f <- function(
           length(callable_unwrapped) == 2L
       ) {
         callable_unwrapped <- callable_unwrapped[[2L]]
+      }
+
+      if (isTRUE(hoist$defer_builtin_arity_error)) {
+        arity_error <- lazy_builtin_arity_error(e, scope, recursive = FALSE)
+        if (!is.null(arity_error)) {
+          stop_deferred_branch_error(arity_error)
+        }
       }
 
       if (!is.null(scope)) {
@@ -269,6 +647,11 @@ lang2fortran <- r2f <- function(
           )
         }
       }
+      if (is.null(val) && isTRUE(hoist$defer_static_mode_error)) {
+        stop_deferred_branch_error(
+          paste0("object '", r_name, "' not found")
+        )
+      }
       s <- if (inherits(val, Variable) && !is.null(val@name)) {
         val@name
       } else {
@@ -328,7 +711,10 @@ lang2fortran <- r2f <- function(
     # "bytecode",
     # "weakref"
     # default
-    stop("Unsupported object type encountered: ", typeof(e))
+    stop_static_mode_error(
+      paste0("Unsupported object type encountered: ", typeof(e)),
+      hoist
+    )
   )
 
   attr(fortran, "r") <- e
@@ -346,6 +732,9 @@ lang2fortran <- r2f <- function(
 # --- Atomic Conversion ---
 
 atomic2Fortran <- function(x) {
+  if (is_scalar_na(x)) {
+    stop("NA literals are not supported", call. = FALSE)
+  }
   stopifnot(is_scalar_atomic(x))
   s <- switch(
     typeof(x),
@@ -380,8 +769,31 @@ num2fortran <- function(x) {
 
 get_r2f_handler <- function(name) {
   stopifnot("All functions called must be named as symbols" = is.symbol(name))
-  get0(name, r2f_handlers) %||%
+  handler <- get0(name, r2f_handlers) %||%
     stop("Unsupported function: ", name, call. = FALSE)
+  resolve_handler_fun(handler)
+}
+
+
+# Swap in the handler's current namespace binding, so an instrumented or
+# otherwise rebound copy is dispatched instead of the one captured at
+# registration. Only handlers registered as namespace-level named functions
+# carry a `fun_name`; for every other handler this is a property read and a
+# return. See register_r2f_handler() for why the name is recorded.
+resolve_handler_fun <- function(handler) {
+  if (!inherits(handler, R2FHandler)) {
+    return(handler)
+  }
+  name <- handler@fun_name
+  if (!is_string(name)) {
+    return(handler)
+  }
+  current <- get0(name, envir = environment(handler), mode = "function")
+  if (is.null(current) || identical(current, S7_data(handler))) {
+    return(handler)
+  }
+  S7_data(handler) <- current
+  handler
 }
 
 

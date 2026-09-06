@@ -29,9 +29,11 @@
       
         block
           real(c_double) :: btmp1_
+          real(c_double) :: btmp2_
       
-          btmp1_ = (unif_rand() * 10.0_c_double)
-          out = (aint(btmp1_) - merge(1.0_c_double, 0.0_c_double, (btmp1_ < aint(btmp1_))))
+          btmp1_ = unif_rand()
+          btmp2_ = (btmp1_ * 10.0_c_double)
+          out = (aint(btmp2_) - merge(1.0_c_double, 0.0_c_double, (btmp2_ < aint(btmp2_))))
         end block
       end subroutine
     Code

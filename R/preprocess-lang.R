@@ -1,12 +1,32 @@
 defuse_numeric_literals <- function(e) {
   if (is.call(e)) {
     e <- as.call(lapply(e, defuse_numeric_literals))
+    op <- if (is.symbol(e[[1L]])) as.character(e[[1L]]) else NULL
+    nargs <- length(e) - 1L
+    valid_arity <- if (is_string(op) && op %in% c("+", "-")) {
+      nargs %in% 1:2
+    } else {
+      nargs == 2L
+    }
+    zero_divisor <-
+      is_string(op) &&
+      op %in% c("%%", "%/%") &&
+      valid_arity &&
+      is.atomic(e[[3L]]) &&
+      length(e[[3L]]) == 1L &&
+      !is.na(e[[3L]]) &&
+      e[[3L]] == 0
     if (
-      is.symbol(e1 <- e[[1L]]) &&
-        as.character(e1) %in% c("+", "-", "*", "/", "%%", "%/%", "^") &&
-        all(map_lgl(e[-1L], is.atomic))
+      is_string(op) &&
+        op %in% c("+", "-", "*", "/", "%%", "%/%", "^") &&
+        valid_arity &&
+        all(map_lgl(e[-1L], is.atomic)) &&
+        !zero_divisor
     ) {
-      e <- eval(e, baseenv())
+      folded <- tryCatch(eval(e, baseenv()), error = identity)
+      if (!inherits(folded, "error") && all(is.finite(folded))) {
+        e <- folded
+      }
     }
   }
   e

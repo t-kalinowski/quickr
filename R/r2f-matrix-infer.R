@@ -41,6 +41,22 @@ infer_matrix_arg <- function(arg, scope) {
   list(var = var, trans = "N")
 }
 
+# Carry every input-shape requirement needed before allocating a C result.
+# A solve may need both a square coefficient matrix and conformable RHS rows.
+add_c_bridge_dim_check <- function(out, left, right, message) {
+  if (isTRUE(check_blas_dims(left, right)$unknown)) {
+    out@c_bridge_dim_checks <- c(
+      out@c_bridge_dim_checks,
+      list(list(
+        left = left,
+        right = right,
+        message = message
+      ))
+    )
+  }
+  out
+}
+
 # Infer destination dimensions for %*% based on inputs.
 infer_dest_matmul <- function(args, scope) {
   if (length(args) != 2L) {
@@ -83,17 +99,20 @@ infer_dest_matmul <- function(args, scope) {
     right_dims
   }
 
-  if (left_rank == 2L && right_rank == 1L) {
-    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
-    return(Variable("double", list(out_len, 1L)))
+  out_dims <- if (left_rank == 2L && right_rank == 1L) {
+    list(left_eff$rows, 1L)
+  } else if (left_rank == 1L && right_rank == 2L) {
+    list(1L, right_eff$cols)
+  } else {
+    list(left_eff$rows, right_eff$cols)
   }
-  if (left_rank == 1L && right_rank == 2L) {
-    transA <- if (right_trans == "N") "T" else "N"
-    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
-    return(Variable("double", list(1L, out_len)))
-  }
-
-  Variable("double", list(left_eff$rows, right_eff$cols))
+  # Vector/matrix products need the same contracted-axis guard as GEMM.
+  add_c_bridge_dim_check(
+    Variable("double", out_dims),
+    left_eff$cols,
+    right_eff$rows,
+    "non-conformable arguments in %*%"
+  )
 }
 
 # Shared inference for crossprod/tcrossprod destination sizes.
@@ -105,17 +124,41 @@ infer_dest_crossprod_like <- function(args, scope, trans) {
   }
   y_arg <- args$y %||% if (length(args) > 1L) args[[2L]] else NULL
   y <- if (!is.null(y_arg)) infer_symbol_var(y_arg, scope) else NULL
-  x_dims <- matrix_dims_var(x)
+  if (!is.null(y_arg) && is.null(y)) {
+    return(NULL)
+  }
+  x_dims <- matrix_dims_var(
+    x,
+    orientation = if (
+      identical(trans, "N") && x@rank == 1L && !is.null(y) && y@rank == 2L
+    ) {
+      "rowvec"
+    } else {
+      "matrix"
+    }
+  )
   if (is.null(y)) {
     n <- if (identical(trans, "T")) x_dims$cols else x_dims$rows
     return(Variable("double", list(n, n)))
   }
   y_dims <- matrix_dims_var(y)
   if (identical(trans, "T")) {
-    Variable("double", list(x_dims$cols, y_dims$cols))
+    out <- Variable("double", list(x_dims$cols, y_dims$cols))
+    left <- x_dims$rows
+    right <- y_dims$rows
+    op <- "crossprod"
   } else {
-    Variable("double", list(x_dims$rows, y_dims$rows))
+    out <- Variable("double", list(x_dims$rows, y_dims$rows))
+    left <- x_dims$cols
+    right <- y_dims$cols
+    op <- "tcrossprod"
   }
+  add_c_bridge_dim_check(
+    out,
+    left,
+    right,
+    paste("non-conformable arguments in", op)
+  )
 }
 
 # Infer destination dimensions for crossprod().
@@ -166,11 +209,22 @@ infer_dest_triangular <- function(args, scope) {
   if (is.null(B@dims)) {
     return(NULL)
   }
-  Variable("double", B@dims)
+  out <- add_c_bridge_dim_check(
+    Variable("double", B@dims),
+    A@dims[[1L]],
+    A@dims[[2L]],
+    "triangular solve requires a square matrix"
+  )
+  add_c_bridge_dim_check(
+    out,
+    A@dims[[1L]],
+    B@dims[[1L]],
+    "non-conformable arguments in triangular solve"
+  )
 }
 
 # Infer destination dimensions for solve().
-infer_dest_solve <- function(args, scope) {
+infer_dest_solve <- function(args, scope, context = "solve") {
   a_arg <- args$a %||% args[[1L]]
   if (is.null(a_arg)) {
     return(NULL)
@@ -184,20 +238,44 @@ infer_dest_solve <- function(args, scope) {
   n_cols <- a_dims$cols
 
   b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
+  B <- if (!is.null(b_arg)) infer_symbol_var(b_arg, scope) else NULL
   if (is.null(b_arg)) {
-    return(Variable("double", list(n_rows, n_cols)))
-  }
-  B <- infer_symbol_var(b_arg, scope)
-  if (is.null(B)) {
+    out <- Variable("double", list(n_rows, n_rows))
+  } else if (!is.null(B) && B@rank %in% c(1L, 2L)) {
+    out <- Variable("double", c(list(n_cols), B@dims[-1L]))
+  } else {
     return(NULL)
   }
-  if (B@rank == 1L) {
-    return(Variable("double", list(n_cols)))
+  if (!identical(context, "qr.solve")) {
+    out <- add_c_bridge_dim_check(
+      out,
+      n_rows,
+      n_cols,
+      paste(context, "requires a square matrix")
+    )
   }
-  if (B@rank == 2L) {
-    return(Variable("double", list(n_cols, B@dims[[2L]])))
+  if (!is.null(B)) {
+    out <- add_c_bridge_dim_check(
+      out,
+      n_rows,
+      B@dims[[1L]],
+      paste("non-conformable arguments in", context)
+    )
   }
-  NULL
+  out
+}
+
+infer_dest_qr_solve <- function(args, scope) {
+  out <- infer_dest_solve(args, scope, context = "qr.solve")
+  tol <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
+  # An effectful tolerance must run before a shape error, so that guard
+  # cannot be moved ahead of the Fortran call.
+  if (
+    !is.null(out) && !is_missing(tol) && !r2f_expression_is_pure(tol, scope)
+  ) {
+    out@c_bridge_dim_checks <- list()
+  }
+  out
 }
 
 # Infer destination dimensions for chol().
@@ -211,21 +289,24 @@ infer_dest_chol <- function(args, scope) {
     return(NULL)
   }
   x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
+  add_c_bridge_dim_check(
+    Variable("double", list(x_dims$rows, x_dims$rows)),
+    x_dims$rows,
+    x_dims$cols,
+    "chol requires a square matrix"
+  )
 }
 
 # Infer destination dimensions for chol2inv().
 infer_dest_chol2inv <- function(args, scope) {
-  x_arg <- args$x %||% args[[1L]]
-  if (is.null(x_arg)) {
-    return(NULL)
+  out <- infer_dest_chol(args, scope)
+  if (!is.null(out)) {
+    out@c_bridge_dim_checks <- lapply(out@c_bridge_dim_checks, function(check) {
+      check$message <- "chol2inv requires a square matrix"
+      check
+    })
   }
-  X <- infer_symbol_var(x_arg, scope)
-  if (is.null(X) || X@rank != 2L) {
-    return(NULL)
-  }
-  x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$cols))
+  out
 }
 
 # Helper to infer a size from a literal or symbol.
@@ -333,8 +414,16 @@ infer_dest_diag <- function(args, scope) {
     }
   }
 
-  # Case: x is a scalar symbol without nrow/ncol (identity matrix)
-  if (!is.null(x) && x@rank == 0L && !has_nrow && !has_ncol) {
+  # Case: x is a scalar symbol without nrow/ncol (identity matrix). The
+  # result size depends on the symbol's value, so assignment destination
+  # inference must leave allocation to the diag() handler.
+  if (
+    !is.null(x) &&
+      passes_as_scalar(x) &&
+      x@mode %in% c("integer", "double") &&
+      !has_nrow &&
+      !has_ncol
+  ) {
     return(NULL)
   }
 

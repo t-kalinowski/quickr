@@ -16,17 +16,23 @@ r2f_handlers[["["]] <- function(
   #   an integer of rank 0 or 1. In this case, a rank 1 logical becomes
   #   converted to an integer with
 
-  var <- args[[1]]
-  var <- r2f(var, scope, ..., hoist = hoist)
-
+  var_arg <- args[[1L]]
   idx_args <- args[-1]
   drop <- idx_args$drop %||% TRUE
   idx_args$drop <- NULL
+  later_idx_args <- idx_args[!vapply(idx_args, is_missing, logical(1L))]
+  var <- lower_r2f_operand_in_order(
+    var_arg,
+    scope,
+    ...,
+    hoist = hoist,
+    later_args = later_idx_args
+  )
 
   check_subscript_exprs(var@value, idx_args)
 
   idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(idxs, function(idx, i) {
+  idxs <- imap(unname(idxs), function(idx, i) {
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", var@value@dims[[i]]))
     } else {
@@ -34,7 +40,21 @@ r2f_handlers[["["]] <- function(
       # subscript expressions that need temporaries (e.g. rev(seq_len(n)))
       # will self-render as an inline `block ... end block` *expression*,
       # which is invalid Fortran inside an array designator.
-      sub <- r2f(idx, scope, ..., hoist = hoist)
+      later_idx_args <- if (i < length(idxs)) {
+        idxs[seq.int(i + 1L, length(idxs))]
+      } else {
+        list()
+      }
+      later_idx_args <- later_idx_args[
+        !vapply(later_idx_args, is_missing, logical(1L))
+      ]
+      sub <- lower_r2f_operand_in_order(
+        idx,
+        scope,
+        ...,
+        hoist = hoist,
+        later_args = later_idx_args
+      )
       if (sub@value@mode == "double") {
         # Fortran subscripts must be integers; coerce numeric expressions
         Fortran(
@@ -56,6 +76,20 @@ r2f_handlers[["["]] <- function(
     mask <- booleanize_logical_as_int(mask)
     if (hoist_mask(mask)) {
       return(var)
+    }
+    for (axis in seq_len(mask@value@rank)) {
+      guard_conformable_dims(
+        dim_or_one(var, axis),
+        dim_or_one(mask, axis),
+        "logical mask extents must match indexed value",
+        hoist,
+        scope,
+        left = var,
+        right = mask,
+        left_axis = axis,
+        right_axis = axis,
+        checker = check_equal_dims
+      )
     }
     return(Fortran(
       glue("pack({var}, {mask})"),

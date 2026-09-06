@@ -25,11 +25,21 @@
         ! args
         integer(c_int), intent(in) :: pred(3, 4) ! logical
         real(c_double), intent(out) :: out
+      
+        ! locals
+        logical :: tmp1_ ! logical
+        real(c_double) :: tmp2_
         ! manifest end
       
       
-        out = 0
-        out = merge(1.0_c_double, 0.0_c_double, (pred(2_c_int, 3_c_int) /= 0))
+        out = 0.0_c_double
+        tmp1_ = (pred(2_c_int, 3_c_int) /= 0)
+        if (tmp1_) then
+          tmp2_ = 1.0_c_double
+        else
+          tmp2_ = 0.0_c_double
+        end if
+        out = tmp2_
       end subroutine
     Code
       cat(cwrapper)
@@ -101,15 +111,25 @@
         ! args
         real(c_double), intent(in) :: x(3, 4)
         real(c_double), intent(out) :: out
+      
+        ! locals
+        logical :: tmp1_ ! logical
+        real(c_double) :: tmp2_
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
       
           btmp1_ = (((((x > 0.0_c_double)))))
-          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
+          tmp1_ = btmp1_(2_c_int, 3_c_int)
+          if (tmp1_) then
+            tmp2_ = 1.0_c_double
+          else
+            tmp2_ = 0.0_c_double
+          end if
+          out = tmp2_
         end block
       end subroutine
     Code
@@ -182,15 +202,25 @@
         ! args
         real(c_double), intent(in) :: x(3, 4)
         real(c_double), intent(out) :: out
+      
+        ! locals
+        logical :: tmp1_ ! logical
+        real(c_double) :: tmp2_
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
       
           btmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
-          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
+          tmp1_ = btmp1_(2_c_int, 3_c_int)
+          if (tmp1_) then
+            tmp2_ = 1.0_c_double
+          else
+            tmp2_ = 0.0_c_double
+          end if
+          out = tmp2_
         end block
       end subroutine
     Code
@@ -274,7 +304,7 @@
         ! manifest end
       
       
-        out = 0
+        out = 0.0_c_double
         out = sum(((x + y)), mask = (z > a))
       end subroutine
     Code
@@ -286,10 +316,10 @@
       
       
       extern void fn(
-        const double* const x__, 
-        const double* const y__, 
-        const double* const z__, 
-        const double* const a__, 
+        const double* const x__,
+        const double* const y__,
+        const double* const z__,
+        const double* const a__,
         double* const out__);
       
       SEXP fn_(SEXP _args) {
