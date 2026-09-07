@@ -247,6 +247,17 @@ register_r2f_handler(
       assign(name, var, scope)
     }
 
+    initialized_local_names <- scope_get(
+      scope,
+      "initialized_local_names",
+      character()
+    )
+    scope_set(
+      scope,
+      "initialized_local_names",
+      unique(c(initialized_local_names, var@name))
+    )
+
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
       Fortran("")

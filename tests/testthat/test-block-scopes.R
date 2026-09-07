@@ -109,3 +109,17 @@ test_that("later user variables do not shadow generated temps", {
   expect_quick_identical(root_fn, list(2L))
   expect_quick_identical(block_fn, list(c(1, 2)))
 })
+
+test_that("later loop variables do not shadow generated temps", {
+  fn <- function(x) {
+    declare(type(x = logical(1)))
+    guard <- x && runif(1) > 0
+    out <- 0L
+    for (Tmp1. in 1:2) {
+      out <- out + Tmp1.
+    }
+    out + as.integer(guard)
+  }
+
+  expect_quick_identical(fn, list(FALSE))
+})

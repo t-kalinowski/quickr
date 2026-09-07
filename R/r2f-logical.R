@@ -1,14 +1,26 @@
 # r2f-logical.R
-# Handlers for logical and comparison operators: !, &, &&, |, ||, >=, >, <, <=, ==, !=
+# Handlers for logical and comparison operators: !, &, |, >=, >, <, <=, ==, !=
+# plus the scalar short-circuit forms && and || (compile_andor below).
 
 # --- Handlers ---
 
 # ---- comparison operators ----
 
+reject_complex_ordering <- function(x, hoist) {
+  if (identical(x@value@mode, "complex")) {
+    stop_static_mode_error(
+      "ordering comparisons do not support complex operands",
+      hoist
+    )
+  }
+  invisible()
+}
+
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -25,6 +37,7 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -41,6 +54,7 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -57,6 +71,7 @@ r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -103,11 +118,14 @@ r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
 
 # ---- unary logical not ----
 
-r2f_handlers[["!"]] <- function(args, scope, ...) {
+r2f_handlers[["!"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  x <- r2f(args[[1L]], scope, ...)
+  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
   if (x@value@mode != "logical") {
-    stop("'!' expects a logical value; numeric coercions not yet supported")
+    stop_static_mode_error(
+      "'!' expects a logical value; numeric coercions not yet supported",
+      hoist
+    )
   }
   x <- booleanize_logical_as_int(x)
   Fortran(glue("(.not. {x})"), Variable("logical", x@value@dims))
@@ -143,13 +161,10 @@ register_r2f_handler(
 register_r2f_handler(
   c("&", "|"),
   function(args, scope, ..., hoist = NULL) {
-    # `&&` and `||` deliberately retain the pre-existing eager lowering in
-    # this stack step. Their scalar, short-circuit lowering is isolated in
-    # PR #147 rather than mixed into the elementwise conformability changes.
     args <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
     args <- lapply(args, function(a) {
       if (a@value@mode != "logical") {
-        stop("must be logical")
+        stop_static_mode_error("must be logical", hoist)
       }
       a
     })
@@ -173,9 +188,35 @@ register_r2f_handler(
   }
 )
 
-scalarize_andor_operand <- function(x, op, hoist, scope) {
+# ---- scalar short-circuit operators: && and || ----
+
+# && and || are R's *scalar* control operators: operands must be length 1
+# (R errors otherwise), and the right operand is evaluated only when the
+# left side does not already decide the answer.
+scalarize_andor_operand <- function(
+  x,
+  op,
+  hoist,
+  scope,
+  defer_error = FALSE
+) {
+  if (is.null(x@value) && nzchar(trimws(as.character(x)))) {
+    # Statement-only handlers such as print() cannot supply an operand.
+    # Reject their use here before their emitted statements can be discarded.
+    stop(
+      "`",
+      op,
+      "` does not support statement-only operands; use a separate statement",
+      call. = FALSE
+    )
+  }
   if (is.null(x@value) || !identical(x@value@mode, "logical")) {
-    stop("`", op, "` requires logical operands", call. = FALSE)
+    message <- paste0("`", op, "` requires logical operands")
+    if (!defer_error) {
+      stop(message, call. = FALSE)
+    }
+    emit_quickr_error_if(".true.", message, hoist, scope)
+    return(Fortran(".false.", Variable("logical")))
   }
 
   message <- paste0(
@@ -190,17 +231,16 @@ scalarize_andor_operand <- function(x, op, hoist, scope) {
   }
 
   dims <- lapply(x@value@dims, r2size, scope = scope)
-  if (
-    any(vapply(
-      dims,
-      \(dim) is_wholenumber(dim) && !dim_is_one(dim),
-      logical(1L)
-    ))
-  ) {
-    stop(
-      message,
-      call. = FALSE
-    )
+  length_known_bad <- any(vapply(
+    dims,
+    \(dim) is_wholenumber(dim) && !dim_is_one(dim),
+    logical(1L)
+  ))
+  if (length_known_bad) {
+    if (!defer_error) {
+      stop(message, call. = FALSE)
+    }
+    emit_quickr_error_if(".true.", message, hoist, scope)
   }
   if (is.null(hoist)) {
     stop("internal error: `", op, "` requires hoist context", call. = FALSE)
@@ -214,7 +254,10 @@ scalarize_andor_operand <- function(x, op, hoist, scope) {
     x <- hoist_unless_name(x, hoist)
   }
 
-  if (!all(vapply(dims, dim_is_one, logical(1L)))) {
+  if (
+    !length_known_bad &&
+      !all(vapply(dims, dim_is_one, logical(1L)))
+  ) {
     emit_quickr_error_if(
       glue("size({x}, kind=c_ptrdiff_t) /= 1_c_ptrdiff_t"),
       message,
@@ -229,15 +272,415 @@ scalarize_andor_operand <- function(x, op, hoist, scope) {
   )
 }
 
-register_r2f_handler(
-  c("&&", "||"),
-  function(args, scope, ..., hoist = NULL) {
-    op <- last(list(...)$calls)
-    stopifnot(length(args) == 2L, op %in% c("&&", "||"))
-    .[left, right] <- lapply(args, r2f, scope, ..., hoist = hoist)
-    left <- scalarize_andor_operand(left, op, hoist, scope)
-    right <- scalarize_andor_operand(right, op, hoist, scope)
-    operator <- if (op == "&&") ".and." else ".or."
-    Fortran(glue("{left} {operator} {right}"), Variable("logical"))
+# TRUE when evaluating `e` eagerly is indistinguishable from R's lazy
+# right-operand evaluation: no side effects, no errors, no traps. A
+# conservative whitelist -- names, literals, and compositions of pure
+# non-trapping operations. Anything else (subscripts, %%/%/%, function
+# calls, ...) gets the conditional lowering.
+is_pure_scalar_condition <- function(e, scope) {
+  if (is.symbol(e)) {
+    var <- get0(as.character(e), scope)
+    return(
+      inherits(var, Variable) &&
+        (passes_as_scalar(var) ||
+          var@rank > 0L && all(vapply(var@dims, dim_is_one, logical(1L))))
+    )
   }
+  if (is.atomic(e) && length(e) == 1L) {
+    return(
+      !anyNA(e) &&
+        typeof(e) %in% c("logical", "integer", "double", "complex")
+    )
+  }
+  if (!is.call(e) || !is.symbol(e[[1L]])) {
+    return(FALSE)
+  }
+  op <- as.character(e[[1L]])
+  pure_ops <- c(
+    "(",
+    "!",
+    "&&",
+    "||",
+    "&",
+    "|",
+    "<",
+    "<=",
+    ">",
+    ">=",
+    "==",
+    "!=",
+    "+",
+    "-",
+    "*",
+    "abs"
+  )
+  if (!op %in% pure_ops) {
+    return(FALSE)
+  }
+  if (inherits(scope[[op]], LocalClosure)) {
+    return(FALSE)
+  }
+  allowed <- lazy_builtin_arities[[op]]
+  if (!((length(e) - 1L) %in% allowed)) {
+    return(FALSE)
+  }
+  if (
+    !all(vapply(
+      as.list(e)[-1L],
+      is_pure_scalar_condition,
+      logical(1L),
+      scope = scope
+    ))
+  ) {
+    return(FALSE)
+  }
+  if (op %in% c("!", "&&", "||", "&", "|", "<", "<=", ">", ">=")) {
+    return(is_statically_logical_condition(e, scope))
+  }
+  TRUE
+}
+
+is_statically_complex_expression <- function(e, scope) {
+  if (is.symbol(e)) {
+    var <- get0(as.character(e), scope)
+    return(inherits(var, Variable) && identical(var@mode, "complex"))
+  }
+  if (is.atomic(e)) {
+    return(is.complex(e))
+  }
+  if (!is.call(e) || !is.symbol(e[[1L]])) {
+    return(FALSE)
+  }
+  op <- as.character(e[[1L]])
+  args <- as.list(e)[-1L]
+  if (op == "(" && length(args) == 1L) {
+    return(is_statically_complex_expression(args[[1L]], scope))
+  }
+  op %in%
+    c("+", "-", "*") &&
+    any(vapply(
+      args,
+      is_statically_complex_expression,
+      logical(1L),
+      scope = scope
+    ))
+}
+
+is_statically_logical_condition <- function(e, scope) {
+  if (is.symbol(e)) {
+    var <- get0(as.character(e), scope)
+    return(inherits(var, Variable) && identical(var@mode, "logical"))
+  }
+  if (is.atomic(e)) {
+    return(is.logical(e) && length(e) == 1L)
+  }
+  if (!is.call(e) || !is.symbol(e[[1L]])) {
+    return(FALSE)
+  }
+  op <- as.character(e[[1L]])
+  args <- as.list(e)[-1L]
+  if (op == "(" && length(args) == 1L) {
+    return(is_statically_logical_condition(args[[1L]], scope))
+  }
+  if (op %in% c("==", "!=")) {
+    return(TRUE)
+  }
+  if (op %in% c("<", "<=", ">", ">=")) {
+    return(
+      !any(vapply(
+        args,
+        is_statically_complex_expression,
+        logical(1L),
+        scope = scope
+      ))
+    )
+  }
+  if (op == "!" && length(args) == 1L) {
+    return(is_statically_logical_condition(args[[1L]], scope))
+  }
+  if (op %in% c("&&", "||", "&", "|") && length(args) == 2L) {
+    return(all(vapply(
+      args,
+      is_statically_logical_condition,
+      logical(1L),
+      scope = scope
+    )))
+  }
+  FALSE
+}
+
+lazy_builtin_arities <- list(
+  `(` = 1L,
+  `$` = 2L,
+  `!` = 1L,
+  `&&` = 2L,
+  `||` = 2L,
+  `&` = 2L,
+  `|` = 2L,
+  `<` = 2L,
+  `<=` = 2L,
+  `>` = 2L,
+  `>=` = 2L,
+  `==` = 2L,
+  `!=` = 2L,
+  `+` = 1:2,
+  `-` = 1:2,
+  `*` = 2L,
+  `/` = 2L,
+  `^` = 2L,
+  `%%` = 2L,
+  `%/%` = 2L,
+  `%*%` = 2L,
+  `%o%` = 2L,
+  `:` = 2L,
+  sin = 1L,
+  cos = 1L,
+  tan = 1L,
+  tanh = 1L,
+  asin = 1L,
+  acos = 1L,
+  atan = 1L,
+  sqrt = 1L,
+  exp = 1L,
+  log = 1L,
+  floor = 1L,
+  ceiling = 1L,
+  trunc = 1L,
+  log10 = 1L,
+  abs = 1L,
+  Re = 1L,
+  Im = 1L,
+  Mod = 1L,
+  Arg = 1L,
+  Conj = 1L,
+  as.double = 1L,
+  as.integer = 1L,
+  array = 2:3,
+  cat = 1L,
+  chol2inv = 1L,
+  dim = 1L,
+  drop = 1L,
+  is.null = 1L,
+  ifelse = 3L,
+  length = 1L,
+  ncol = 1L,
+  nrow = 1L,
+  print = 1L,
+  rep.int = 2L,
+  rev = 1L,
+  seq_along = 1L,
+  seq_len = 1L,
+  t = 1L,
+  which.max = 1L,
+  which.min = 1L
 )
+
+lazy_builtin_min_arities <- list(
+  cbind = 1L,
+  rbind = 1L,
+  crossprod = 1L,
+  tcrossprod = 1L,
+  outer = 2L,
+  solve = 1L,
+  qr.solve = 2L,
+  chol = 1L,
+  forwardsolve = 2L,
+  backsolve = 2L
+)
+
+lazy_builtin_arity_error <- function(e, scope, recursive = TRUE) {
+  if (!is.call(e) || !is.symbol(e[[1L]])) {
+    return(NULL)
+  }
+
+  op <- as.character(e[[1L]])
+  allowed <- lazy_builtin_arities[[op]]
+  minimum <- lazy_builtin_min_arities[[op]]
+  is_builtin <- !inherits(scope[[op]], LocalClosure)
+  if (
+    is_builtin &&
+      !is.null(minimum) &&
+      length(e) - 1L < minimum
+  ) {
+    arity_words <- c("zero", "one", "two", "three")
+    minimum_word <- arity_words[[minimum + 1L]]
+    return(paste0(
+      "`",
+      op,
+      "` requires at least ",
+      minimum_word,
+      " argument",
+      if (minimum == 1L) "" else "s"
+    ))
+  }
+  if (
+    is_builtin &&
+      !is.null(allowed) &&
+      !((length(e) - 1L) %in% allowed)
+  ) {
+    arity_words <- c("zero", "one", "two", "three")
+    allowed_words <- arity_words[allowed + 1L]
+    expected <- if (length(allowed_words) == 1L) {
+      paste0(
+        "exactly ",
+        allowed_words,
+        " argument",
+        if (allowed == 1L) "" else "s"
+      )
+    } else {
+      paste0(str_flatten(allowed_words, " or "), " arguments")
+    }
+    return(paste0("`", op, "` requires ", expected))
+  }
+  if (!recursive) {
+    return(NULL)
+  }
+
+  args <- as.list(e)[-1L]
+  if (is_builtin && op %in% c("&&", "||") && length(args) == 2L) {
+    # A nested scalar short-circuit owns its right operand. Only its left
+    # operand is unconditionally evaluated when the nested call is reached.
+    args <- args[1L]
+  }
+  for (arg in args) {
+    error <- lazy_builtin_arity_error(arg, scope, recursive = TRUE)
+    if (!is.null(error)) {
+      return(error)
+    }
+  }
+  NULL
+}
+
+# Bindings and compiler annotations must be separate statements. Function
+# literals own their scopes, so their bodies do not affect this check.
+has_current_scope_assignment <- function(e) {
+  if (!is.call(e) || is_function_call(e)) {
+    return(FALSE)
+  }
+  if (
+    is.symbol(e[[1L]]) &&
+      as.character(e[[1L]]) %in% c("<-", "=", "for", "declare")
+  ) {
+    return(TRUE)
+  }
+  any(vapply(as.list(e), has_current_scope_assignment, logical(1L)))
+}
+
+compile_andor <- function(
+  args,
+  scope,
+  ...,
+  hoist = NULL,
+  defer_andor_error = FALSE
+) {
+  op <- last(list(...)$calls)
+  stopifnot(length(args) == 2L, op %in% c("&&", "||"))
+  has_assignment <- vapply(args, has_current_scope_assignment, logical(1L))
+  if (any(has_assignment)) {
+    stop(
+      "`",
+      op,
+      "` does not support assignment expressions or declarations; use separate statements",
+      call. = FALSE
+    )
+  }
+
+  # R always evaluates the left operand: its hoists stay unconditional.
+  left <- r2f(
+    args[[1L]],
+    scope,
+    ...,
+    hoist = hoist,
+    defer_andor_error = defer_andor_error
+  )
+  left <- scalarize_andor_operand(
+    left,
+    op,
+    hoist,
+    scope,
+    defer_error = defer_andor_error
+  )
+
+  f <- if (op == "&&") ".and." else ".or."
+  rhs_arity_error <- lazy_builtin_arity_error(args[[2L]], scope)
+
+  if (
+    is.null(rhs_arity_error) &&
+      is_pure_scalar_condition(args[[2L]], scope) &&
+      is_statically_logical_condition(args[[2L]], scope)
+  ) {
+    # Fortran may evaluate both operands of .and./.or.; for a pure right
+    # operand that is indistinguishable from short-circuiting, so keep
+    # the compact infix form.
+    right <- r2f(
+      args[[2L]],
+      scope,
+      ...,
+      hoist = hoist,
+      defer_andor_error = defer_andor_error
+    )
+    right <- scalarize_andor_operand(
+      right,
+      op,
+      hoist,
+      scope,
+      defer_error = defer_andor_error
+    )
+    return(Fortran(glue("{left} {f} {right}"), Variable("logical")))
+  }
+
+  # The right operand can error or have side effects; R reaches it only
+  # when the left side does not decide. Compile it into its own hoist and
+  # emit everything inside the conditional.
+  if (is.null(hoist)) {
+    stop("internal error: `", op, "` requires hoist context", call. = FALSE)
+  }
+  # The result must remain visible outside the nested right-operand block.
+  # Declare it in the procedure scope so block-local temporaries cannot
+  # shadow it.
+  tmp <- scope_unique_var(scope, mode = "logical", dims = NULL)
+  register_openmp_private(scope, tmp@name)
+  sub <- new_hoist(scope)
+  sub$defer_static_shape_error <- TRUE
+  sub$defer_builtin_arity_error <- TRUE
+  sub$defer_static_mode_error <- TRUE
+  deferred_error <- NULL
+  right <- tryCatch(
+    r2f(
+      args[[2L]],
+      scope,
+      ...,
+      hoist = sub,
+      defer_andor_error = TRUE
+    ),
+    quickr_deferred_branch_error = function(error) {
+      deferred_error <<- conditionMessage(error)
+      NULL
+    },
+    error = function(error) {
+      deferred_error <<- conditionMessage(error)
+      NULL
+    }
+  )
+  if (is.null(deferred_error)) {
+    right <- scalarize_andor_operand(
+      right,
+      op,
+      sub,
+      scope,
+      defer_error = TRUE
+    )
+  } else {
+    emit_quickr_error_if(".true.", deferred_error, sub, scope)
+    right <- Fortran(".false.", Variable("logical"))
+  }
+
+  hoist$emit(glue("{tmp@name} = {left}"))
+  cond <- if (op == "&&") tmp@name else glue(".not. {tmp@name}")
+  hoist$emit(glue("if ({cond}) then"))
+  hoist$emit(indent(sub$render(glue("{tmp@name} = {right}"))))
+  hoist$emit("end if")
+  Fortran(tmp@name, tmp)
+}
+
+register_r2f_handler(c("&&", "||"), compile_andor)

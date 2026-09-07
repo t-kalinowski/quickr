@@ -19,7 +19,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -49,6 +49,10 @@
           integer(c_int) :: btmp9_
           integer(c_int) :: btmp10_
       
+          if (size(a, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
+            return
+          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, 1))
@@ -181,7 +185,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, b__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -213,6 +217,14 @@
           integer(c_int) :: btmp10_
           integer(c_int) :: btmp11_
       
+          if (size(a, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
+            return
+          end if
+          if (size(b, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
+            return
+          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, b__dim_2_))

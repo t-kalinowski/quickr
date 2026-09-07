@@ -14,6 +14,30 @@ maybe_lower_local_closure_call <- function(
     is_bool(needs_value)
   )
 
+  compile_call <- function(call_expr, closure_obj, proc_name) {
+    compile <- function() {
+      compile_closure_call(
+        call_expr = call_expr,
+        closure_obj = closure_obj,
+        proc_name = proc_name,
+        scope = scope,
+        ...,
+        hoist = hoist,
+        needs_value = needs_value
+      )
+    }
+    if (!isTRUE(hoist$defer_builtin_arity_error)) {
+      return(compile())
+    }
+    tryCatch(
+      compile(),
+      quickr_deferred_branch_error = function(error) stop(error),
+      error = function(error) {
+        stop_deferred_branch_error(conditionMessage(error))
+      }
+    )
+  }
+
   callable_unwrapped <- e[[1L]]
   while (
     is_call(callable_unwrapped, quote(`(`)) &&
@@ -30,15 +54,7 @@ maybe_lower_local_closure_call <- function(
     }
 
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
-    return(compile_closure_call(
-      call_expr = call_expr,
-      closure_obj = closure_obj,
-      proc_name = callable_name,
-      scope = scope,
-      ...,
-      hoist = hoist,
-      needs_value = needs_value
-    ))
+    return(compile_call(call_expr, closure_obj, callable_name))
   }
 
   if (is_function_call(callable_unwrapped)) {
@@ -50,15 +66,7 @@ maybe_lower_local_closure_call <- function(
       name = proc_name
     )
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
-    return(compile_closure_call(
-      call_expr = call_expr,
-      closure_obj = closure_obj,
-      proc_name = proc_name,
-      scope = scope,
-      ...,
-      hoist = hoist,
-      needs_value = needs_value
-    ))
+    return(compile_call(call_expr, closure_obj, proc_name))
   }
 
   NULL

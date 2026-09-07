@@ -17,6 +17,7 @@ r2f_handlers[["cat"]] <- function(args, scope, ...) {
 }
 
 r2f_handlers[["print"]] <- function(args, scope = NULL, ...) {
+  # Only statement use is supported; R's invisible return value is not lowered.
   # args <- lapply(as.list(e)[-1], r2f, scope)
   # args <- as.list(e)[-1]
   # can do alot more here still, just a POC for now

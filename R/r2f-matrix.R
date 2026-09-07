@@ -1,7 +1,7 @@
 # Matrix-specific r2f handlers and wiring
 
 lower_transposed_operand_in_order <- function(arg, scope, ..., hoist) {
-  captured_hoist <- hoist$capture()
+  captured_hoist <- capture_inheriting_deferred_errors(hoist)
   info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
   info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
   info
@@ -650,8 +650,10 @@ register_r2f_handler(
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- maybe_cast_double(
-        lower_r2f_operand_in_order(tol_arg, scope, ..., hoist = hoist)
+      tol <- blas_double_operand(
+        lower_r2f_operand_in_order(tol_arg, scope, ..., hoist = hoist),
+        "qr.solve",
+        hoist
       )
       if (!passes_as_scalar(tol@value)) {
         stop("qr.solve() expects a scalar `tol`", call. = FALSE)
@@ -941,7 +943,7 @@ crossprod_like <- function(
   context
 ) {
   x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
-  x <- maybe_cast_double(x)
+  x <- blas_double_operand(x, context, hoist)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -954,8 +956,10 @@ crossprod_like <- function(
     ))
   }
 
-  y <- maybe_cast_double(
-    lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist)
+  y <- blas_double_operand(
+    lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist),
+    context,
+    hoist
   )
 
   x <- hoist_unless_name(x, hoist)

@@ -3,6 +3,10 @@
 
 # --- Handlers ---
 
+is_literal_zero_divisor <- function(x) {
+  is_scalar_atomic(x) && !is.na(x) && x == 0
+}
+
 r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
@@ -51,9 +55,16 @@ r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
 }
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
+  literal_zero_divisor <- is_literal_zero_divisor(args[[2L]])
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
+  if (literal_zero_divisor) {
+    # Keep a zero divisor out of a constant Fortran expression. Compilers
+    # reject constant division by zero, while a runtime zero follows the
+    # floating-point behavior used by R.
+    right <- hoist_unless_name(right, hoist)
+  }
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
 }
@@ -67,6 +78,11 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   left <- maybe_cast_double(left)
   if (identical(right@value@mode, "logical")) {
     right <- cast_to_mode(right, "integer", "^")
+  }
+  if (isTRUE(hoist$defer_static_mode_error)) {
+    # Keep compile-time domain errors inside a branch that may not run.
+    left <- hoist_unless_name(left, hoist)
+    right <- hoist_unless_name(right, hoist)
   }
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   mode <- reduce_promoted_mode(left, right)
@@ -94,10 +110,20 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
 #   - AINT(x)       : truncation toward 0       (real)
 
 r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is_literal_zero_divisor(args[[2L]])) {
+    stop_static_mode_error(
+      "`%%` does not support a literal zero divisor",
+      hoist
+    )
+  }
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   # `modulo` requires same-typed arguments, so cast both operands to the
   # join (logical joins as integer: R's TRUE %% TRUE is 0L).
   mode <- arith_join_mode(left, right)
+  if (identical(mode, "complex")) {
+    # Fortran modulo() has no complex form; R refuses too.
+    stop_static_mode_error("unimplemented complex operation", hoist)
+  }
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
@@ -107,6 +133,12 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is_literal_zero_divisor(args[[2L]])) {
+    stop_static_mode_error(
+      "`%/%` does not support a literal zero divisor",
+      hoist
+    )
+  }
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "%/%")
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
@@ -126,7 +158,7 @@ r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
       )
       real_floor_expr(q)
     },
-    stop("%/% only implemented for numeric types")
+    stop_static_mode_error("%/% only implemented for numeric types", hoist)
   )
 
   Fortran(expr, out_val)

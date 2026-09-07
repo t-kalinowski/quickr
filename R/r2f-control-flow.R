@@ -38,9 +38,13 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 # TODO: return
 
 # ---- repeat ----
-r2f_handlers[["repeat"]] <- function(args, scope, ...) {
+r2f_handlers[["repeat"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  body <- r2f(args[[1]], scope, ...)
+  # The body gets its own hoist target: forwarding the enclosing
+  # statement's hoist would emit a single-statement body's hoisted code
+  # (BLAS calls, temporaries, guards) once, before the loop, instead of
+  # per iteration. (`{` bodies already isolate each statement.)
+  body <- r2f(args[[1]], scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
   Fortran(glue(
     "do
@@ -63,13 +67,34 @@ r2f_handlers[["next"]] <- function(args, scope, ...) {
 }
 
 # ---- while ----
-r2f_handlers[["while"]] <- function(args, scope, ...) {
+r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 2L)
-  cond <- r2f(args[[1]], scope, ...)
-  body <- r2f(args[[2]], scope, ...) ## should we set a new hoist target here?
+  # The condition is re-evaluated every iteration, so any statements its
+  # translation hoists (e.g. the conditional lowering of `&&`/`||`) must
+  # re-run inside the loop -- the enclosing statement's hoist would
+  # evaluate them once, before the loop. Collect them separately and, when
+  # present, lower to an explicit exit check at the top of the loop body.
+  cond_hoist <- new_hoist(scope)
+  cond <- r2f(args[[1]], scope, ..., hoist = cond_hoist)
+  # The body gets its own hoist target for the same reason: forwarding the
+  # enclosing statement's hoist would emit a single-statement body's
+  # hoisted code (BLAS calls, temporaries, guards) once, before the loop.
+  # (`{` bodies already isolate each statement.)
+  body <- r2f(args[[2]], scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
+  if (cond_hoist$is_empty()) {
+    # nothing hoisted: keep the plain do-while form
+    return(Fortran(glue(
+      "do while ({cond})
+      {indent(body)}
+      end do
+      "
+    )))
+  }
+  cond_code <- cond_hoist$render(glue("if (.not. ({cond})) exit"))
   Fortran(glue(
-    "do while ({cond})
+    "do
+    {indent(cond_code)}
     {indent(body)}
     end do
     "
@@ -82,13 +107,10 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(is.symbol(var))
   var <- as.character(var)
   existing <- get0(var, scope, inherits = FALSE)
-  base_fortran <- fortranize_name(var)
   var_name <- if (inherits(existing, Variable) && !is.null(existing@name)) {
     existing@name
-  } else if (scope_is_closure(scope) && inherits(get0(var, scope), Variable)) {
-    make_shadow_fortran_name(scope, base_fortran)
   } else {
-    base_fortran
+    assignment_fortran_name(var, scope)
   }
 
   iterable_info <- r2f_unwrap_for_iterable(iterable)
@@ -187,7 +209,10 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
       glue("do {idx@name} = 1_c_int, {end}")
     }
 
-    directives <- openmp_directives(parallel, private = var_name)
+    directives <- openmp_directives(
+      parallel,
+      private = c(var_name, openmp_private_vars(scope))
+    )
     if (!is.null(parallel)) {
       mark_openmp_used(scope)
     }
@@ -227,7 +252,10 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   body <- r2f(body, scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
 
-  directives <- openmp_directives(parallel)
+  directives <- openmp_directives(
+    parallel,
+    private = openmp_private_vars(scope)
+  )
   if (!is.null(parallel)) {
     mark_openmp_used(scope)
   }

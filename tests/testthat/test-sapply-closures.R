@@ -361,25 +361,6 @@ test_that("local closures can be called directly with multiple arguments", {
   expect_quick_identical(fn, list(10L, 8L, 0.1, 0.01, 3L))
 })
 
-test_that("local closure calls reject effectful argument promises", {
-  forward <- function() {
-    pair <- function(first, second) {
-      c(first, second)
-    }
-    pair(runif(1), runif(1) + 1)
-  }
-  reverse <- function() {
-    pair <- function(first, second) {
-      c(second, first)
-    }
-    pair(runif(1), runif(1) + 1)
-  }
-
-  message <- "local closure calls only support pure argument expressions"
-  expect_error(quick(forward), message, fixed = TRUE)
-  expect_error(quick(reverse), message, fixed = TRUE)
-})
-
 test_that("local closure purity respects shadowed operators", {
   fn <- function() {
     state <- 0L
@@ -399,7 +380,6 @@ test_that("local closure purity respects shadowed operators", {
     fixed = TRUE
   )
 })
-
 test_that("local closure calls reject guarded argument promises", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(m)))

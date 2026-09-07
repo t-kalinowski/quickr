@@ -85,6 +85,9 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
     return(invisible())
   }
   if (branch@value@rank != mask@value@rank) {
+    if (isTRUE(hoist$defer_static_shape_error)) {
+      stop_deferred_branch_error(ifelse_branch_shape_msg)
+    }
     stop(ifelse_branch_shape_msg, call. = FALSE)
   }
   for (axis in seq_len(mask@value@rank)) {
@@ -107,6 +110,12 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
 # --- Handlers ---
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
+  if (any(vapply(args, has_current_scope_assignment, logical(1L)))) {
+    stop(
+      "ifelse() does not support assignment expressions or declarations; use separate statements",
+      call. = FALSE
+    )
+  }
   mask <- lower_operands_in_order(
     args[1L],
     scope,
@@ -129,27 +138,75 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
 
   lower_branch <- function(arg) {
     sub <- hoist$capture_block()
-    branch <- r2f(arg, scope, ..., hoist = sub)
-    if (
-      !passes_as_scalar(mask@value) &&
-        (!r2f_expression_is_pure(arg, scope) ||
-          !ifelse_branch_shape_is_known(branch, mask))
-    ) {
-      # WHERE may evaluate only selected RHS elements. Materialize a branch
-      # when full evaluation is observable or a runtime shape guard needs its
-      # actual extent.
-      branch <- hoist_unless_name(branch, sub)
+    sub$defer_static_shape_error <- TRUE
+    sub$defer_builtin_arity_error <- TRUE
+    sub$defer_static_mode_error <- TRUE
+    deferred_error <- NULL
+    branch <- tryCatch(
+      {
+        branch <- r2f(arg, scope, ..., hoist = sub)
+        if (!inherits(branch@value, Variable)) {
+          stop_deferred_branch_error(
+            "ifelse() branches must produce a value"
+          )
+        }
+        if (
+          !passes_as_scalar(mask@value) &&
+            (!r2f_expression_is_pure(arg, scope) ||
+              !ifelse_branch_shape_is_known(branch, mask))
+        ) {
+          # WHERE may evaluate only selected RHS elements. Materialize a branch
+          # when full evaluation is observable or a runtime shape guard needs its
+          # actual extent.
+          branch <- hoist_unless_name(branch, sub)
+        }
+        if (!passes_as_scalar(mask@value)) {
+          check_ifelse_branch_shape(branch, mask, sub, scope)
+        }
+        branch
+      },
+      quickr_deferred_branch_error = function(error) {
+        deferred_error <<- conditionMessage(error)
+        NULL
+      },
+      error = function(error) {
+        deferred_error <<- conditionMessage(error)
+        NULL
+      }
+    )
+    if (!is.null(deferred_error)) {
+      emit_quickr_error_if(".true.", deferred_error, sub, scope)
+      return(list(value = NULL, hoist = sub))
     }
     list(value = branch, hoist = sub)
   }
 
   yes <- lower_branch(args[[2L]])
   no <- lower_branch(args[[3L]])
+  value <- yes$value %||% no$value
+  mode <- if (inherits(value, Fortran)) value@value@mode else "logical"
+  error_placeholder <- if (identical(mode, "raw")) {
+    Fortran("0_c_int8_t", Variable("raw"))
+  } else {
+    atomic2Fortran(switch(
+      mode,
+      logical = FALSE,
+      integer = 0L,
+      double = 0,
+      complex = 0 + 0i
+    ))
+  }
+  if (is.null(yes$value)) {
+    yes$value <- error_placeholder
+  }
+  if (is.null(no$value)) {
+    no$value <- error_placeholder
+  }
   tsource <- yes$value
   fsource <- no$value
 
-  # R: the result is shaped like `test` (branches only contribute values).
-  # A scalar test with array branches is not representable with merge().
+  # Scalar tests require scalar branches in quickr, even with a constant
+  # selector. The selected-mode fast path below preserves this shape restriction.
   if (
     passes_as_scalar(mask@value) &&
       !(passes_as_scalar(tsource@value) && passes_as_scalar(fsource@value))
@@ -161,17 +218,32 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
-  # Checked before casts so guards splice the bare operand text. Keep each
-  # guard with its branch because an unselected branch is not evaluated by R.
-  check_ifelse_branch_shape(tsource, mask, yes$hoist, scope)
-  check_ifelse_branch_shape(fsource, mask, no$hoist, scope)
-
   mask <- booleanize_logical_as_int(mask)
 
-  # Assign both branches into one result, promoting them to a common mode.
-  promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
-  .[tsource, fsource] <- promoted$args
-  mode <- promoted$mode
+  selector <- unwrap_parens(args[[1L]])
+  if (is_bool(selector)) {
+    # R's scalar fast path retains the selected branch's mode.
+    selected <- if (selector) yes else no
+    result <- hoist$declare_tmp(
+      mode = selected$value@value@mode,
+      dims = mask@value@dims
+    )
+    hoist$emit(selected$hoist$render(glue("{result@name} = {selected$value}")))
+    return(Fortran(result@name, result))
+  }
+
+  # Assign both branches into one result, promoting numeric modes. Raw values
+  # have no numeric promotion but can be merged with the same raw mode.
+  if (
+    identical(tsource@value@mode, "raw") &&
+      identical(fsource@value@mode, "raw")
+  ) {
+    mode <- "raw"
+  } else {
+    promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
+    .[tsource, fsource] <- promoted$args
+    mode <- promoted$mode
+  }
   result <- hoist$declare_tmp(mode = mode, dims = mask@value@dims)
 
   if (passes_as_scalar(mask@value)) {

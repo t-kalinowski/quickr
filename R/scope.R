@@ -82,6 +82,16 @@ check_reassignment_narrowing <- function(name, target, value) {
   ) {
     return()
   }
+  # Raw storage is outside the numeric promotion lattice and has no implicit
+  # conversion to or from the other modes.
+  if ("raw" %in% c(target@mode, value@mode) && target@mode != value@mode) {
+    stop(
+      "cannot reassign `",
+      name,
+      "`: raw reassignment requires the same mode",
+      call. = FALSE
+    )
+  }
   target_rank <- mode_rank(target@mode)
   value_rank <- mode_rank(value@mode)
   if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {

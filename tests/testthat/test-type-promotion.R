@@ -266,3 +266,46 @@ test_that("subassignment that would narrow the mode is a compile error", {
   }
   expect_quick_equal(fn_ok, list(c(1.5, 2.5, 3.5)))
 })
+
+test_that("raw reassignment requires the same mode", {
+  to_raw <- function(x) {
+    declare(type(x = raw(1)))
+    x <- 2L
+    x
+  }
+  from_raw <- function(x, y) {
+    declare(type(x = integer(1)), type(y = raw(1)))
+    x <- y
+    x
+  }
+  sub_to_raw <- function(x) {
+    declare(type(x = raw(1)))
+    x[1L] <- 2L
+    x
+  }
+  sub_from_raw <- function(x, y) {
+    declare(type(x = integer(1)), type(y = raw(1)))
+    x[1L] <- y
+    x
+  }
+  for (fn in list(to_raw, from_raw, sub_to_raw, sub_from_raw)) {
+    expect_error(
+      quick(fn),
+      "raw reassignment requires the same mode",
+      fixed = TRUE
+    )
+  }
+
+  same_mode <- function(x, y) {
+    declare(type(x = raw(1)), type(y = raw(1)))
+    x <- y
+    x
+  }
+  same_mode_sub <- function(x, y) {
+    declare(type(x = raw(3)), type(y = raw(1)))
+    x[2L] <- y
+    x
+  }
+  expect_quick_identical(same_mode, list(as.raw(0), as.raw(255)))
+  expect_quick_identical(same_mode_sub, list(as.raw(1:3), as.raw(255)))
+})

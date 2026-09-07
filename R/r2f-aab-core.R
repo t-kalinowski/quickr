@@ -7,6 +7,20 @@
 
 # --- Hoisting Infrastructure ---
 
+stop_deferred_branch_error <- function(message) {
+  stop(structure(
+    list(message = message, call = NULL),
+    class = c("quickr_deferred_branch_error", "error", "condition")
+  ))
+}
+
+stop_static_mode_error <- function(message, hoist) {
+  if (!is.null(hoist) && isTRUE(hoist$defer_static_mode_error)) {
+    stop_deferred_branch_error(message)
+  }
+  stop(message, call. = FALSE)
+}
+
 new_hoist <- function(scope) {
   hoisted <- character()
   has_runtime_guard <- FALSE
@@ -28,6 +42,8 @@ new_hoist <- function(scope) {
   contains_runtime_guard <- function() has_runtime_guard
 
   has_block <- function() !is.null(block_scope)
+
+  is_empty <- function() !length(hoisted) && !has_block()
 
   ensure_block_scope <- function() {
     if (is.null(block_scope)) {
@@ -125,7 +141,7 @@ new_hoist <- function(scope) {
 
   render <- function(code) {
     code <- str_split_lines(code)
-    if (!length(hoisted) && !has_block()) {
+    if (is_empty()) {
       return(str_flatten_lines(code))
     }
 
@@ -154,6 +170,7 @@ new_hoist <- function(scope) {
       allocation_guard_at_point = allocation_guard_at_point,
       declare_tmp = declare_tmp,
       declare_tmp_at_point = declare_tmp_at_point,
+      is_empty = is_empty,
       render = render,
       mark_runtime_guard = mark_runtime_guard,
       contains_runtime_guard = contains_runtime_guard,
@@ -222,6 +239,20 @@ finish_captured_operand <- function(operand, captured_hoist, hoist) {
   operand
 }
 
+capture_inheriting_deferred_errors <- function(hoist) {
+  captured_hoist <- hoist$capture()
+  captured_hoist$defer_static_shape_error <- isTRUE(
+    hoist$defer_static_shape_error
+  )
+  captured_hoist$defer_builtin_arity_error <- isTRUE(
+    hoist$defer_builtin_arity_error
+  )
+  captured_hoist$defer_static_mode_error <- isTRUE(
+    hoist$defer_static_mode_error
+  )
+  captured_hoist
+}
+
 lower_r2f_operand_in_order <- function(
   arg,
   scope,
@@ -238,7 +269,7 @@ lower_r2f_operand_in_order <- function(
     return(r2f(arg, scope, ..., hoist = hoist))
   }
 
-  captured_hoist <- hoist$capture()
+  captured_hoist <- capture_inheriting_deferred_errors(hoist)
   operand <- r2f(arg, scope, ..., hoist = captured_hoist)
   if (reject_runtime_guard && captured_hoist$contains_runtime_guard()) {
     stop(runtime_guard_message, call. = FALSE)
@@ -321,6 +352,13 @@ lang2fortran <- r2f <- function(
           length(callable_unwrapped) == 2L
       ) {
         callable_unwrapped <- callable_unwrapped[[2L]]
+      }
+
+      if (isTRUE(hoist$defer_builtin_arity_error)) {
+        arity_error <- lazy_builtin_arity_error(e, scope, recursive = FALSE)
+        if (!is.null(arity_error)) {
+          stop_deferred_branch_error(arity_error)
+        }
       }
 
       if (!is.null(scope)) {
@@ -429,6 +467,11 @@ lang2fortran <- r2f <- function(
           )
         }
       }
+      if (is.null(val) && isTRUE(hoist$defer_static_mode_error)) {
+        stop_deferred_branch_error(
+          paste0("object '", r_name, "' not found")
+        )
+      }
       s <- if (inherits(val, Variable) && !is.null(val@name)) {
         val@name
       } else {
@@ -488,7 +531,10 @@ lang2fortran <- r2f <- function(
     # "bytecode",
     # "weakref"
     # default
-    stop("Unsupported object type encountered: ", typeof(e))
+    stop_static_mode_error(
+      paste0("Unsupported object type encountered: ", typeof(e)),
+      hoist
+    )
   )
 
   attr(fortran, "r") <- e
@@ -506,6 +552,9 @@ lang2fortran <- r2f <- function(
 # --- Atomic Conversion ---
 
 atomic2Fortran <- function(x) {
+  if (is_scalar_na(x)) {
+    stop("NA literals are not supported", call. = FALSE)
+  }
   stopifnot(is_scalar_atomic(x))
   s <- switch(
     typeof(x),

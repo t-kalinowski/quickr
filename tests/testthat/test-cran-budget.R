@@ -17,12 +17,17 @@ test_that("non-smoke test files skip on CRAN", {
     "test-blas-guards.R",
     "test-block-scopes.R",
     "test-conformability-grid.R",
+    "test-evaluation-order.R",
     "test-ifelse.R",
+    "test-lazy-branches.R",
     "test-logical.R",
+    "test-loops.R",
     "test-matrix-inference.R",
+    "test-matrix-lapack.R",
     "test-matrix-mul.R",
     "test-reduction-scalars.R",
     "test-recycling.R",
+    "test-r2f-registry.R",
     "test-sapply-closures.R",
     "test-subset-reduction.R"
   )

@@ -260,11 +260,19 @@ guard_conformable_dims <- function(
   right,
   left_axis = NULL,
   right_axis = NULL,
-  checker = check_elementwise_lengths
+  checker = check_elementwise_lengths,
+  defer_static_error = isTRUE(hoist$defer_static_shape_error)
 ) {
-  stopifnot(is_string(message), is.function(checker))
+  stopifnot(
+    is_string(message),
+    is.function(checker),
+    is_bool(defer_static_error)
+  )
   conform <- checker(left_dim, right_dim)
   if (!conform$ok) {
+    if (defer_static_error) {
+      stop_deferred_branch_error(message)
+    }
     stop(message, call. = FALSE)
   }
   if (conform$unknown) {
@@ -347,6 +355,13 @@ maybe_reshape_vector_matrix <- function(
   scope,
   scalarize_one_by_one = TRUE
 ) {
+  defer_static_error <- isTRUE(hoist$defer_static_shape_error)
+  stop_static_error <- function(message) {
+    if (defer_static_error) {
+      stop_deferred_branch_error(message)
+    }
+    stop(message, call. = FALSE)
+  }
   if (
     !inherits(left, Fortran) ||
       !inherits(right, Fortran) ||
@@ -400,7 +415,7 @@ maybe_reshape_vector_matrix <- function(
       dim <- r2size(dim_or_one(x, axis), scope)
       if (is_wholenumber(dim)) {
         if (as.integer(dim) == 0L) {
-          stop(message, call. = FALSE)
+          stop_static_error(message)
         }
       } else {
         emit_quickr_error_if(
@@ -438,7 +453,8 @@ maybe_reshape_vector_matrix <- function(
       hoist,
       scope,
       left = left,
-      right = right
+      right = right,
+      defer_static_error = defer_static_error
     )
   }
 
@@ -458,7 +474,8 @@ maybe_reshape_vector_matrix <- function(
         left = left,
         right = right,
         left_axis = axis,
-        right_axis = axis
+        right_axis = axis,
+        defer_static_error = defer_static_error
       )
     }
   } else if (
@@ -467,9 +484,8 @@ maybe_reshape_vector_matrix <- function(
       left_rank != right_rank &&
       !setequal(c(left_rank, right_rank), c(1L, 2L))
   ) {
-    stop(
-      "elementwise array operations require matching dimensions",
-      call. = FALSE
+    stop_static_error(
+      "elementwise array operations require matching dimensions"
     )
   }
 
@@ -488,7 +504,8 @@ maybe_reshape_vector_matrix <- function(
       scope,
       left = left,
       right = right,
-      right_axis = 1L
+      right_axis = 1L,
+      defer_static_error = defer_static_error
     )
     left <- hoist_unless_name(left, hoist)
     left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
@@ -503,7 +520,8 @@ maybe_reshape_vector_matrix <- function(
       scope,
       left = right,
       right = left,
-      right_axis = 1L
+      right_axis = 1L,
+      defer_static_error = defer_static_error
     )
     right <- hoist_unless_name(right, hoist)
     right <- reshape_vector_for_matrix(right, left_dims$rows, left_dims$cols)

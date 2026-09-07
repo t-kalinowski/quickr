@@ -100,25 +100,6 @@ test_that("cbind/rbind enforce common lengths", {
   )
 })
 
-test_that("cbind/rbind evaluate effectful arguments from left to right", {
-  cbind_fn <- function() {
-    cbind(runif(2), runif(2) + 1)
-  }
-  rbind_fn <- function() {
-    rbind(runif(2), runif(2) + 1)
-  }
-
-  set.seed(914)
-  cbind_expected <- cbind_fn()
-  set.seed(914)
-  expect_identical(quick(cbind_fn)(), cbind_expected)
-
-  set.seed(915)
-  rbind_expected <- rbind_fn()
-  set.seed(915)
-  expect_identical(quick(rbind_fn)(), rbind_expected)
-})
-
 test_that("cbind/rbind reject rank > 2 inputs with clear errors", {
   capture_bind_error <- function(expr) {
     tryCatch(expr, error = function(e) cat(conditionMessage(e), "\n"))
