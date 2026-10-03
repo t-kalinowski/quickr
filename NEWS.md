@@ -1,5 +1,18 @@
 # quickr (development version)
 
+* Local closure calls now accept argument expressions such as function
+  calls, subsets, and guarded arithmetic, e.g. `my_fun(compute_value(x), y)`
+  or `my_fun(x[5L], y)`. The argument is evaluated into a temporary before
+  the call when that is indistinguishable from R's lazy evaluation: it has
+  no side effects, and the closure always uses it before doing anything
+  observable. Other arguments are still a compile error, which now names
+  the argument and the reason.
+
+* A local closure argument that reads a variable the closure modifies with
+  `<<-` before using the argument is now a compile error. Previously,
+  `f(y + 1)` with `f <- function(a) { y <<- 100; a }` silently returned
+  the result of the old `y` where R uses the new one.
+
 * New support for bitwise operations: `bitwAnd()`, `bitwOr()`, `bitwXor()`,
   `bitwNot()`, `bitwShiftL()`, and `bitwShiftR()`. As in R, the result is
   an integer vector (array dims are dropped), double operands are truncated
