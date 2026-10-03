@@ -700,6 +700,7 @@ match_closure_call_args <- function(
   fun <- closure_obj@fun
   call_expr <- match.call(fun, call_expr)
   args_expr <- as.list(call_expr)[-1L]
+  supplied_names <- names(args_expr) %||% character()
 
   formals_list <- as.list(formals(fun))
   formal_names <- names(formals_list) %||% character()
@@ -769,34 +770,53 @@ match_closure_call_args <- function(
   args_expr <- args_aligned
 
   # Local closures lower to Fortran procedures, so they cannot reproduce R's
-  # lazy promise forcing for effectful or trapping actual expressions. Keep
-  # that boundary explicit instead of choosing an observably wrong order.
+  # lazy promise forcing for effectful or trapping actual expressions. An
+  # argument the caller supplied is evaluated before the call only when that
+  # is indistinguishable from R (see check_closure_arg_promise()); defaults
+  # must be pure. Keep that boundary explicit instead of choosing an
+  # observably wrong order.
   present_names <- formal_names[args_present]
-  pure_args <- map_lgl(
-    args_expr[present_names],
-    r2f_expression_is_pure,
-    scope = scope
-  )
-  promise_error <- paste0(
-    closure_name,
-    " call: local closure calls only support pure argument expressions"
-  )
-  if (any(!pure_args)) {
-    stop(promise_error, call. = FALSE)
-  }
+  promise_error <- closure_arg_promise_error(closure_name)
+  forced <- closure_forced_formals(fun, scope)
+  promises <- lapply(present_names, function(nm) {
+    if (nm %in% supplied_names) {
+      return(check_closure_arg_promise(
+        args_expr[[nm]],
+        nm,
+        closure_obj,
+        closure_name,
+        scope,
+        forced
+      ))
+    }
+    if (!r2f_expression_is_pure(args_expr[[nm]], scope)) {
+      stop(promise_error, call. = FALSE)
+    }
+    list(materialize = FALSE, guard_message = promise_error)
+  })
+  names(promises) <- present_names
 
   args_f <- lapply(formal_names, function(nm) {
     if (!isTRUE(args_present[[nm]])) {
       return(NULL)
     }
-    lower_r2f_operand_in_order(
+    promise <- promises[[nm]]
+    arg <- lower_r2f_operand_in_order(
       args_expr[[nm]],
       scope,
       ...,
       hoist = hoist,
-      reject_runtime_guard = TRUE,
-      runtime_guard_message = promise_error
+      reject_runtime_guard = !is.null(promise$guard_message),
+      runtime_guard_message = promise$guard_message
     )
+    if (
+      promise$materialize &&
+        inherits(arg@value, Variable) &&
+        !is.null(arg@value@mode)
+    ) {
+      arg <- hoist_unless_name(arg, hoist)
+    }
+    arg
   })
   names(args_f) <- formal_names
 
