@@ -1,5 +1,11 @@
 # quickr (development version)
 
+* New support for bitwise operations: `bitwAnd()`, `bitwOr()`, `bitwXor()`,
+  `bitwNot()`, `bitwShiftL()`, and `bitwShiftR()`. As in R, the result is
+  an integer vector (array dims are dropped), double operands are truncated
+  toward zero, and a shift count outside `0:31` gives `NA`. Like other
+  elementwise operations, operand lengths must match unless one is a scalar.
+
 * Repeated `quick()` compilations now reuse successful `R CMD config` results
   for the rest of the R session. Restart R after changing the compiler or
   Makevars configuration.
