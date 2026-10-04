@@ -428,6 +428,20 @@ lang2fortran <- r2f <- function(
             call. = FALSE
           )
         }
+        # Size names (x__len_, x__dim_1_) are compiler-generated arguments.
+        if (
+          !is_size_name(r_name) &&
+            !inherits(get0(r_name, scope), LocalClosure)
+        ) {
+          stop(
+            "`",
+            r_name,
+            "` is not defined in this function (",
+            scope_function_label(scope),
+            ")",
+            call. = FALSE
+          )
+        }
       }
       s <- if (inherits(val, Variable) && !is.null(val@name)) {
         val@name

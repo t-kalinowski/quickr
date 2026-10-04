@@ -4,6 +4,8 @@ new_fortran_subroutine <- function(
   parent = environment(closure)
 ) {
   check_fortran_subroutine_name_valid(name)
+  # splice include("file.R") calls in place (see include.R)
+  closure <- expand_includes(closure)
   check_all_var_names_valid(closure)
 
   # translate body, and populate scope with variables
@@ -25,6 +27,7 @@ new_fortran_subroutine <- function(
   # body <- rlang::zap_srcref(body)
 
   scope <- new_scope(closure, parent)
+  scope_set(scope, "function_label", paste0("`", name, "`"))
   scope_set(
     scope,
     "return_names",

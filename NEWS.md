@@ -1,5 +1,17 @@
 # quickr (development version)
 
+* New `include()` lets a `quick()` function use R code kept in other files.
+  `include("helpers.R")` behaves exactly as if the file's code were written
+  in its place, both when the function is compiled and when it runs as
+  plain R. Paths are resolved against the working directory (the package
+  root during `pkgload::load_all()`), included files can include other
+  files, and `include()` must be a top-level statement of a function body.
+
+* Using a variable that is not defined in a `quick()` function (or a local
+  function inside it) now reports which variable and function, e.g.
+  ``"`gain` is not defined in this function (`f`)"``, instead of an internal
+  error.
+
 * `return()` is now supported in `quick()` functions and local closures,
   both as the last statement and for returning early from branches and
   loops. Every `return()` value must have the same type and shape (a

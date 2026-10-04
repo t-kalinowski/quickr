@@ -137,6 +137,17 @@ compile_internal_subroutine <- function(
 
   proc_scope <- new_scope(fun, parent = formal_scope)
   scope_set(proc_scope, "kind", "closure")
+  # Named closures are bound in the host scope; anonymous ones (e.g. an
+  # inline sapply() function) only have a generated procedure name.
+  scope_set(
+    proc_scope,
+    "function_label",
+    if (inherits(get0(proc_name, parent_scope), LocalClosure)) {
+      paste0("`", proc_name, "`")
+    } else {
+      paste0("an anonymous function in ", scope_function_label(parent_scope))
+    }
+  )
   scope_set(proc_scope, "host_scope", scope_root(parent_scope))
   scope_set(proc_scope, "forbid_superassign", forbid_superassign)
 
