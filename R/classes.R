@@ -443,6 +443,9 @@ R2FHandler := new_class(
     # Set when the handler was registered as a namespace-level named function,
     # so dispatch can re-resolve it by name. See register_r2f_handler().
     fun_name = prop_string(default = NULL, allow_null = TRUE),
+    # When TRUE, r2f passes `needs_value`: whether the call's value is used
+    # (FALSE when the call is compiled as a statement).
+    needs_value = prop_bool(default = FALSE),
     # When NULL, r2f will resolve the callable by name and use match.call().
     # When FALSE, r2f will not attempt match.call().
     match_fun = new_property(

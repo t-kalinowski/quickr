@@ -8,11 +8,13 @@ register_r2f_handler <- function(
   fun,
   dest_supported = NULL,
   dest_infer = NULL,
-  match_fun = TRUE
+  match_fun = TRUE,
+  needs_value = FALSE
 ) {
-  stopifnot(is.function(fun))
+  stopifnot(is.function(fun), is_bool(needs_value))
 
   handler <- if (inherits(fun, R2FHandler)) fun else R2FHandler(fun)
+  handler@needs_value <- needs_value
 
   # Same hazard as `dest_infer` below, for the handler itself: the function
   # object is captured here, at build time, while covr rebinds its instrumented

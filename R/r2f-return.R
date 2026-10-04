@@ -72,6 +72,8 @@ check_return_positions <- function(e, statement = TRUE) {
       as.character(e[[1L]]),
       `{` = seq_along(args),
       `if` = 2:3,
+      # alternatives of a switch() statement (names ignored; EXPR is not)
+      `switch` = switch_alternative_indices(args),
       `for` = 3L,
       `while` = 2L,
       `repeat` = 1L,
