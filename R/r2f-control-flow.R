@@ -35,8 +35,6 @@ r2f_handlers[["if"]] <- function(args, scope, ..., hoist = NULL) {
 }
 
 
-# TODO: return
-
 # ---- repeat ----
 r2f_handlers[["repeat"]] <- function(args, scope, ...) {
   stopifnot(length(args) == 1L)
