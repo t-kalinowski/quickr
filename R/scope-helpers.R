@@ -63,6 +63,19 @@ scope_mark_uses_openmp_flag <- function(scope) {
   invisible(TRUE)
 }
 
+# How to name the function being compiled in user-facing errors: the
+# quick() function or local closure that owns `scope`.
+scope_function_label <- function(scope) {
+  while (inherits(scope, "quickr_scope")) {
+    label <- scope_get(scope, "function_label")
+    if (!is.null(label)) {
+      return(label)
+    }
+    scope <- parent.env(scope)
+  }
+  "unknown function"
+}
+
 scope_forbid_superassign <- function(scope) {
   scope_get(scope, "forbid_superassign", character())
 }
