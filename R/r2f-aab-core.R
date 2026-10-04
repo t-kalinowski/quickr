@@ -361,8 +361,18 @@ lang2fortran <- r2f <- function(
               e <- match.call(match.fun, e)
             }
 
+            # Handlers registered with `needs_value = TRUE` are told whether
+            # the call's value is used (it is not when compiled as a statement).
+            handler_call <- if (
+              inherits(handler, R2FHandler) && isTRUE(handler@needs_value)
+            ) {
+              function(...) handler(..., needs_value = !render_hoist)
+            } else {
+              handler
+            }
+
             if (isTRUE(getOption("quickr.r2f.debug"))) {
-              try(handler(
+              try(handler_call(
                 as.list(e)[-1L],
                 scope,
                 ...,
@@ -371,7 +381,7 @@ lang2fortran <- r2f <- function(
               )) -> res
               if (inherits(res, "try-error")) {
                 debugonce(handler)
-                handler(
+                handler_call(
                   as.list(e)[-1L],
                   scope,
                   ...,
@@ -382,7 +392,7 @@ lang2fortran <- r2f <- function(
 
               res
             } else {
-              handler(
+              handler_call(
                 as.list(e)[-1L],
                 scope,
                 ...,

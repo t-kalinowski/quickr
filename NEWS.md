@@ -1,5 +1,13 @@
 # quickr (development version)
 
+* Numeric `switch()` is now supported and compiles to a Fortran
+  `select case`, so large dispatch tables translate
+  quickly and run as a jump table. Used as a statement, an out-of-range
+  index does nothing, as in R; used as a value, every alternative must give
+  the same type and shape, and an out-of-range index is a runtime error.
+  `break`, `next`, and `return()` work inside alternatives. Character
+  `switch()` is not supported.
+
 * New `include()` lets a `quick()` function use R code kept in other files.
   `include("helpers.R")` behaves exactly as if the file's code were written
   in its place, both when the function is compiled and when it runs as

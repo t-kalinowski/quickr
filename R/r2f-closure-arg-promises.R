@@ -181,6 +181,14 @@ closure_forced_formals <- function(fun, scope) {
         walk(args[[2L]])
         stopped <<- TRUE
       },
+      `switch` = {
+        # Only EXPR is always evaluated; one alternative runs after it.
+        expr_index <- setdiff(seq_along(args), switch_alternative_indices(args))
+        if (length(expr_index)) {
+          walk(args[[expr_index]])
+        }
+        stopped <<- TRUE
+      },
       `repeat` = ,
       `break` = ,
       `next` = {
