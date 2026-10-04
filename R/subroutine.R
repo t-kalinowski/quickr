@@ -12,6 +12,11 @@ new_fortran_subroutine <- function(
   # defuse calls like `-1` and `1+1i`. Not really necessary, but simplifies downstream a little.
   body <- defuse_numeric_literals(body)
 
+  # rewrite return() calls: a trailing return(x) becomes x, early returns
+  # assign a single result variable (see r2f-return.R)
+  returns <- normalize_function_returns(body)
+  body <- returns$body
+
   # TODO: try harder here to use one of the input vars as the output var
   body <- ensure_last_expr_sym(body)
 
@@ -25,6 +30,15 @@ new_fortran_subroutine <- function(
     "return_names",
     unique(unname(closure_return_var_names(closure)))
   )
+  if (!is.null(returns$target)) {
+    scope_set(scope, "return_target", list(name = returns$target, void = FALSE))
+  }
+  if (!is.null(returns$prebind)) {
+    scope[[returns$prebind]] <- Variable(
+      name = assignment_fortran_name(returns$prebind, scope),
+      r_name = returns$prebind
+    )
+  }
 
   # inject symbols for var sizes in declare calls, so like:
   #   declare(type(foo = integer(nr, NA)),

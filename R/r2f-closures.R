@@ -74,6 +74,10 @@ is_sapply_call <- function(x) is.call(x) && identical(x[[1L]], quote(sapply))
 
 new_local_closure <- function(fun, name = NULL) {
   stopifnot(is.function(fun), is.null(name) || is_string(name))
+  normalized <- normalize_closure_returns(body(fun))
+  if (!identical(normalized, body(fun))) {
+    body(fun) <- normalized
+  }
   LocalClosure(fun = fun, name = name)
 }
 
@@ -223,9 +227,21 @@ compile_internal_subroutine <- function(
     }
   }
 
+  # Early return() calls assign the result argument before the final
+  # expression is compiled, so name and bind it up front (r2f-return.R).
+  has_early_returns <- length(find_return_calls(body_expr)) > 0L
+  pick_res_name <- function() {
+    res_name <- "res"
+    while (res_name %in% c(formal_names, used_names)) {
+      res_name <- paste0(res_name, "_")
+    }
+    res_name
+  }
+
   body_prefix <- character()
   assign_code <- character()
   if (is.null(res_var)) {
+    scope_set(proc_scope, "return_target", list(name = NULL, void = TRUE))
     if (is.null(last(stmts))) {
       stmts <- drop_last(stmts)
     }
@@ -234,7 +250,36 @@ compile_internal_subroutine <- function(
     last_expr <- last(stmts)
     prefix <- drop_last(stmts)
 
+    early_res_name <- NULL
+    early_values <- map_lgl(find_return_calls(body_expr), function(ret) {
+      length(ret) > 1L && !is.null(ret[[2L]])
+    })
+    if (has_early_returns && !any(early_values) && isTRUE(allow_void_return)) {
+      # Only bare return() calls, and the caller does not use the value.
+      scope_set(proc_scope, "return_target", list(name = NULL, void = TRUE))
+    } else if (has_early_returns) {
+      early_res_name <- pick_res_name()
+      early_res <- res_var
+      early_res@name <- early_res_name
+      proc_scope[[early_res_name]] <- early_res
+      scope_set(
+        proc_scope,
+        "return_target",
+        list(name = early_res_name, void = FALSE)
+      )
+    }
+
     body_prefix <- compile_nonreturn_statements(prefix, proc_scope)
+
+    if (!is.null(early_res_name) && is.null(res_var@mode)) {
+      # The first early return() fixed the result type.
+      early_res <- proc_scope[[early_res_name]]
+      res_var@mode <- early_res@mode
+      res_var@dims <- early_res@dims
+      if (logical_as_int(early_res)) {
+        res_var@logical_as_int <- TRUE
+      }
+    }
 
     h <- new_hoist(proc_scope)
     expr_error <- NULL
@@ -268,13 +313,17 @@ compile_internal_subroutine <- function(
     } else if (is.null(expr@value@mode)) {
       stop("could not infer closure return type")
     } else {
-      res_name <- "res"
-      while (res_name %in% c(formal_names, used_names)) {
-        res_name <- paste0(res_name, "_")
-      }
+      res_name <- pick_res_name()
       res_var@name <- res_name
       proc_scope[[res_name]] <- res_var
       arg_names <- c(arg_names, res_name)
+    }
+
+    if (!is.null(early_res_name) && is.null(res_var)) {
+      stop(
+        "a local closure that uses return(<value>) must end with a value",
+        call. = FALSE
+      )
     }
 
     if (!is.null(res_var)) {

@@ -1,5 +1,12 @@
 # quickr (development version)
 
+* `return()` is now supported in `quick()` functions and local closures,
+  both as the last statement and for returning early from branches and
+  loops. Every `return()` value must have the same type and shape (a
+  length mismatch that can only be detected at run time raises an error),
+  `return(list(...))` is supported only as the last statement, and
+  `return()` cannot be used inside a `parallel()` loop.
+
 * Local closure calls now accept argument expressions such as function
   calls, subsets, and guarded arithmetic, e.g. `my_fun(compute_value(x), y)`
   or `my_fun(x[5L], y)`. The argument is evaluated into a temporary before
