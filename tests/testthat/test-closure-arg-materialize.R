@@ -266,3 +266,96 @@ test_that("arguments reading a variable the closure superassigns first are rejec
     fixed = TRUE
   )
 })
+
+test_that("an argument used in a <<- target index is used before the write", {
+  # R evaluates `v`, then the index `i`, and only then writes `out[i]`.
+  scatter <- function(x, pos) {
+    declare(type(x = double(NA)), type(pos = integer(NA)))
+    out <- double(8)
+    put <- function(i, v) {
+      out[i] <<- v * 2
+    }
+    for (k in seq_along(pos)) {
+      put(pos[k], x[k])
+    }
+    out
+  }
+  expect_quick_identical(scatter, list(c(1.5, -2, 4), c(3L, 8L, 1L)))
+
+  # The argument appears only inside a computed index.
+  mark_slot <- function(x) {
+    declare(type(x = integer(NA)))
+    seen <- integer(4)
+    mark <- function(code) {
+      seen[bitwAnd(code, 3L) + 1L] <<- 1L
+    }
+    for (k in seq_along(x)) {
+      mark(x[k])
+    }
+    seen
+  }
+  expect_quick_identical(mark_slot, list(c(0L, 5L, 6L)), list(c(3L, 7L)))
+
+  # A different <<- that runs first is still an effect before the argument
+  # is used.
+  effect_first <- function(x, pos) {
+    declare(type(x = double(NA)), type(pos = integer(NA)))
+    out <- double(8)
+    writes <- 0L
+    put <- function(i, v) {
+      writes <<- writes + 1L
+      out[i] <<- v
+    }
+    put(pos[1L], x[1L])
+    out
+  }
+  expect_error(
+    quick(effect_first),
+    "`put` does not always use `i` before other effects",
+    fixed = TRUE
+  )
+})
+
+test_that("arguments forwarded to another local function count as used when it always uses them", {
+  midpoints <- function(x) {
+    declare(type(x = double(NA)))
+    lerp <- function(a, b, t) a + (b - a) * t
+    midpoint <- function(a, b) lerp(a, b, 0.5)
+    out <- double(length(x) - 1L)
+    for (i in seq_len(length(x) - 1L)) {
+      out[i] <- midpoint(x[i], x[i + 1L])
+    }
+    out
+  }
+  expect_quick_identical(midpoints, list(c(1, 3, 4, 10)))
+
+  # Forwarded through several helpers, including inside an expression.
+  layered <- function(x) {
+    declare(type(x = double(NA)))
+    scale_by <- function(v, k) v * k
+    double_it <- function(v) scale_by(v, 2)
+    shifted_double <- function(v) double_it(v + 1)
+    shifted_double(x[2L])
+  }
+  expect_quick_identical(layered, list(c(1, 5)))
+
+  # Forwarding into a helper that uses the argument only conditionally is
+  # still not "always used".
+  conditional_use <- function(x, flag) {
+    declare(type(x = double(NA)), type(flag = logical(1)))
+    maybe <- function(a, use) {
+      out <- 0
+      if (use) {
+        out <- a
+      }
+      out
+    }
+    forward <- function(a, use) maybe(a, use)
+    forward(x[1L], flag)
+  }
+  expect_error(
+    quick(conditional_use),
+    "`forward` does not always use `a`",
+    fixed = TRUE
+  )
+})

@@ -99,10 +99,11 @@ closure_superassign_targets <- function(e, scope, seen = character()) {
 # the walk stops at the first construct whose later effects or forcing are
 # not unconditional: control flow (only its always-evaluated part is
 # walked), a side effect, an error, or a call to a local closure that has
-# side effects. Arguments passed on to other local closures are promises
-# there too, so they do not count as forced.
+# side effects. An argument passed on to another local closure is a promise
+# there too: it counts as forced only if that closure always forces the
+# matching parameter (`seen` stops recursion through closures being walked).
 # Used by: check_closure_arg_promise()
-closure_forced_formals <- function(fun, scope) {
+closure_forced_formals <- function(fun, scope, seen = character()) {
   formal_names <- names(formals(fun)) %||% character()
   forced <- character()
   # Formals reassigned before use: R never evaluates their promise.
@@ -141,6 +142,11 @@ closure_forced_formals <- function(fun, scope) {
 
     closure_obj <- closure_arg_local_closure(op, scope)
     if (!is.null(closure_obj)) {
+      # The callee forces these arguments before any effect of its own, so
+      # their expressions are evaluated (in this frame) at this point.
+      for (actual in closure_call_forced_actuals(e, closure_obj, op, scope, seen)) {
+        walk(actual)
+      }
       if (expr_has_effects(e, scope)) {
         stopped <<- TRUE
       }
@@ -165,7 +171,12 @@ closure_forced_formals <- function(fun, scope) {
         }
       },
       `<<-` = {
+        # R evaluates the value, then the target's indices (x[i] <<- v
+        # evaluates `i`), and only then writes.
         walk(args[[2L]])
+        if (is.call(args[[1L]])) {
+          walk(args[[1L]])
+        }
         stopped <<- TRUE
       },
       `if` = ,
@@ -209,6 +220,25 @@ closure_forced_formals <- function(fun, scope) {
 
   walk(body(fun))
   forced
+}
+
+# The actual argument expressions of `call` (a call to the local closure
+# `closure_obj`, named `name`) that the callee always forces before any
+# effect of its own. A closure already being walked (`seen`) forces nothing,
+# which keeps recursive helpers conservative and finite.
+# Used by: closure_forced_formals()
+closure_call_forced_actuals <- function(call, closure_obj, name, scope, seen) {
+  if (name %in% seen) {
+    return(list())
+  }
+  callee <- closure_obj@fun
+  matched <- tryCatch(match.call(callee, call), error = function(e) NULL)
+  if (is.null(matched)) {
+    return(list())
+  }
+  actuals <- as.list(matched)[-1L]
+  forced_params <- closure_forced_formals(callee, scope, seen = c(seen, name))
+  actuals[intersect(names(actuals) %||% character(), forced_params)]
 }
 
 # Shared prefix for every rejection: existing callers and tests match it.

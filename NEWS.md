@@ -1,5 +1,12 @@
 # quickr (development version)
 
+* Local closure calls accept more argument expressions. An argument counts
+  as used before the closure's side effects when it appears in the index of
+  a `<<-` target (R evaluates `i` in `x[i] <<- v` before writing), and when
+  it is passed on to another local function that always uses it. Previously
+  calls such as `put(pos[k], x[k])` with `put <- function(i, v) out[i] <<- v`
+  were rejected.
+
 * Numeric `switch()` is now supported and compiles to a Fortran
   `select case`, so large dispatch tables translate
   quickly and run as a jump table. Used as a statement, an out-of-range
