@@ -300,19 +300,21 @@ scalarize_andor_operand <- function(
 # non-trapping operations. Anything else (subscripts, %%/%/%, function
 # calls, ...) gets the conditional lowering.
 is_pure_scalar_condition <- function(e, scope) {
+  # Only these modes have supported promotions throughout the whitelist.
+  # Other modes may fail during lowering even when the expression is pure.
+  eager_modes <- c("logical", "integer", "double")
   if (is.symbol(e)) {
     var <- get0(as.character(e), scope)
     return(
       inherits(var, Variable) &&
+        var@mode %in% eager_modes &&
         (passes_as_scalar(var) ||
           var@rank > 0L && all(vapply(var@dims, dim_is_one, logical(1L))))
     )
   }
   if (is.atomic(e) && length(e) == 1L) {
     return(
-      typeof(e) %in%
-        c("logical", "integer", "double", "complex") &&
-        is.finite(e)
+      typeof(e) %in% eager_modes && is.finite(e)
     )
   }
   if (!is.call(e) || !is.symbol(e[[1L]])) {
@@ -363,32 +365,6 @@ is_pure_scalar_condition <- function(e, scope) {
   TRUE
 }
 
-is_statically_complex_expression <- function(e, scope) {
-  if (is.symbol(e)) {
-    var <- get0(as.character(e), scope)
-    return(inherits(var, Variable) && identical(var@mode, "complex"))
-  }
-  if (is.atomic(e)) {
-    return(is.complex(e))
-  }
-  if (!is.call(e) || !is.symbol(e[[1L]])) {
-    return(FALSE)
-  }
-  op <- as.character(e[[1L]])
-  args <- as.list(e)[-1L]
-  if (op == "(" && length(args) == 1L) {
-    return(is_statically_complex_expression(args[[1L]], scope))
-  }
-  op %in%
-    c("+", "-", "*") &&
-    any(vapply(
-      args,
-      is_statically_complex_expression,
-      logical(1L),
-      scope = scope
-    ))
-}
-
 is_statically_logical_condition <- function(e, scope) {
   if (is.symbol(e)) {
     var <- get0(as.character(e), scope)
@@ -405,18 +381,8 @@ is_statically_logical_condition <- function(e, scope) {
   if (op == "(" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
   }
-  if (op %in% c("==", "!=")) {
+  if (op %in% c("==", "!=", "<", "<=", ">", ">=")) {
     return(TRUE)
-  }
-  if (op %in% c("<", "<=", ">", ">=")) {
-    return(
-      !any(vapply(
-        args,
-        is_statically_complex_expression,
-        logical(1L),
-        scope = scope
-      ))
-    )
   }
   if (op == "!" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
