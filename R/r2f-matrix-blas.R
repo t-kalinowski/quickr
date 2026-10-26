@@ -894,11 +894,21 @@ lapack_solve <- function(
   # output target at its own write point (declaration order matters for
   # the emitted block) with the one shared spelling below.
   expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
+  dest_dims <- expected_dims
+  if (
+    !identical(context, "qr.solve") &&
+      !is.null(dest) &&
+      identical(dest@dims, B@value@dims)
+  ) {
+    # The square and RHS conformability guards prove that solve preserves
+    # B's shape, even when its extents use different symbols from ncol(A).
+    dest_dims <- B@value@dims
+  }
   dest_usable <- function() {
     can_use_output(
       dest,
       input_names = c(A_name, B_input_name),
-      expected_dims = expected_dims,
+      expected_dims = dest_dims,
       context = context,
       allow_alias = B_input_name
     )

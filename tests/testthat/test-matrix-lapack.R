@@ -60,6 +60,81 @@ test_that("solve handles column RHS matrices and 1x1 systems", {
   expect_quick_equal(solve_scalar, list(A = matrix(2.5, 1L, 1L), b = 1.25))
 })
 
+test_that("in-place solve preserves an independently sized vector RHS", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, n)), type(b = double(NA)))
+    b <- solve(a, b)
+    b
+  }
+  qfn <- quick(fn)
+  a <- matrix(c(4, 1, 1, 3), 2, 2)
+  b <- c(1, 2)
+  expect_equal(qfn(a, b), fn(a, b))
+  expect_equal(qfn(matrix(2.5, 1, 1), 1.25), 0.5)
+  expect_error(qfn(a, c(1, 2, 3)), "non-conformable arguments in solve")
+})
+
+test_that("in-place solve preserves an independently sized matrix RHS", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, n)), type(b = double(NA, NA)))
+    b <- solve(a, b)
+    b
+  }
+  qfn <- quick(fn)
+  a <- matrix(c(4, 1, 1, 3), 2, 2)
+  b <- matrix(as.double(1:6), 2, 3)
+  expect_equal(qfn(a, b), fn(a, b))
+  expect_equal(
+    qfn(matrix(2.5, 1, 1), matrix(c(1.25, 2.5), 1, 2)),
+    matrix(c(0.5, 1), 1, 2)
+  )
+  expect_error(
+    qfn(a, matrix(as.double(1:6), 3, 2)),
+    "non-conformable arguments in solve"
+  )
+})
+
+test_that("in-place solve preserves the shape of a computed RHS", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, n)), type(b = double(NA)))
+    b <- solve(a, b + 0)
+    b
+  }
+  qfn <- quick(fn)
+  a <- matrix(c(4, 1, 1, 3), 2, 2)
+  b <- c(1, 2)
+  expect_equal(qfn(a, b), fn(a, b))
+  expect_error(qfn(a, c(1, 2, 3)), "non-conformable arguments in solve")
+})
+
+test_that("in-place solve checks squareness before reusing the RHS", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, k)), type(b = double(NA)))
+    b <- solve(a, b)
+    b
+  }
+  qfn <- quick(fn)
+  a <- matrix(c(4, 1, 1, 3), 2, 2)
+  b <- c(1, 2)
+  expect_equal(qfn(a, b), fn(a, b))
+  expect_error(
+    qfn(matrix(as.double(1:6), 2, 3), b),
+    "solve requires a square matrix"
+  )
+})
+
+test_that("in-place qr.solve still rejects an unproven RHS output shape", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, k)), type(b = double(n)))
+    b <- qr.solve(a, b)
+    b
+  }
+  expect_error(
+    quick(fn),
+    "cannot change the shape of an external assignment target"
+  )
+})
+
 test_that("solve requires a square coefficient matrix, like R", {
   # Squareness unknown at compile time: a runtime guard runs before dgesv.
   solve_sym <- function(X, y) {
