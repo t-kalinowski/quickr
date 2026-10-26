@@ -556,6 +556,9 @@ atomic2Fortran <- function(x) {
     stop("NA literals are not supported", call. = FALSE)
   }
   stopifnot(is_scalar_atomic(x))
+  if (is.infinite(x)) {
+    stop("Infinite literals are not supported", call. = FALSE)
+  }
   s <- switch(
     typeof(x),
     double = ,

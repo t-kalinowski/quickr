@@ -288,8 +288,9 @@ is_pure_scalar_condition <- function(e, scope) {
   }
   if (is.atomic(e) && length(e) == 1L) {
     return(
-      !anyNA(e) &&
-        typeof(e) %in% c("logical", "integer", "double", "complex")
+      typeof(e) %in%
+        c("logical", "integer", "double", "complex") &&
+        is.finite(e)
     )
   }
   if (!is.call(e) || !is.symbol(e[[1L]])) {
