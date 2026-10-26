@@ -21,7 +21,7 @@ stop_static_mode_error <- function(message, hoist) {
   stop(message, call. = FALSE)
 }
 
-new_hoist <- function(scope) {
+new_hoist <- function(scope, defer_errors = scope_defers_branch_errors(scope)) {
   hoisted <- character()
   has_runtime_guard <- FALSE
   block_scope <- NULL
@@ -166,6 +166,9 @@ new_hoist <- function(scope) {
 
   list2env(
     list(
+      defer_static_shape_error = defer_errors,
+      defer_builtin_arity_error = defer_errors,
+      defer_static_mode_error = defer_errors,
       emit = emit,
       allocation_guard_at_point = allocation_guard_at_point,
       declare_tmp = declare_tmp,
@@ -347,84 +350,98 @@ lang2fortran <- r2f <- function(
   scope = NULL,
   ...,
   calls = character(),
-  hoist = NULL
+  hoist = NULL,
+  needs_value = NULL
 ) {
   ## 'hoist' is a per-statement context that handlers can use to pre-emit some
   ## Fortran code. E.g., to setup a temporary variable if the generated Fortran
   ## code doesn't neatly translate into a single expression.
   render_hoist <- is.null(hoist)
+  needs_value <- needs_value %||% !render_hoist
   if (render_hoist) {
     hoist <- new_hoist(scope)
   }
 
-  fortran <- switch(
-    typeof(e),
-    language = {
-      # a call
-      callable <- e[[1L]]
-      callable_unwrapped <- callable
-      while (
-        is_call(callable_unwrapped, quote(`(`)) &&
-          length(callable_unwrapped) == 2L
-      ) {
-        callable_unwrapped <- callable_unwrapped[[2L]]
-      }
-
-      if (isTRUE(hoist$defer_builtin_arity_error)) {
-        arity_error <- lazy_builtin_arity_error(e, scope, recursive = FALSE)
-        if (!is.null(arity_error)) {
-          stop_deferred_branch_error(arity_error)
+  fortran <- tryCatch(
+    switch(
+      typeof(e),
+      language = {
+        # a call
+        callable <- e[[1L]]
+        callable_unwrapped <- callable
+        while (
+          is_call(callable_unwrapped, quote(`(`)) &&
+            length(callable_unwrapped) == 2L
+        ) {
+          callable_unwrapped <- callable_unwrapped[[2L]]
         }
-      }
 
-      if (!is.null(scope)) {
-        maybe_lower_local_closure_call(
-          e,
-          scope,
-          ...,
-          hoist = hoist,
-          needs_value = !render_hoist
-        ) %||%
-          {
-            handler <- get_r2f_handler(callable_unwrapped)
+        if (isTRUE(hoist$defer_builtin_arity_error)) {
+          arity_error <- lazy_builtin_arity_error(e, scope, recursive = FALSE)
+          if (!is.null(arity_error)) {
+            stop_deferred_branch_error(arity_error)
+          }
+        }
 
-            match.fun <- if (inherits(handler, R2FHandler)) {
-              handler@match_fun
-            } else {
-              attr(handler, "match.fun", TRUE)
-            }
-            if (is.null(match.fun)) {
-              match.fun <- get0(
-                callable_unwrapped,
-                parent.env(globalenv()),
-                mode = "function"
-              )
-              # this is a best effort to, eg. resolve `seq.default` from `seq`.
-              # This should likely be moved into attaching the `match.fun` attr
-              # to handlers, for more involved resolution (e.g., with getS3Method())
-              if ("UseMethod" %in% all.names(body(match.fun))) {
-                match.fun <- get0(
-                  paste0(callable_unwrapped, ".default"),
-                  parent.env(globalenv()),
-                  mode = "function",
-                  ifnotfound = match.fun
-                )
+        if (!is.null(scope)) {
+          maybe_lower_local_closure_call(
+            e,
+            scope,
+            ...,
+            hoist = hoist,
+            needs_value = needs_value
+          ) %||%
+            {
+              handler <- get_r2f_handler(callable_unwrapped)
+
+              match.fun <- if (inherits(handler, R2FHandler)) {
+                handler@match_fun
+              } else {
+                attr(handler, "match.fun", TRUE)
               }
-            }
-            if (typeof(match.fun) == "closure") {
-              e <- match.call(match.fun, e)
-            }
+              if (is.null(match.fun)) {
+                match.fun <- get0(
+                  callable_unwrapped,
+                  parent.env(globalenv()),
+                  mode = "function"
+                )
+                # this is a best effort to, eg. resolve `seq.default` from `seq`.
+                # This should likely be moved into attaching the `match.fun` attr
+                # to handlers, for more involved resolution (e.g., with getS3Method())
+                if ("UseMethod" %in% all.names(body(match.fun))) {
+                  match.fun <- get0(
+                    paste0(callable_unwrapped, ".default"),
+                    parent.env(globalenv()),
+                    mode = "function",
+                    ifnotfound = match.fun
+                  )
+                }
+              }
+              if (typeof(match.fun) == "closure") {
+                e <- match.call(match.fun, e)
+              }
 
-            if (isTRUE(getOption("quickr.r2f.debug"))) {
-              try(handler(
-                as.list(e)[-1L],
-                scope,
-                ...,
-                calls = c(calls, as.character(callable_unwrapped)),
-                hoist = hoist
-              )) -> res
-              if (inherits(res, "try-error")) {
-                debugonce(handler)
+              if (isTRUE(getOption("quickr.r2f.debug"))) {
+                try(handler(
+                  as.list(e)[-1L],
+                  scope,
+                  ...,
+                  calls = c(calls, as.character(callable_unwrapped)),
+                  hoist = hoist
+                )) -> res
+                if (inherits(res, "try-error")) {
+                  debugonce(handler)
+                  handler(
+                    as.list(e)[-1L],
+                    scope,
+                    ...,
+                    calls = c(calls, as.character(callable_unwrapped)),
+                    hoist = hoist
+                  )
+                }
+
+                res
+              } else {
                 handler(
                   as.list(e)[-1L],
                   scope,
@@ -433,124 +450,123 @@ lang2fortran <- r2f <- function(
                   hoist = hoist
                 )
               }
-
-              res
-            } else {
-              handler(
-                as.list(e)[-1L],
-                scope,
-                ...,
-                calls = c(calls, as.character(callable_unwrapped)),
-                hoist = hoist
-              )
             }
-          }
-      }
-    },
+        }
+      },
 
-    integer = ,
-    double = ,
-    complex = ,
-    logical = atomic2Fortran(e),
+      integer = ,
+      double = ,
+      complex = ,
+      logical = atomic2Fortran(e),
 
-    `NULL` = Fortran("", NULL),
+      `NULL` = Fortran("", NULL),
 
-    symbol = {
-      r_name <- as.character(e)
-      val <- if (is.null(scope)) NULL else get0(r_name, scope)
-      if (inherits(val, SvdResult)) {
-        stop(
-          "svd() results must be accessed with $d, $u, or $v",
-          call. = FALSE
-        )
-      }
-      # `scope` inherits from the R closure environment. Ignore non-compiler
-      # bindings (like captured R objects) so they can't mask undeclared args.
-      if (!inherits(val, Variable) && !inherits(val, SvdResult)) {
-        val <- NULL
-      }
-      if (is.null(val) && inherits(scope, "quickr_scope")) {
-        closure <- scope_closure(scope)
-        arg_names <- if (is.null(closure)) NULL else names(formals(closure))
-        if (!is.null(arg_names) && r_name %in% arg_names) {
+      symbol = {
+        r_name <- as.character(e)
+        val <- if (is.null(scope)) NULL else get0(r_name, scope)
+        if (inherits(val, SvdResult)) {
           stop(
-            "arg not declared: ",
-            r_name,
-            ". Add declare(type(",
-            r_name,
-            " = ...))",
+            "svd() results must be accessed with $d, $u, or $v",
             call. = FALSE
           )
         }
-      }
-      if (is.null(val) && isTRUE(hoist$defer_static_mode_error)) {
-        stop_deferred_branch_error(
-          paste0("object '", r_name, "' not found")
-        )
-      }
-      s <- if (inherits(val, Variable) && !is.null(val@name)) {
-        val@name
-      } else {
-        r_name
-      }
-      if (logical_as_int_symbol(val)) {
-        # logicals passed via the bind(c) interface are stored as integer(0/1)
-        # and must be "booleanized" for Fortran logical operations.
-        s <- paste0("(", s, "/=0)")
-        out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
-        out@logical_booleanized <- TRUE
-        out
-      } else {
-        Fortran(s, value = if (inherits(val, Variable)) val else NULL)
-      }
-    },
-
-    ## handling 'object' and 'closure' here are both bad ideas,
-    ## TODO: delete both
-    # "object" = {
-    #   if (inherits(e, Variable))
-    #     e <- Fortran(character(), e)
-    #   stopifnot(inherits(e, Fortran))
-    #   e
-    # },
-
-    closure = {
-      if (is.null(name <- attr(e, "name", TRUE))) {
-        name <- if (is.symbol(name <- substitute(e))) {
-          as.character(name)
-        } else {
-          "anonymous_function"
+        # `scope` inherits from the R closure environment. Ignore non-compiler
+        # bindings (like captured R objects) so they can't mask undeclared args.
+        if (!inherits(val, Variable) && !inherits(val, SvdResult)) {
+          val <- NULL
         }
+        if (is.null(val) && inherits(scope, "quickr_scope")) {
+          closure <- scope_closure(scope)
+          arg_names <- if (is.null(closure)) NULL else names(formals(closure))
+          if (!is.null(arg_names) && r_name %in% arg_names) {
+            stop(
+              "arg not declared: ",
+              r_name,
+              ". Add declare(type(",
+              r_name,
+              " = ...))",
+              call. = FALSE
+            )
+          }
+        }
+        if (is.null(val) && isTRUE(hoist$defer_static_mode_error)) {
+          stop_deferred_branch_error(
+            paste0("object '", r_name, "' not found")
+          )
+        }
+        s <- if (inherits(val, Variable) && !is.null(val@name)) {
+          val@name
+        } else {
+          r_name
+        }
+        if (logical_as_int_symbol(val)) {
+          # logicals passed via the bind(c) interface are stored as integer(0/1)
+          # and must be "booleanized" for Fortran logical operations.
+          s <- paste0("(", s, "/=0)")
+          out <- Fortran(s, value = if (inherits(val, Variable)) val else NULL)
+          out@logical_booleanized <- TRUE
+          out
+        } else {
+          Fortran(s, value = if (inherits(val, Variable)) val else NULL)
+        }
+      },
+
+      ## handling 'object' and 'closure' here are both bad ideas,
+      ## TODO: delete both
+      # "object" = {
+      #   if (inherits(e, Variable))
+      #     e <- Fortran(character(), e)
+      #   stopifnot(inherits(e, Fortran))
+      #   e
+      # },
+
+      closure = {
+        if (is.null(name <- attr(e, "name", TRUE))) {
+          name <- if (is.symbol(name <- substitute(e))) {
+            as.character(name)
+          } else {
+            "anonymous_function"
+          }
+        }
+
+        stopifnot(is.null(scope))
+        new_fortran_subroutine(name, e)
+      },
+
+      ## all the other typeof() possible values
+      # "character",
+      # "raw" ,
+      # "list",
+      # "NULL",
+      # "function",
+      # "special",
+      # "builtin",
+      # "environment",
+      # "S4",
+      # "pairlist",
+      # "promise",
+      # "char",
+      # "...",
+      # "any",
+      # "expression",
+      # "externalptr",
+      # "bytecode",
+      # "weakref"
+      # default
+      stop_static_mode_error(
+        paste0("Unsupported object type encountered: ", typeof(e)),
+        hoist
+      )
+    ),
+    error = function(error) {
+      if (
+        !render_hoist || needs_value || !isTRUE(hoist$defer_builtin_arity_error)
+      ) {
+        stop(error)
       }
-
-      stopifnot(is.null(scope))
-      new_fortran_subroutine(name, e)
-    },
-
-    ## all the other typeof() possible values
-    # "character",
-    # "raw" ,
-    # "list",
-    # "NULL",
-    # "function",
-    # "special",
-    # "builtin",
-    # "environment",
-    # "S4",
-    # "pairlist",
-    # "promise",
-    # "char",
-    # "...",
-    # "any",
-    # "expression",
-    # "externalptr",
-    # "bytecode",
-    # "weakref"
-    # default
-    stop_static_mode_error(
-      paste0("Unsupported object type encountered: ", typeof(e)),
-      hoist
-    )
+      emit_quickr_error_if(".true.", conditionMessage(error), hoist, scope)
+      Fortran("")
+    }
   )
 
   attr(fortran, "r") <- e

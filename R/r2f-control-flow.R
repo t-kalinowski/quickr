@@ -75,7 +75,18 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   # evaluate them once, before the loop. Collect them separately and, when
   # present, lower to an explicit exit check at the top of the loop body.
   cond_hoist <- new_hoist(scope)
-  cond <- r2f(args[[1]], scope, ..., hoist = cond_hoist)
+  cond <- tryCatch(
+    r2f(args[[1]], scope, ..., hoist = cond_hoist),
+    error = function(error) {
+      # The failed initial condition cannot enter the loop, but its earlier
+      # effects must precede the deferred diagnostic in the enclosing branch.
+      if (cond_hoist$contains_runtime_guard()) {
+        hoist$mark_runtime_guard()
+      }
+      hoist$emit(cond_hoist$render(""))
+      stop(error)
+    }
+  )
   # The body gets its own hoist target for the same reason: forwarding the
   # enclosing statement's hoist would emit a single-statement body's
   # hoisted code (BLAS calls, temporaries, guards) once, before the loop.

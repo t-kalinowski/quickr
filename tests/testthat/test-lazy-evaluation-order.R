@@ -63,3 +63,128 @@ test_that("nested short-circuit errors retain only the evaluated prefix", {
     expect_identical(.Random.seed, expected_seed)
   }
 })
+
+test_that("lazy closure errors preserve their evaluated body prefix", {
+  bodies <- alist(
+    {
+      draw <- runif(1)
+      abs()
+    },
+    {
+      draw <- runif(1)
+      invalid <- abs()
+      later <- runif(2)
+      TRUE
+    },
+    {
+      draw <- runif(1)
+      (runif(1) + abs()) + runif(2)
+    },
+    {
+      draw <- runif(1)
+      nested <- function() {
+        other <- runif(1)
+        abs()
+      }
+      nested()
+    }
+  )
+  branches <- alist(
+    flag && predicate(),
+    !flag || predicate(),
+    ifelse(flag, predicate(), TRUE)
+  )
+  withr::local_seed(149)
+  for (body in bodies) {
+    for (branch in branches) {
+      fn <- eval(bquote(function(flag) {
+        declare(type(flag = logical(1)))
+        predicate <- function() .(body)
+        .(branch)
+      }))
+      qfn <- quick(fn)
+
+      set.seed(149)
+      expected <- fn(FALSE)
+      expected_seed <- .Random.seed
+      set.seed(149)
+      expect_identical(qfn(FALSE), expected)
+      expect_identical(.Random.seed, expected_seed)
+
+      set.seed(149)
+      expect_error(fn(TRUE), "abs")
+      expected_seed <- .Random.seed
+      set.seed(149)
+      expect_error(qfn(TRUE))
+      expect_identical(.Random.seed, expected_seed, info = deparse1(body))
+    }
+  }
+})
+
+test_that("deferred closure errors stay inside nested control flow", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      if (flag) {
+        draw <- runif(1)
+        invalid <- abs()
+        later <- runif(2)
+      }
+      TRUE
+    }
+    TRUE && predicate()
+  }
+  qfn <- quick(fn)
+  withr::local_seed(150)
+  before <- .Random.seed
+  expect_identical(qfn(FALSE), fn(FALSE))
+  expect_identical(.Random.seed, before)
+  set.seed(150)
+  expect_error(fn(TRUE), "abs")
+  expected_seed <- .Random.seed
+  set.seed(150)
+  expect_error(qfn(TRUE))
+  expect_identical(.Random.seed, expected_seed)
+})
+
+test_that("failed closure results do not constrain other lazy branches", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      draw <- runif(1)
+      abs()
+    }
+    ifelse(flag, predicate(), 1i)
+  }
+  qfn <- quick(fn)
+  withr::local_seed(151)
+  expect_identical(qfn(FALSE), fn(FALSE))
+  set.seed(151)
+  expect_error(fn(TRUE), "abs")
+  expected_seed <- .Random.seed
+  set.seed(151)
+  expect_error(qfn(TRUE))
+  expect_identical(.Random.seed, expected_seed)
+})
+
+test_that("invalid NULL closure results retain preceding effects", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      draw <- runif(1)
+      NULL
+    }
+    flag && predicate()
+  }
+  qfn <- quick(fn)
+  withr::local_seed(152)
+  before <- .Random.seed
+  expect_identical(qfn(FALSE), fn(FALSE))
+  expect_identical(.Random.seed, before)
+  set.seed(152)
+  expect_error(fn(TRUE))
+  expected_seed <- .Random.seed
+  set.seed(152)
+  expect_error(qfn(TRUE))
+  expect_identical(.Random.seed, expected_seed)
+})
