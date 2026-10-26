@@ -239,6 +239,18 @@ finish_captured_operand <- function(operand, captured_hoist, hoist) {
   operand
 }
 
+preserve_captured_errors <- function(expr, captured_hoist, hoist) {
+  tryCatch(
+    expr,
+    error = function(error) {
+      # The lazy branch owns the diagnostic, but earlier operand effects
+      # must reach that branch before the error is propagated.
+      finish_captured_operand(Fortran(""), captured_hoist, hoist)
+      stop(error)
+    }
+  )
+}
+
 capture_inheriting_deferred_errors <- function(hoist) {
   captured_hoist <- hoist$capture()
   captured_hoist$defer_static_shape_error <- isTRUE(
@@ -270,7 +282,11 @@ lower_r2f_operand_in_order <- function(
   }
 
   captured_hoist <- capture_inheriting_deferred_errors(hoist)
-  operand <- r2f(arg, scope, ..., hoist = captured_hoist)
+  operand <- preserve_captured_errors(
+    r2f(arg, scope, ..., hoist = captured_hoist),
+    captured_hoist,
+    hoist
+  )
   if (reject_runtime_guard && captured_hoist$contains_runtime_guard()) {
     stop(runtime_guard_message, call. = FALSE)
   }

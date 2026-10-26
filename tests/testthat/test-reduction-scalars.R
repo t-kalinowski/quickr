@@ -139,6 +139,35 @@ test_that("multi-argument extrema ignore empty inputs", {
   )
 })
 
+test_that("reductions evaluate arguments before later argument side effects", {
+  for (reducer in c("min", "max", "sum", "prod")) {
+    scalar <- eval(bquote(function() {
+      x <- 1
+      change <- function() {
+        x <<- 3
+        2
+      }
+      .(as.name(reducer))(x, change())
+    }))
+    expect_quick_identical(scalar, list())
+  }
+})
+
+test_that("extrema preserve masks before later argument side effects", {
+  for (reducer in c("min", "max")) {
+    masked <- eval(bquote(function(x, mask) {
+      declare(type(x = double(1)), type(mask = logical(1)))
+      change <- function() {
+        mask <<- !mask
+        x <<- 3
+        2
+      }
+      .(as.name(reducer))(x[mask], change())
+    }))
+    expect_quick_identical(masked, list(1, FALSE), list(1, TRUE))
+  }
+})
+
 
 test_that("nested scalar min/max compiles and runs", {
   fn <- function(m) {

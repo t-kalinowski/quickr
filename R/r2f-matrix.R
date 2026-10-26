@@ -2,7 +2,11 @@
 
 lower_transposed_operand_in_order <- function(arg, scope, ..., hoist) {
   captured_hoist <- capture_inheriting_deferred_errors(hoist)
-  info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
+  info <- preserve_captured_errors(
+    unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist),
+    captured_hoist,
+    hoist
+  )
   info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
   info
 }
