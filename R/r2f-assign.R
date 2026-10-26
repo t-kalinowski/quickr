@@ -59,9 +59,26 @@ assignment_is_local_closure_call <- function(rhs, scope) {
     inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
 }
 
-assignment_register_initialized <- function(var, scope) {
+assignment_register_initialized <- function(
+  var,
+  scope,
+  allocates_dest = FALSE
+) {
   stopifnot(inherits(var, Variable))
-  # Later BLAS assignments must retain allocation needed by earlier producers.
+  # Entry allocation is a whole-function decision. Any producer that needs
+  # preallocated storage must retain it, before or after a guarded BLAS write.
+  if (!allocates_dest) {
+    point_allocated <- scope_get(
+      scope,
+      "point_allocated_local_names",
+      character()
+    )
+    scope_set(
+      scope,
+      "point_allocated_local_names",
+      point_allocated[tolower(point_allocated) != tolower(var@name)]
+    )
+  }
   initialized_local_names <- scope_get(
     scope,
     "initialized_local_names",
@@ -264,7 +281,11 @@ register_r2f_handler(
       assign(name, var, scope)
     }
 
-    assignment_register_initialized(var, scope)
+    assignment_register_initialized(
+      var,
+      scope,
+      allocates_dest = inherits(value, Fortran) && isTRUE(value@allocates_dest)
+    )
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {

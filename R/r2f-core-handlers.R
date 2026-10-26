@@ -65,7 +65,10 @@ r2f_handlers[["stop"]] <- function(args, scope = NULL, ...) {
 
 r2f_handlers[["("]] <- function(args, scope, ...) {
   x <- r2f(args[[1L]], scope, ...)
-  Fortran(glue("({x})"), x@value)
+  out <- Fortran(glue("({x})"), x@value)
+  out@writes_to_dest <- x@writes_to_dest
+  out@allocates_dest <- x@allocates_dest
+  out
 }
 
 r2f_handlers[["$"]] <- function(args, scope, ..., hoist = NULL) {

@@ -384,6 +384,8 @@ Fortran := new_class(
     # consistently propagated with the Fortran object.
     logical_booleanized = prop_bool(default = FALSE),
     writes_to_dest = prop_bool(default = FALSE),
+    # The producer allocates a reusable destination before writing when needed.
+    allocates_dest = prop_bool(default = FALSE),
 
     r = new_property(
       # custom setter only to workaround https://github.com/RConsortium/S7/issues/511

@@ -475,6 +475,7 @@ gemm <- function(
     emit_blas_contraction(blas_call, dest@name, k, hoist)
     out <- Fortran(dest@name, dest)
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
     return(out)
   }
 
@@ -538,6 +539,7 @@ gemv <- function(
     emit_blas_contraction(blas_call, dest@name, contracted_dim, hoist)
     out <- Fortran(dest@name, dest)
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
     return(out)
   }
   # Else assign to a temporary variable
@@ -665,6 +667,7 @@ syrk <- function(
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }
@@ -711,6 +714,7 @@ outer_mul <- function(
     ))
     out <- Fortran(dest@name, dest)
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
     return(out)
   }
 
@@ -822,6 +826,7 @@ triangular_solve <- function(
   out <- Fortran(B_name, out_var)
   if (writes_to_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }
@@ -1061,6 +1066,7 @@ end do"
   out <- Fortran(out_name, out_var)
   if (use_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }
@@ -1142,6 +1148,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }
@@ -1206,6 +1213,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }
@@ -1276,6 +1284,7 @@ lapack_chol2inv <- function(
   out <- Fortran(out_name, out_var)
   if (writes_to_dest) {
     out@writes_to_dest <- TRUE
+    out@allocates_dest <- TRUE
   }
   out
 }

@@ -60,7 +60,7 @@ test_that("matrix-vector %*% guards before allocating its result", {
 test_that("matrix-matrix %*% guards before allocating a reusable local", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m, p)))
-    out <- a %*% b
+    out <- (a %*% b)
     sum(out)
   }
 
