@@ -15,6 +15,7 @@ test_that("non-smoke test files skip on CRAN", {
   always_run_files <- c(
     "test-bind.R",
     "test-blas-guards.R",
+    "test-blas-specialized-initializers.R",
     "test-block-scopes.R",
     "test-complex-ordering.R",
     "test-conformability-grid.R",
