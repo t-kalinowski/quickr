@@ -198,10 +198,15 @@ insert_fortran_line_continuations <- function(
         "Too long line encountered.",
         "Please split long expressions into a sequence of smaller expressions."
       )
+      continuation <- if (grepl("^!\\$omp\\b", line, ignore.case = TRUE)) {
+        "!$omp& "
+      } else {
+        "& "
+      }
       wrapped <- strwrap(
         line,
         width = max_len - 1L,
-        prefix = "& ",
+        prefix = continuation,
         initial = ""
       )
       if (length(wrapped) > 256L || any(nchar(wrapped) > max_len - 1L)) {
@@ -213,8 +218,9 @@ insert_fortran_line_continuations <- function(
     # remove leading indentation
     lines[too_long] <- trimws(lines[too_long], "left")
 
-    # move trailing comment at the end
-    lines[too_long] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[too_long])
+    # OpenMP sentinels are directives, not trailing comments.
+    code_lines <- too_long & !grepl("^!\\$omp\\b", lines, ignore.case = TRUE)
+    lines[code_lines] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[code_lines])
     lines <- str_split_lines(lines)
 
     lines <- unlist(lapply(lines, split_long_fortran_line), use.names = FALSE)
