@@ -31,8 +31,11 @@ promote_comparison_pair <- function(left, right) {
   promote_arith_pair(args[[1L]], args[[2L]], "comparison")
 }
 
-reject_complex_ordering <- function(x, hoist) {
-  if (identical(x@value@mode, "complex")) {
+reject_complex_ordering <- function(left, right, hoist) {
+  if (
+    identical(left@value@mode, "complex") ||
+      identical(right@value@mode, "complex")
+  ) {
     stop_static_mode_error(
       "ordering comparisons do not support complex operands",
       hoist
@@ -44,7 +47,7 @@ reject_complex_ordering <- function(x, hoist) {
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_comparison_pair(left, right)
-  reject_complex_ordering(left, hoist)
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -60,7 +63,7 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_comparison_pair(left, right)
-  reject_complex_ordering(left, hoist)
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -76,7 +79,7 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_comparison_pair(left, right)
-  reject_complex_ordering(left, hoist)
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -92,7 +95,7 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_comparison_pair(left, right)
-  reject_complex_ordering(left, hoist)
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
