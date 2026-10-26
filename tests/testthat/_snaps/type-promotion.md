@@ -323,31 +323,37 @@
       
       
         block
-          real(c_double) :: btmp1_
+          logical :: btmp1_ ! logical
           integer(c_int) :: btmp2_
+          real(c_double) :: btmp3_
+          real(c_double) :: btmp4_
+          integer(c_int) :: btmp5_
       
-          btmp2_ = 0_c_int
-      
-          if (size(x, kind=c_ptrdiff_t) > 0_c_ptrdiff_t) then
-            if (btmp2_ == 0_c_int) then
-              btmp1_ = real(maxval(x), kind=c_double)
-              btmp2_ = 1_c_int
+          btmp1_ = size(x, kind=c_ptrdiff_t) > 0_c_ptrdiff_t
+          if (btmp1_) then
+            btmp2_ = maxval(x)
+          end if
+          btmp3_ = 2.5_c_double
+          btmp5_ = 0_c_int
+          if (btmp1_) then
+            if (btmp5_ == 0_c_int) then
+              btmp4_ = real(btmp2_, kind=c_double)
+              btmp5_ = 1_c_int
             else
-              btmp1_ = max(btmp1_, real(maxval(x), kind=c_double))
+              btmp4_ = max(btmp4_, real(btmp2_, kind=c_double))
             end if
           end if
-      
-          if (btmp2_ == 0_c_int) then
-            btmp1_ = 2.5_c_double
-            btmp2_ = 1_c_int
+          if (btmp5_ == 0_c_int) then
+            btmp4_ = btmp3_
+            btmp5_ = 1_c_int
           else
-            btmp1_ = max(btmp1_, 2.5_c_double)
+            btmp4_ = max(btmp4_, btmp3_)
           end if
-          if (btmp2_ == 0_c_int) then
+          if (btmp5_ == 0_c_int) then
             call quickr_set_error_msg("min()/max() of empty inputs are not supported")
             return
           end if
-          out_ = btmp1_
+          out_ = btmp4_
         end block
       
         contains
