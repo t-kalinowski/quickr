@@ -242,7 +242,13 @@ assert_nonempty_blas_output <- function(
 }
 
 # Check that destination dimensions match expected output dimensions.
-assert_dest_dims_compatible <- function(dest, expected_dims, context) {
+assert_dest_dims_compatible <- function(
+  dest,
+  expected_dims,
+  context,
+  square = FALSE
+) {
+  stopifnot(is_bool(square), !square || length(expected_dims) == 2L)
   if (is.null(dest) || is.null(expected_dims)) {
     return(TRUE)
   }
@@ -255,6 +261,14 @@ assert_dest_dims_compatible <- function(dest, expected_dims, context) {
     dest_dim <- dest@dims[[i]]
     expected_dim <- expected_dims[[i]]
     verdict <- check_equal_dims(dest_dim, expected_dim)
+    if (square && verdict$unknown) {
+      # The square-matrix guard proves both extents equal, so either spelling
+      # can establish the size of either destination axis.
+      alternate <- check_equal_dims(dest_dim, expected_dims[[3L - i]])
+      if (alternate$ok && !alternate$unknown) {
+        verdict <- alternate
+      }
+    }
     if (!verdict$ok) {
       stop(
         "assignment target has incompatible dimensions for ",
@@ -275,7 +289,8 @@ can_use_output <- function(
   context,
   allow_alias = character(),
   mode = "double",
-  logical_is_c_int = FALSE
+  logical_is_c_int = FALSE,
+  square = FALSE
 ) {
   stopifnot(
     is_bool(logical_is_c_int),
@@ -290,7 +305,12 @@ can_use_output <- function(
   if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
-  dims_proven <- assert_dest_dims_compatible(dest, expected_dims, context)
+  dims_proven <- assert_dest_dims_compatible(
+    dest,
+    expected_dims,
+    context,
+    square = square
+  )
   if (!dims_proven && isTRUE(dest@is_external)) {
     stop(
       "cannot change the shape of an external assignment target in ",
@@ -1093,7 +1113,8 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
       input_names = A_name,
       expected_dims = out_dims,
       context = context,
-      allow_alias = A_name
+      allow_alias = A_name,
+      square = TRUE
     )
   ) {
     out_var <- dest
@@ -1175,7 +1196,8 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
       input_names = A_name,
       expected_dims = out_dims,
       context = context,
-      allow_alias = A_name
+      allow_alias = A_name,
+      square = TRUE
     )
   ) {
     out_var <- dest
@@ -1246,7 +1268,8 @@ lapack_chol2inv <- function(
       input_names = R_name,
       expected_dims = out_dims,
       context = context,
-      allow_alias = R_name
+      allow_alias = R_name,
+      square = TRUE
     )
   ) {
     out_var <- dest

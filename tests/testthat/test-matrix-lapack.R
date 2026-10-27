@@ -33,6 +33,72 @@ test_that("solve matches R for vector, matrix, and inverse", {
   expect_quick_equal(solve_inv, list(A = A))
 })
 
+for (op in c("solve", "chol", "chol2inv")) {
+  test_that(paste(op, "uses square guards for declared output dimensions"), {
+    output_types <- alist(
+      double(n, n),
+      double(k, k),
+      double(n, k),
+      double(k, n)
+    )
+    for (output_type in output_types) {
+      fn <- eval(bquote(function(a) {
+        declare(type(a = double(n, k)), type(out = .(output_type)))
+        out <- .(call(op, quote(a)))
+        out
+      }))
+      qfn <- quick(fn)
+      for (a in list(matrix(c(4, 1, 1, 3), 2, 2), diag(c(2, 3, 4)))) {
+        if (op == "chol2inv") {
+          a <- chol(a)
+        }
+        expect_equal(qfn(a), fn(a))
+      }
+      expect_error(
+        qfn(matrix(as.double(1:6), 2, 3)),
+        paste(op, "requires a square matrix"),
+        fixed = TRUE
+      )
+    }
+  })
+
+  test_that(paste(op, "preserves independently named in-place extents"), {
+    fn <- eval(bquote(function(a) {
+      declare(type(a = double(n, k)))
+      a <- .(call(op, quote(a)))
+      a
+    }))
+    qfn <- quick(fn)
+    a <- matrix(c(4, 1, 1, 3), 2, 2)
+    if (op == "chol2inv") {
+      a <- chol(a)
+    }
+    expect_equal(qfn(a), fn(a))
+    expect_error(
+      qfn(matrix(as.double(1:6), 2, 3)),
+      paste(op, "requires a square matrix"),
+      fixed = TRUE
+    )
+  })
+
+  test_that(paste(op, "rejects output extents not established by its guard"), {
+    fn <- eval(bquote(function(a, b) {
+      declare(
+        type(a = double(n, k)),
+        type(b = double(m)),
+        type(out = double(n, m))
+      )
+      out <- .(call(op, quote(a)))
+      out
+    }))
+    expect_error(
+      quick(fn),
+      "cannot change the shape of an external assignment target",
+      fixed = TRUE
+    )
+  })
+}
+
 test_that("solve handles column RHS matrices and 1x1 systems", {
   solve_col <- function(A, B) {
     declare(
