@@ -6,31 +6,6 @@
 
 # ---- comparison operators ----
 
-promote_comparison_pair <- function(left, right) {
-  logical_mode <- identical(left@value@mode, "logical") ||
-    identical(right@value@mode, "logical")
-  args <- lapply(list(left, right), function(x) {
-    if (identical(x@value@mode, "raw")) {
-      # R coerces raw bytes to logical when the other operand is logical.
-      if (logical_mode) {
-        return(Fortran(
-          glue("({x} /= 0_c_int8_t)"),
-          Variable("logical", x@value@dims)
-        ))
-      }
-      # The C bridge preserves raw bytes in signed c_int8_t storage. Widen
-      # before masking so comparisons use R's unsigned range of 0 through 255.
-      return(Fortran(
-        glue("iand(int({x}, kind=c_int), 255_c_int)"),
-        Variable("integer", x@value@dims)
-      ))
-    }
-    x
-  })
-  # R compares logicals as integers; Fortran has no logical comparison.
-  promote_arith_pair(args[[1L]], args[[2L]], "comparison")
-}
-
 reject_complex_ordering <- function(left, right, hoist) {
   if (
     identical(left@value@mode, "complex") ||
@@ -46,7 +21,8 @@ reject_complex_ordering <- function(left, right, hoist) {
 
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
@@ -62,7 +38,8 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
@@ -78,7 +55,8 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
@@ -94,7 +72,8 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
@@ -110,7 +89,8 @@ r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -125,7 +105,8 @@ r2f_handlers[["=="]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["!="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  .[left, right] <- promote_comparison_pair(left, right)
+  # R compares logicals as integers; Fortran has no logical comparison.
+  .[left, right] <- promote_arith_pair(left, right, "comparison")
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,

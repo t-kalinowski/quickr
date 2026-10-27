@@ -313,11 +313,9 @@ test_that("short-circuited literal traps preserve lazy evaluation", {
     quote((-1)^0.5 > 0)
   )
   for (trap in traps) {
-    skipped_and <- skipped_ifelse <- function() NULL
+    skipped_and <- function() NULL
     body(skipped_and) <- call("{", call("&&", FALSE, trap))
-    body(skipped_ifelse) <- call("{", call("ifelse", FALSE, trap, TRUE))
     expect_identical(quick(skipped_and)(), FALSE)
-    expect_identical(quick(skipped_ifelse)(), TRUE)
   }
 
   for (op in c("%%", "%/%")) {
@@ -674,17 +672,12 @@ test_that("short-circuited complex refusals are deferred", {
 
   for (op in c("<", "<=", ">", ">=")) {
     comparison <- call(op, 1i, 0)
-    skipped_and <- reached_and <- skipped_ifelse <- reached_ifelse <-
-      function() NULL
+    skipped_and <- reached_and <- function() NULL
     body(skipped_and) <- call("{", call("&&", FALSE, comparison))
     body(reached_and) <- call("{", call("&&", TRUE, comparison))
-    body(skipped_ifelse) <- call("{", call("ifelse", FALSE, comparison, TRUE))
-    body(reached_ifelse) <- call("{", call("ifelse", TRUE, comparison, TRUE))
 
     expect_identical(quick(skipped_and)(), FALSE)
     expect_error(quick(reached_and)(), "complex operands", fixed = TRUE)
-    expect_identical(quick(skipped_ifelse)(), TRUE)
-    expect_error(quick(reached_ifelse)(), "complex operands", fixed = TRUE)
   }
 })
 
@@ -721,76 +714,30 @@ test_that("short-circuited coercions defer mode errors", {
       "{",
       call("&&", TRUE, call(">", call(op, 1i), 0))
     )
-    skipped_ifelse <- function() NULL
-    body(skipped_ifelse) <- call("{", call("ifelse", FALSE, call(op, 1i), 0))
-    reached_ifelse <- function() NULL
-    body(reached_ifelse) <- call("{", call("ifelse", TRUE, call(op, 1i), 0))
 
     expect_identical(quick(skipped_and)(), FALSE)
     expect_error(quick(reached_and)(), messages[[op]], fixed = TRUE)
-    expect_identical(quick(skipped_ifelse)(), 0)
-    expect_error(quick(reached_ifelse)(), messages[[op]], fixed = TRUE)
   }
 })
 
-test_that("invalid literal arithmetic remains inside lazy branches", {
-  skipped_and <- function() {
-    FALSE && (1 + "a" > 0)
+test_that("unsupported operations remain inside lazy operands", {
+  expressions <- alist(
+    1 + "a" > 0,
+    "a" == "b",
+    sum(logical(2) & logical(3), 1L) > 0
+  )
+  messages <- c(
+    "Unsupported object type",
+    "Unsupported object type",
+    "elementwise vector operations"
+  )
+  for (i in seq_along(expressions)) {
+    skipped <- reached <- function() NULL
+    body(skipped) <- call("{", call("&&", FALSE, expressions[[i]]))
+    body(reached) <- call("{", call("&&", TRUE, expressions[[i]]))
+    expect_quick_identical(skipped, list())
+    expect_error(quick(reached)(), messages[[i]])
   }
-  reached_and <- function() {
-    TRUE && (1 + "a" > 0)
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, 1 + "a" > 0, TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, 1 + "a" > 0, TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "Unsupported object type")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "Unsupported object type")
-})
-
-test_that("unsupported comparisons remain inside lazy branches", {
-  skipped_and <- function() {
-    FALSE && ("a" == "b")
-  }
-  reached_and <- function() {
-    TRUE && ("a" == "b")
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, "a" == "b", TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, "a" == "b", TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "Unsupported object type")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "Unsupported object type")
-})
-
-test_that("lazy multi-argument reductions defer operand errors", {
-  skipped_and <- function() {
-    FALSE && (sum(logical(2) & logical(3), 1L) > 0)
-  }
-  reached_and <- function() {
-    TRUE && (sum(logical(2) & logical(3), 1L) > 0)
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, sum(logical(2) & logical(3), 1L) > 0, TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, sum(logical(2) & logical(3), 1L) > 0, TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "elementwise vector operations")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "elementwise vector operations")
 })
 
 test_that("short-circuited BLAS shape errors are deferred", {

@@ -1,5 +1,5 @@
 closure_error_cases <- list(
-  "nonreturn prefix before a complex alternate" = list(
+  "nonreturn prefix before an invalid assignment" = list(
     fn = function(flag) {
       declare(type(flag = logical(1)))
       predicate <- function() {
@@ -8,7 +8,7 @@ closure_error_cases <- list(
         later <- runif(2)
         TRUE
       }
-      ifelse(flag, predicate(), 1i)
+      flag && predicate()
     },
     diagnostic = "abs"
   ),

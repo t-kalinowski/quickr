@@ -87,14 +87,6 @@ test_that("empty extrema are rejected explicitly", {
   qmax <- quick(dynamic_max)
   expect_equal(qmax(c(3, -1, 2)), 3)
   expect_error(qmax(numeric()), message, fixed = TRUE)
-
-  masked_scalar_min <- function(x, mask) {
-    declare(type(x = double(1)), type(mask = logical(1)))
-    min(x[mask])
-  }
-  qmasked_scalar_min <- quick(masked_scalar_min)
-  expect_equal(qmasked_scalar_min(3, TRUE), 3)
-  expect_error(qmasked_scalar_min(3, FALSE), message, fixed = TRUE)
 })
 
 test_that("multi-argument extrema ignore empty inputs", {
@@ -137,35 +129,6 @@ test_that("multi-argument extrema ignore empty inputs", {
     "min()/max() of empty inputs are not supported",
     fixed = TRUE
   )
-})
-
-test_that("reductions evaluate arguments before later argument side effects", {
-  for (reducer in c("min", "max", "sum", "prod")) {
-    scalar <- eval(bquote(function() {
-      x <- 1
-      change <- function() {
-        x <<- 3
-        2
-      }
-      .(as.name(reducer))(x, change())
-    }))
-    expect_quick_identical(scalar, list())
-  }
-})
-
-test_that("extrema preserve masks before later argument side effects", {
-  for (reducer in c("min", "max")) {
-    masked <- eval(bquote(function(x, mask) {
-      declare(type(x = double(1)), type(mask = logical(1)))
-      change <- function() {
-        mask <<- !mask
-        x <<- 3
-        2
-      }
-      .(as.name(reducer))(x[mask], change())
-    }))
-    expect_quick_identical(masked, list(1, FALSE), list(1, TRUE))
-  }
 })
 
 

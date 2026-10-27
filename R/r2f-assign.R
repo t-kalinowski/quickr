@@ -59,38 +59,6 @@ assignment_is_local_closure_call <- function(rhs, scope) {
     inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
 }
 
-assignment_register_initialized <- function(
-  var,
-  scope,
-  allocates_dest = FALSE
-) {
-  stopifnot(inherits(var, Variable))
-  # Entry allocation is a whole-function decision. Any producer that needs
-  # preallocated storage must retain it, before or after a guarded BLAS write.
-  if (!allocates_dest) {
-    point_allocated <- scope_get(
-      scope,
-      "point_allocated_local_names",
-      character()
-    )
-    scope_set(
-      scope,
-      "point_allocated_local_names",
-      point_allocated[tolower(point_allocated) != tolower(var@name)]
-    )
-  }
-  initialized_local_names <- scope_get(
-    scope,
-    "initialized_local_names",
-    character()
-  )
-  scope_set(
-    scope,
-    "initialized_local_names",
-    unique(c(initialized_local_names, var@name))
-  )
-}
-
 register_r2f_handler(
   "<-",
   function(args, scope, ..., hoist = NULL) {
@@ -149,30 +117,28 @@ register_r2f_handler(
 
     # Local closure call: `x <- f(...)` where `f <- function(...) ...` in scope.
     if (assignment_is_local_closure_call(rhs, scope)) {
-      out <- compile_closure_call_assignment(
+      return(compile_closure_call_assignment(
         name,
         rhs,
         scope,
         ...,
         hoist = hoist
-      )
-      assignment_register_initialized(scope[[name]], scope)
-      return(out)
+      ))
     }
 
     # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
     if (is_sapply_call(rhs)) {
       parallel <- take_pending_parallel(scope)
-      out <- compile_sapply_assignment(
-        name,
-        rhs,
-        scope,
-        ...,
-        hoist = hoist,
-        parallel = parallel
+      return(
+        compile_sapply_assignment(
+          name,
+          rhs,
+          scope,
+          ...,
+          hoist = hoist,
+          parallel = parallel
+        )
       )
-      assignment_register_initialized(scope[[name]], scope)
-      return(out)
     }
 
     rhs_unwrapped <- unwrap_parens(rhs)
@@ -280,12 +246,6 @@ register_r2f_handler(
       # address, or by attaching a unique id to each var, or ???)
       assign(name, var, scope)
     }
-
-    assignment_register_initialized(
-      var,
-      scope,
-      allocates_dest = inherits(value, Fortran) && isTRUE(value@allocates_dest)
-    )
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {

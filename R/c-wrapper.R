@@ -384,10 +384,7 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
         Rcomplex* {name}__ = COMPLEX({name});",
       logical = "
         SEXP {name} = PROTECT(Rf_allocVector(LGLSXP, {len_name}));
-        int* {name}__ = LOGICAL({name});",
-      raw = "
-        SEXP {name} = PROTECT(Rf_allocVector(RAWSXP, {len_name}));
-        Rbyte* {name}__ = RAW({name});"
+        int* {name}__ = LOGICAL({name});"
     ))
   )
 
@@ -699,13 +696,14 @@ passes_as_value <- function(var) {
 }
 
 sexptype <- function(mode) {
+  # Known limitation: raw arguments and results are unsupported by the C
+  # interface. Raw coercion and unsigned comparison support are deferred.
   switch(
     mode,
     integer = "INTSXP",
     double = "REALSXP",
     complex = "CPLXSXP",
     logical = "LGLSXP",
-    raw = "RAWSXP",
     stop("Unrecognized mode: ", mode)
   )
 }
@@ -717,7 +715,6 @@ sexpdata <- function(mode) {
     double = "REAL",
     complex = "COMPLEX",
     logical = "LOGICAL",
-    raw = "RAW",
     stop("Unrecognized mode: ", mode)
   )
 }
@@ -810,7 +807,6 @@ fsub_arg_var_c_type <- function(var) {
     integer = "int*",
     complex = "Rcomplex*",
     logical = "int*",
-    raw = "Rbyte*",
   )
 
   # the first const declares that the pointed to values can't be modified

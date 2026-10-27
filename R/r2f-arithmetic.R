@@ -109,6 +109,8 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
 #   - FLOOR(x)      : greatest integer <= x      (real)
 #   - AINT(x)       : truncation toward 0       (real)
 
+# Known limitation: the literal-zero checks in %% and %/% precede operand
+# effects. Preserving those effects before the unsupported-input error is deferred.
 r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
   if (is_literal_zero_divisor(args[[2L]])) {
     stop_static_mode_error(

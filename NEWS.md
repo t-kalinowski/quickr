@@ -37,22 +37,17 @@
   `while (i <= n && x[i] > 0)` are safe. Operands must still be length-1
   logical values; numeric coercion and `NA` semantics remain unsupported.
   Assignment expressions, loop bindings, and declarations inside these
-  operands or `ifelse()` arguments are rejected; use separate statements.
+  operands are rejected; use separate statements.
   `print()` remains a statement-only operation.
 
-- Infinite literals now produce a clear error when reached, including
-  inside `&&`, `||`, and `ifelse()`. A skipped branch containing `Inf` or
-  `-Inf` no longer causes a Fortran compilation error. This does not add
+- Infinite literals now produce a clear diagnostic. Inside `&&` and `||`,
+  it is deferred until the operand is reached. Skipped `Inf` or `-Inf`
+  operands no longer cause a Fortran compilation error. This does not add
   support for evaluating infinite literals or change infinite values
   passed as arguments.
 
-- Raw arguments and return values can cross the C bridge. Raw comparisons
-  preserve unsigned byte values, including comparisons with numeric values.
-  Raw `ifelse()` results require scalar branches and a selector known during
-  compilation to be scalar, such as `logical(1)`. With array selectors,
-  selected raw branches raise an error; skipped branches remain unevaluated.
-  Assignments between raw and other modes are rejected. General raw
-  arithmetic and coercion remain outside the supported contract.
+- `while` conditions now re-evaluate hoisted expressions each iteration;
+  `repeat` loops evaluate hoisted body expressions on each pass.
 
 - `solve(a, b)` now requires a square `a`, matching R. A rectangular `a`
   previously fell through to a least-squares solve (dgels), returning an

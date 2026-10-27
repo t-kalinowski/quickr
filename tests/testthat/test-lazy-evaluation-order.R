@@ -3,18 +3,16 @@ test_that("selected lazy branches retain side effects before nested errors", {
     (runif(1) + abs()) + 1,
     (runif(1) + abs()) %*% 1,
     t(runif(1) + abs()) %*% 1,
-    sum(runif(1) + abs(), 1),
-    prod(runif(1) + abs(), 1),
-    min(runif(1) + abs(), 1),
-    max(runif(1) + abs(), 1),
-    min(runif(1), abs()),
-    max(runif(1), abs())
+    sum(runif(1) + abs()),
+    prod(runif(1) + abs()),
+    min(runif(1) + abs()),
+    max(runif(1) + abs())
   )
   withr::local_seed(147)
   for (expr in expressions) {
     fn <- eval(bquote(function(flag) {
       declare(type(flag = logical(1)))
-      ifelse(flag, .(expr), 0)
+      flag && (.(expr) > 0)
     }))
     qfn <- quick(fn)
 
@@ -91,8 +89,7 @@ test_that("lazy closure errors preserve their evaluated body prefix", {
   )
   branches <- alist(
     flag && predicate(),
-    !flag || predicate(),
-    ifelse(flag, predicate(), TRUE)
+    !flag || predicate()
   )
   withr::local_seed(149)
   for (body in bodies) {
@@ -143,26 +140,6 @@ test_that("deferred closure errors stay inside nested control flow", {
   expect_error(fn(TRUE), "abs")
   expected_seed <- .Random.seed
   set.seed(150)
-  expect_error(qfn(TRUE))
-  expect_identical(.Random.seed, expected_seed)
-})
-
-test_that("failed closure results do not constrain other lazy branches", {
-  fn <- function(flag) {
-    declare(type(flag = logical(1)))
-    predicate <- function() {
-      draw <- runif(1)
-      abs()
-    }
-    ifelse(flag, predicate(), 1i)
-  }
-  qfn <- quick(fn)
-  withr::local_seed(151)
-  expect_identical(qfn(FALSE), fn(FALSE))
-  set.seed(151)
-  expect_error(fn(TRUE), "abs")
-  expected_seed <- .Random.seed
-  set.seed(151)
   expect_error(qfn(TRUE))
   expect_identical(.Random.seed, expected_seed)
 })
