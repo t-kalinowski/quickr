@@ -107,6 +107,8 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
 # --- Handlers ---
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
+  # Known issue: branch bindings can leak into the shared compiler scope.
+  # Keep assignments and declarations separate; branch scope isolation is deferred.
   mask <- lower_operands_in_order(
     args[1L],
     scope,
