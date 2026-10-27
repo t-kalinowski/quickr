@@ -152,6 +152,17 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
         }
         if (
           !passes_as_scalar(mask@value) &&
+            identical(branch@value@mode, "raw")
+        ) {
+          # R only supports raw results through its scalar fast path. Keep
+          # this diagnostic in the branch capture so skipped branches stay lazy.
+          stop_static_mode_error(
+            "ifelse() raw branches require a scalar `test`",
+            sub
+          )
+        }
+        if (
+          !passes_as_scalar(mask@value) &&
             (!r2f_expression_is_pure(arg, scope) ||
               !ifelse_branch_shape_is_known(branch, mask))
         ) {
@@ -232,8 +243,8 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     return(Fortran(result@name, result))
   }
 
-  # Assign both branches into one result, promoting numeric modes. Raw values
-  # have no numeric promotion but can be merged with the same raw mode.
+  # Assign both branches into one result, promoting numeric modes. Scalar raw
+  # branches retain raw storage when the selector is known to be scalar.
   if (
     identical(tsource@value@mode, "raw") &&
       identical(fsource@value@mode, "raw")

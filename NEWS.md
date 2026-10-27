@@ -48,6 +48,9 @@
 
 - Raw arguments and return values can cross the C bridge. Raw comparisons
   preserve unsigned byte values, including comparisons with numeric values.
+  Raw `ifelse()` results require scalar branches and a selector known during
+  compilation to be scalar, such as `logical(1)`. With array selectors,
+  selected raw branches raise an error; skipped branches remain unevaluated.
   Assignments between raw and other modes are rejected. General raw
   arithmetic and coercion remain outside the supported contract.
 

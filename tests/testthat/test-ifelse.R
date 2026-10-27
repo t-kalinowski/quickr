@@ -457,3 +457,101 @@ test_that("ifelse allocates results after selected branch shape guards", {
     fixed = TRUE
   )
 })
+
+test_that("ifelse preserves scalar raw results", {
+  fn <- function(test, yes, no) {
+    declare(type(test = logical(1)), type(yes = raw(1)), type(no = raw(1)))
+    ifelse(test, yes, no)
+  }
+  expect_quick_identical(
+    fn,
+    list(TRUE, as.raw(0), as.raw(255)),
+    list(FALSE, as.raw(0), as.raw(255)),
+    list(TRUE, as.raw(128), as.raw(127)),
+    list(FALSE, as.raw(128), as.raw(127))
+  )
+})
+
+test_that("vector ifelse rejects selected raw branches", {
+  for (test_length in c(2L, NA_integer_)) {
+    for (branch_length in c(1L, 2L)) {
+      fn <- eval(bquote(function(test, x) {
+        declare(type(test = logical(.(test_length))))
+        declare(type(x = raw(.(branch_length))))
+        ifelse(test, x, x)
+      }))
+      qfn <- quick(fn)
+      x <- rep(as.raw(255), branch_length)
+      for (test in list(c(TRUE, FALSE), c(TRUE, TRUE), c(FALSE, FALSE))) {
+        expect_error(fn(test, x), "incompatible types")
+        expect_error(
+          qfn(test, x),
+          "raw branches require a scalar `test`",
+          fixed = TRUE
+        )
+      }
+      if (is.na(test_length)) {
+        expect_identical(qfn(logical(), x), fn(logical(), x))
+      }
+    }
+  }
+})
+
+test_that("vector ifelse defers raw errors until branch selection", {
+  for (branch in alist(ifelse(test, x, 0L), ifelse(!test, 0L, x))) {
+    fn <- eval(bquote(function(test, x) {
+      declare(type(test = logical(2)), type(x = raw(2)))
+      .(branch)
+    }))
+    qfn <- quick(fn)
+    x <- as.raw(c(0, 255))
+    expect_identical(qfn(c(FALSE, FALSE), x), fn(c(FALSE, FALSE), x))
+    expect_error(fn(c(TRUE, FALSE), x), "incompatible types")
+    expect_error(
+      qfn(c(TRUE, FALSE), x),
+      "raw branches require a scalar `test`",
+      fixed = TRUE
+    )
+  }
+
+  nested <- function(flag, test, x) {
+    declare(type(flag = logical(1)), type(test = logical(2)), type(x = raw(2)))
+    flag && any(ifelse(test, x, x))
+  }
+  qnested <- quick(nested)
+  expect_identical(qnested(FALSE, c(TRUE, FALSE), as.raw(c(0, 255))), FALSE)
+  expect_error(
+    qnested(TRUE, c(TRUE, FALSE), as.raw(c(0, 255))),
+    "raw branches require a scalar `test`",
+    fixed = TRUE
+  )
+})
+
+test_that("selected raw ifelse errors preserve branch effects", {
+  fn <- function(test, x) {
+    declare(type(test = logical(2)), type(x = raw(2)))
+    raw_value <- function() {
+      draw <- runif(1)
+      x
+    }
+    ifelse(test, raw_value(), 0L)
+  }
+  qfn <- quick(fn)
+  x <- as.raw(c(0, 255))
+
+  set.seed(836)
+  expect_error(fn(c(TRUE, FALSE), x), "incompatible types")
+  expected_seed <- .Random.seed
+  set.seed(836)
+  expect_error(
+    qfn(c(TRUE, FALSE), x),
+    "raw branches require a scalar `test`",
+    fixed = TRUE
+  )
+  expect_identical(.Random.seed, expected_seed)
+
+  set.seed(836)
+  expected_seed <- .Random.seed
+  expect_identical(qfn(c(FALSE, FALSE), x), c(0L, 0L))
+  expect_identical(.Random.seed, expected_seed)
+})
