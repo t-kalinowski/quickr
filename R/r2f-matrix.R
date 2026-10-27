@@ -100,7 +100,8 @@ register_r2f_handler(
         scope = scope,
         hoist = hoist,
         dest = dest,
-        context = "%*%"
+        context = "%*%",
+        equal_dims = list(list(expected_len, right_dims$rows))
       ))
     }
     # Vector-Matrix: use GEMV with transpose
@@ -130,7 +131,8 @@ register_r2f_handler(
         scope = scope,
         hoist = hoist,
         dest = dest,
-        context = "%*%"
+        context = "%*%",
+        equal_dims = list(list(left_dims$cols, expected_len))
       ))
     }
 
@@ -176,7 +178,8 @@ register_r2f_handler(
       scope = scope,
       hoist = hoist,
       dest = dest,
-      context = "%*%"
+      context = "%*%",
+      equal_dims = list(list(k, right_eff$rows))
     )
   },
   dest_supported = TRUE,
@@ -1031,7 +1034,8 @@ crossprod_like <- function(
     scope = scope,
     hoist = hoist,
     dest = dest,
-    context = context
+    context = context,
+    equal_dims = list(list(x_eff$cols, y_eff$rows))
   )
 }
 

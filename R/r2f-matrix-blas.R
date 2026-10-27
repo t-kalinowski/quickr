@@ -241,14 +241,36 @@ assert_nonempty_blas_output <- function(
   invisible(TRUE)
 }
 
+# Follow only equalities established by guards for the current operation.
+# Removing each visited pair also bounds traversal of cyclic equalities.
+blas_dims_proven_equal <- function(left, right, equal_dims) {
+  verdict <- check_equal_dims(left, right)
+  if (!verdict$unknown) {
+    return(verdict$ok)
+  }
+  for (i in seq_along(equal_dims)) {
+    pair <- equal_dims[[i]]
+    for (j in seq_len(2L)) {
+      match <- check_equal_dims(left, pair[[j]])
+      if (
+        match$ok &&
+          !match$unknown &&
+          blas_dims_proven_equal(pair[[3L - j]], right, equal_dims[-i])
+      ) {
+        return(TRUE)
+      }
+    }
+  }
+  FALSE
+}
+
 # Check that destination dimensions match expected output dimensions.
 assert_dest_dims_compatible <- function(
   dest,
   expected_dims,
   context,
-  square = FALSE
+  equal_dims = list()
 ) {
-  stopifnot(is_bool(square), !square || length(expected_dims) == 2L)
   if (is.null(dest) || is.null(expected_dims)) {
     return(TRUE)
   }
@@ -261,14 +283,6 @@ assert_dest_dims_compatible <- function(
     dest_dim <- dest@dims[[i]]
     expected_dim <- expected_dims[[i]]
     verdict <- check_equal_dims(dest_dim, expected_dim)
-    if (square && verdict$unknown) {
-      # The square-matrix guard proves both extents equal, so either spelling
-      # can establish the size of either destination axis.
-      alternate <- check_equal_dims(dest_dim, expected_dims[[3L - i]])
-      if (alternate$ok && !alternate$unknown) {
-        verdict <- alternate
-      }
-    }
     if (!verdict$ok) {
       stop(
         "assignment target has incompatible dimensions for ",
@@ -276,7 +290,8 @@ assert_dest_dims_compatible <- function(
         call. = FALSE
       )
     }
-    proven <- proven && !verdict$unknown
+    proven <- proven &&
+      blas_dims_proven_equal(dest_dim, expected_dim, equal_dims)
   }
   proven
 }
@@ -290,7 +305,7 @@ can_use_output <- function(
   allow_alias = character(),
   mode = "double",
   logical_is_c_int = FALSE,
-  square = FALSE
+  equal_dims = list()
 ) {
   stopifnot(
     is_bool(logical_is_c_int),
@@ -309,7 +324,7 @@ can_use_output <- function(
     dest,
     expected_dims,
     context,
-    square = square
+    equal_dims = equal_dims
   )
   if (!dims_proven && isTRUE(dest@is_external)) {
     stop(
@@ -456,7 +471,8 @@ gemm <- function(
   scope,
   hoist,
   dest = NULL,
-  context = "gemm"
+  context = "gemm",
+  equal_dims = list()
 ) {
   assert_hoist_env(hoist)
   left <- blas_double_operand(left, context, hoist)
@@ -485,7 +501,8 @@ gemm <- function(
       dest,
       input_names = c(A_name, B_name),
       expected_dims = list(m, n),
-      context = context
+      context = context,
+      equal_dims = equal_dims
     )
   ) {
     allocate_reusable_local_output_at_point(dest, scope, hoist)
@@ -525,7 +542,8 @@ gemv <- function(
   scope,
   hoist,
   dest = NULL,
-  context = "gemv"
+  context = "gemv",
+  equal_dims = list()
 ) {
   assert_hoist_env(hoist)
   A <- blas_double_operand(A, context, hoist)
@@ -547,7 +565,8 @@ gemv <- function(
       dest,
       input_names = c(A_name, x_name),
       expected_dims = out_dims,
-      context = context
+      context = context,
+      equal_dims = equal_dims
     )
   ) {
     allocate_reusable_local_output_at_point(dest, scope, hoist)
@@ -814,7 +833,11 @@ triangular_solve <- function(
       input_names = c(A_name, B_input_name),
       expected_dims = B@value@dims,
       context = context,
-      allow_alias = B_input_name
+      allow_alias = B_input_name,
+      equal_dims = list(
+        list(a_dims$rows, a_dims$cols),
+        list(n, dim_or_one(B, 1L))
+      )
     )
   ) {
     allocate_reusable_local_output_at_point(dest, scope, hoist)
@@ -919,23 +942,18 @@ lapack_solve <- function(
   # output target at its own write point (declaration order matters for
   # the emitted block) with the one shared spelling below.
   expected_dims <- if (b_rank == 1L) list(n) else list(n, nrhs)
-  dest_dims <- expected_dims
-  if (
-    !identical(context, "qr.solve") &&
-      !is.null(dest) &&
-      identical(dest@dims, B@value@dims)
-  ) {
-    # The square and RHS conformability guards prove that solve preserves
-    # B's shape, even when its extents use different symbols from ncol(A).
-    dest_dims <- B@value@dims
+  equal_dims <- list(list(m, dim_or_one(B, 1L)))
+  if (!identical(context, "qr.solve")) {
+    equal_dims <- c(equal_dims, list(list(m, n)))
   }
   dest_usable <- function() {
     can_use_output(
       dest,
       input_names = c(A_name, B_input_name),
-      expected_dims = dest_dims,
+      expected_dims = expected_dims,
       context = context,
-      allow_alias = B_input_name
+      allow_alias = B_input_name,
+      equal_dims = equal_dims
     )
   }
 
@@ -1114,7 +1132,7 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
       expected_dims = out_dims,
       context = context,
       allow_alias = A_name,
-      square = TRUE
+      equal_dims = list(out_dims)
     )
   ) {
     out_var <- dest
@@ -1197,7 +1215,7 @@ lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
       expected_dims = out_dims,
       context = context,
       allow_alias = A_name,
-      square = TRUE
+      equal_dims = list(out_dims)
     )
   ) {
     out_var <- dest
@@ -1269,7 +1287,7 @@ lapack_chol2inv <- function(
       expected_dims = out_dims,
       context = context,
       allow_alias = R_name,
-      square = TRUE
+      equal_dims = list(out_dims)
     )
   ) {
     out_var <- dest

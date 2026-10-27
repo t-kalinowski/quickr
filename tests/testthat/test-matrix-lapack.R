@@ -201,6 +201,73 @@ test_that("in-place qr.solve still rejects an unproven RHS output shape", {
   )
 })
 
+for (rhs_type in alist(double(m), double(NA), double(m, k), double(NA, NA))) {
+  test_that(paste("square in-place qr.solve preserves", deparse1(rhs_type)), {
+    fn <- eval(bquote(function(a, b) {
+      declare(type(a = double(n, n)), type(b = .(rhs_type)))
+      b <- qr.solve(a, b)
+      b
+    }))
+    qfn <- quick(fn)
+    matrix_rhs <- length(rhs_type) == 3L
+    for (n in c(2L, 3L)) {
+      a <- diag(as.double(seq_len(n))) + 1
+      b <- if (matrix_rhs) {
+        matrix(as.double(seq_len(n * 2L)), n, 2L)
+      } else {
+        as.double(seq_len(n))
+      }
+      original <- b + 0
+      expect_equal(qfn(a, b), fn(a, b))
+      expect_identical(b, original)
+    }
+    bad_b <- if (matrix_rhs) matrix(as.double(1:6), 3, 2) else c(1, 2, 3)
+    expect_error(
+      qfn(diag(2), bad_b),
+      "non-conformable arguments in qr.solve",
+      fixed = TRUE
+    )
+  })
+}
+
+test_that("rectangular in-place qr.solve cannot resize its RHS", {
+  for (rhs_type in alist(double(m), double(m, k))) {
+    fn <- eval(bquote(function(a, b) {
+      declare(type(a = double(3, 2)), type(b = .(rhs_type)))
+      b <- qr.solve(a, b)
+      b
+    }))
+    expect_error(
+      quick(fn),
+      "cannot change the shape of an external assignment target",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("triangular outputs use transitive guarded dimension equalities", {
+  fn <- function(a, b) {
+    declare(type(a = double(n, k)), type(b = double(m, p)))
+    declare(type(out = double(k, p)))
+    out <- backsolve(a, b)
+    out
+  }
+  qfn <- quick(fn)
+  a <- matrix(c(3, 0, 1, 4), 2, 2)
+  b <- matrix(as.double(1:6), 2, 3)
+  expect_equal(qfn(a, b), fn(a, b))
+  expect_error(
+    qfn(matrix(as.double(1:6), 2, 3), b),
+    "triangular solve requires a square matrix",
+    fixed = TRUE
+  )
+  expect_error(
+    qfn(a, matrix(as.double(1:6), 3, 2)),
+    "non-conformable arguments in triangular solve",
+    fixed = TRUE
+  )
+})
+
 test_that("solve requires a square coefficient matrix, like R", {
   # Squareness unknown at compile time: a runtime guard runs before dgesv.
   solve_sym <- function(X, y) {
