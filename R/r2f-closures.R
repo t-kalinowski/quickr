@@ -268,6 +268,16 @@ compile_internal_subroutine <- function(
       )
     }
 
+    if (is.null(prefix$error) && !is.null(expr_error) && allow_void_return) {
+      # A void tail call is valid in statement position. Discard the failed
+      # value attempt's hoists so its effects are not emitted twice.
+      stmt_expr <- r2f(last_expr, proc_scope)
+      if (is.null(stmt_expr@value)) {
+        expr <- stmt_expr
+        expr_error <- NULL
+        h <- new_hoist(proc_scope)
+      }
+    }
     body_failed <- !is.null(expr_error) && defer_errors
     if (body_failed) {
       if (is.null(prefix$error)) {
@@ -285,18 +295,7 @@ compile_internal_subroutine <- function(
       }
       expr <- Fortran("", res_var)
     } else if (!is.null(expr_error)) {
-      if (!isTRUE(allow_void_return)) {
-        stop(expr_error)
-      }
-      # If `last_expr` is itself a local closure call that returns no value,
-      # compiling in value-position (with `hoist`) fails. Retry compilation in
-      # statement-position.
-      stmt_expr <- r2f(last_expr, proc_scope)
-      if (!is.null(stmt_expr@value)) {
-        stop(expr_error)
-      }
-      assign_code <- as.character(stmt_expr)
-      res_var <- NULL
+      stop(expr_error)
     }
     if (is.null(expr_error) || body_failed) {
       if (is.null(expr@value)) {
