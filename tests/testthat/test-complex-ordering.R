@@ -11,7 +11,7 @@ for (op in c("<", "<=", ">", ">=")) {
       expect_identical(qfn(FALSE, 1i), fn(FALSE, 1i))
       expect_error(
         qfn(TRUE, 1i),
-        "ordering comparisons do not support complex operands",
+        "invalid comparison with complex values",
         fixed = TRUE
       )
     }
@@ -28,7 +28,7 @@ test_that("or defers ordering with a complex right operand", {
   expect_identical(qor(TRUE, 1i), or(TRUE, 1i))
   expect_error(
     qor(FALSE, 1i),
-    "ordering comparisons do not support complex operands",
+    "invalid comparison with complex values",
     fixed = TRUE
   )
 })

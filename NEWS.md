@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Unsupported-type errors are more specific: character declarations are
+  rejected at `declare()`, complex ordering uses R's error message, and
+  non-logical operands to `&` and `|` report the operator name.
+
 * Repeated `quick()` compilations now reuse successful `R CMD config` results
   for the rest of the R session. Restart R after changing the compiler or
   Makevars configuration.

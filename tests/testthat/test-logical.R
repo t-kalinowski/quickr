@@ -204,8 +204,8 @@ test_that("short-circuited nested operands defer mode errors", {
   expect_quick_identical(skipped_or, list())
   expect_quick_identical(direct_skipped_and, list())
   expect_quick_identical(direct_skipped_or, list())
-  expect_error(quick(reached_and)(), "must be logical")
-  expect_error(quick(reached_or)(), "must be logical")
+  expect_error(quick(reached_and)(), "requires logical operands")
+  expect_error(quick(reached_or)(), "requires logical operands")
   expect_error(quick(direct_reached_and)(), "requires logical operands")
   expect_error(quick(direct_reached_or)(), "requires logical operands")
 })
@@ -677,7 +677,11 @@ test_that("short-circuited complex refusals are deferred", {
     body(reached_and) <- call("{", call("&&", TRUE, comparison))
 
     expect_identical(quick(skipped_and)(), FALSE)
-    expect_error(quick(reached_and)(), "complex operands", fixed = TRUE)
+    expect_error(
+      quick(reached_and)(),
+      "invalid comparison with complex values",
+      fixed = TRUE
+    )
   }
 })
 

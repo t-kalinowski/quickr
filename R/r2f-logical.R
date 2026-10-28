@@ -12,7 +12,7 @@ reject_complex_ordering <- function(left, right, hoist) {
       identical(right@value@mode, "complex")
   ) {
     stop_static_mode_error(
-      "ordering comparisons do not support complex operands",
+      "invalid comparison with complex values",
       hoist
     )
   }
@@ -164,10 +164,14 @@ register_r2f_handler(
 register_r2f_handler(
   c("&", "|"),
   function(args, scope, ..., hoist = NULL) {
+    op <- last(list(...)$calls)
     args <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
     args <- lapply(args, function(a) {
       if (a@value@mode != "logical") {
-        stop_static_mode_error("must be logical", hoist)
+        stop_static_mode_error(
+          paste0("`", op, "` requires logical operands"),
+          hoist
+        )
       }
       a
     })
@@ -182,7 +186,7 @@ register_r2f_handler(
       scalarize_one_by_one = FALSE
     )
 
-    operator <- switch(last(list(...)$calls), `&` = ".and.", `|` = ".or.")
+    operator <- switch(op, `&` = ".and.", `|` = ".or.")
 
     s <- glue("{left} {operator} {right}")
     val <- conform(left@value, right@value)

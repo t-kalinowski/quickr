@@ -492,6 +492,9 @@ closure_last_expr <- function(fun) {
   }
 }
 
+# Known limitation: optional-argument use and initialization analysis below
+# recognizes is.null by name, without resolving shadowed local bindings.
+# Support for shadowed predicates and additional short-circuit idioms is deferred.
 optional_arg_used <- function(expr, nm) {
   if (is.symbol(expr)) {
     return(identical(as.character(expr), nm))

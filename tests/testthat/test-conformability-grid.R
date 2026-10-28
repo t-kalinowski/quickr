@@ -507,7 +507,7 @@ test_that("& and | require logical operands (R would coerce: error divergence)",
         fn <- make_grid_cell_fn("vec3", "vec3", op, ma, mb)
         expect_error(
           quick(fn),
-          "must be logical",
+          paste0("`", op, "` requires logical operands"),
           fixed = TRUE,
           label = paste0(
             "quick() for ",

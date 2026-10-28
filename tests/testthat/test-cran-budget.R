@@ -19,6 +19,8 @@ test_that("non-smoke test files skip on CRAN", {
     "test-closure-deferred-errors.R",
     "test-complex-ordering.R",
     "test-conformability-grid.R",
+    "test-declare-type.R",
+    "test-errors.R",
     "test-ifelse.R",
     "test-lazy-branches.R",
     "test-lazy-evaluation-order.R",
