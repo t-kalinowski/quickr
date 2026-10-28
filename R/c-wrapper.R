@@ -696,6 +696,8 @@ passes_as_value <- function(var) {
 }
 
 sexptype <- function(mode) {
+  # Known limitation: raw arguments and results are unsupported by the C
+  # interface. Raw coercion and unsigned comparison support are deferred.
   switch(
     mode,
     integer = "INTSXP",

@@ -1,22 +1,13 @@
 # Matrix-specific r2f handlers and wiring
 
-lower_transposed_operand_in_order <- function(
-  arg,
-  scope,
-  ...,
-  hoist,
-  later_args = list()
-) {
-  captured_hoist <- capture_hoist(hoist)
-  info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
-  info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
-  info$value <- snapshot_operand_before_later_effects(
-    info$value,
-    arg,
-    later_args,
-    scope,
+lower_transposed_operand_in_order <- function(arg, scope, ..., hoist) {
+  captured_hoist <- capture_inheriting_deferred_errors(hoist)
+  info <- preserve_captured_errors(
+    unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist),
+    captured_hoist,
     hoist
   )
+  info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
   info
 }
 
@@ -29,8 +20,7 @@ register_r2f_handler(
       args[[1L]],
       scope,
       ...,
-      hoist = hoist,
-      later_args = list(args[[2L]])
+      hoist = hoist
     )
     right_info <- lower_transposed_operand_in_order(
       args[[2L]],
@@ -565,14 +555,8 @@ register_r2f_handler(
     if (!identical(fun, "*")) {
       stop("outer() only supports FUN = \"*\"")
     }
-    values <- lower_operands_in_order(
-      list(x_arg, y_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    x <- values[[1L]]
-    y <- values[[2L]]
+    x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
+    y <- lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist)
     outer_mul(
       x,
       y,
@@ -591,9 +575,8 @@ register_r2f_handler(
   "%o%",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     stopifnot(length(args) == 2L)
-    values <- lower_operands_in_order(args, scope, ..., hoist = hoist)
-    x <- values[[1L]]
-    y <- values[[2L]]
+    x <- lower_r2f_operand_in_order(args[[1L]], scope, ..., hoist = hoist)
+    y <- lower_r2f_operand_in_order(args[[2L]], scope, ..., hoist = hoist)
     outer_mul(
       x,
       y,
@@ -626,8 +609,8 @@ register_r2f_handler(
       b_arg <- NULL
     }
 
+    A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
     if (is.null(b_arg)) {
-      A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
       return(lapack_inverse(
         A,
         scope = scope,
@@ -637,14 +620,7 @@ register_r2f_handler(
       ))
     }
 
-    values <- lower_operands_in_order(
-      list(a_arg, b_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    B <- lower_r2f_operand_in_order(b_arg, scope, ..., hoist = hoist)
     lapack_solve(
       A = A,
       B = B,
@@ -671,25 +647,15 @@ register_r2f_handler(
       stop("qr.solve() expects `b`", call. = FALSE)
     }
 
+    A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(b_arg, scope, ..., hoist = hoist)
+
     tol_arg <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
-    ordered_args <- list(a_arg, b_arg)
-    has_tol <- !is.null(tol_arg) && !is_missing(tol_arg)
-    if (has_tol) {
-      ordered_args[[3L]] <- tol_arg
-    }
-    values <- lower_operands_in_order(
-      ordered_args,
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- cast_linalg_double(
-        values[[3L]],
+      tol <- blas_double_operand(
+        lower_r2f_operand_in_order(tol_arg, scope, ..., hoist = hoist),
         "qr.solve",
         hoist
       )
@@ -915,14 +881,8 @@ register_r2f_handler(
 
     l_arg <- args$l %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    values <- lower_operands_in_order(
-      list(l_arg, x_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    A <- lower_r2f_operand_in_order(l_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,
@@ -954,14 +914,8 @@ register_r2f_handler(
 
     r_arg <- args$r %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    values <- lower_operands_in_order(
-      list(r_arg, x_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    A <- lower_r2f_operand_in_order(r_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,
@@ -992,14 +946,8 @@ crossprod_like <- function(
   opB,
   context
 ) {
-  x <- lower_r2f_operand_in_order(
-    x_arg,
-    scope,
-    ...,
-    hoist = hoist,
-    later_args = if (is.null(y_arg)) list() else list(y_arg)
-  )
-  x <- cast_linalg_double(x, context, hoist)
+  x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
+  x <- blas_double_operand(x, context, hoist)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -1012,7 +960,7 @@ crossprod_like <- function(
     ))
   }
 
-  y <- cast_linalg_double(
+  y <- blas_double_operand(
     lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist),
     context,
     hoist

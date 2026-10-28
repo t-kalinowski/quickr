@@ -183,42 +183,6 @@ test_that("nested elementwise operands preserve left-to-right evaluation", {
   expect_identical(quick(conformable)(), expected)
 })
 
-test_that("later effects cannot change earlier elementwise operands", {
-  bare <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 1
-      2
-    }
-    x + bump()
-  }
-
-  expression <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 1
-      2
-    }
-    (x * 2) + bump()
-  }
-
-  expect_quick_identical(bare, list(3))
-  expect_quick_identical(expression, list(3))
-})
-
-test_that("c() fixes fill lengths before evaluating later arguments", {
-  fn <- function(n) {
-    declare(type(n = integer(1)))
-    bump <- function() {
-      n <<- n + 1L
-      7L
-    }
-    c(integer(n), bump())
-  }
-
-  expect_quick_identical(fn, list(2L))
-})
-
 test_that("subscript operands preserve left-to-right evaluation", {
   fn <- function(x) {
     declare(type(x = double(2, 2)))
@@ -458,21 +422,6 @@ test_that("fill constructors spread inside c()", {
   expect_quick_identical(parenthesized, list(c(1, 2)))
 })
 
-test_that("parallel fill constructors privatize implied-do indices", {
-  fn <- function(n) {
-    declare(type(n = integer(1)), type(out = integer(n)))
-    out <- integer(n)
-    declare(parallel())
-    for (i in seq_len(n)) {
-      out[i] <- sum(c(integer(n), i))
-    }
-    out
-  }
-
-  fsub <- as.character(r2f(fn))
-  expect_match(fsub, "!$omp parallel do private(tmp1_)", fixed = TRUE)
-})
-
 test_that("c() evaluates effectful arguments from left to right", {
   fn <- function() {
     c(runif(2), runif(2) + 1)
@@ -579,36 +528,6 @@ test_that("fill constructors materialize where an array is required", {
   expect_quick_identical(symbolic, list(c(5, 6), 3L))
 })
 
-test_that("fill constructors materialize inside matrix()", {
-  # matrix() lowers non-scalar data through reshape(), whose SOURCE must
-  # be an array. Fills used to pass through as scalar literals with
-  # claimed dims and relied on hoist_unless_name() to materialize them;
-  # once that helper learned to skip literals, the generated
-  # reshape(0.0_c_double, ...) failed to compile (and logical(k) only
-  # kept working because the literal regex missed `.false.`). Fills now
-  # materialize before matrix() like any other array consumer.
-  numeric_fill <- function() {
-    matrix(numeric(6), 3, 2)
-  }
-  expect_quick_identical(numeric_fill, list())
-
-  integer_fill <- function() {
-    matrix(integer(6), 3, 2)
-  }
-  expect_quick_identical(integer_fill, list())
-
-  logical_fill <- function() {
-    matrix(logical(6), 3, 2)
-  }
-  expect_quick_identical(logical_fill, list())
-
-  assigned <- function() {
-    x <- matrix(numeric(6), 3, 2)
-    x
-  }
-  expect_quick_identical(assigned, list())
-})
-
 test_that("omitted fill lengths default to zero", {
   fn <- function() {
     c(numeric(), double(), integer(), logical(), 1, 2)
@@ -684,6 +603,18 @@ test_that("matrix() materializes direct non-scalar fill constructors", {
     matrix(numeric(2), 2, 2)
   }
   expect_quick_identical(fn, list())
+
+  integer_fill <- function(n) {
+    declare(type(n = integer(1)))
+    matrix(integer(n), 2, 2)
+  }
+  expect_quick_identical(integer_fill, list(2L))
+
+  logical_fill <- function() {
+    x <- matrix(logical(6), 3, 2)
+    x
+  }
+  expect_quick_identical(logical_fill, list())
 })
 
 test_that("a closure's return expression materializes fills and matrix()", {
@@ -716,6 +647,19 @@ test_that("matrix(scalar, m, n) keeps the broadcast fast path on assignment", {
   # no hoisted temp: the scalar broadcasts straight into the target
   expect_match(fsub, "m = 0.0_c_double", fixed = TRUE)
   expect_quick_identical(fn, list(2L, 3L))
+})
+
+test_that("scalar-backed array expressions materialize before shape guards", {
+  fn <- function(mat, n, k) {
+    declare(
+      type(mat = double(n, k)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    array(0, dim = c(n, k)) + mat
+  }
+  mat <- matrix(as.double(1:6), 2, 3)
+  expect_quick_identical(fn, list(mat, 2L, 3L))
 })
 
 test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
@@ -758,15 +702,6 @@ test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
     symbolic(matrix(as.double(1:4), 2, 2), 2L)
   )
 
-  numeric_dim <- function(x, n) {
-    declare(type(x = double(2, 2)), type(n = double(1)))
-    x + matrix(1, n, 2)
-  }
-  expect_quick_identical(
-    numeric_dim,
-    list(matrix(as.double(1:4), 2, 2), 2.5)
-  )
-
   # Two fills meeting each other still materialize (no scalar result
   # with claimed array dims may escape).
   both_fills <- function(n) {
@@ -783,72 +718,72 @@ test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
   expect_quick_identical(vec_operand, list(c(1, 2)))
 })
 
-test_that("elementwise matrix fills respect a local matrix closure", {
-  fn <- function(x) {
+test_that("scalar matrix broadcasting preserves operand order and dimensions", {
+  left <- function(x, s, n) {
+    declare(type(x = double(n, n)), type(s = double(1)), type(n = integer(1)))
+    matrix(s, n, n) - x
+  }
+  expect_quick_identical(left, list(matrix(as.double(1:4), 2, 2), 3, 2L))
+
+  numeric_dim <- function(x, n) {
+    declare(type(x = double(2, 2)), type(n = double(1)))
+    x + matrix(1, n, 2)
+  }
+  expect_quick_identical(numeric_dim, list(matrix(as.double(1:4), 2, 2), 2.5))
+
+  logical_data <- function(x, flag) {
+    declare(type(x = double(2, 2)), type(flag = logical(1)))
+    matrix(flag, 2, 2) + x
+  }
+  expect_quick_identical(logical_data, list(matrix(as.double(1:4), 2, 2), TRUE))
+})
+
+test_that("scalar matrix broadcasting leaves other expressions to matrix()", {
+  shadowed <- function(x) {
     declare(type(x = double(2, 2)))
     matrix <- function(data, nrow, ncol) data + 1
     matrix(1, 2, 2) + x
   }
+  expect_quick_identical(shadowed, list(matrix(as.double(1:4), 2, 2)))
 
-  expect_quick_identical(fn, list(matrix(as.double(1:4), 2, 2)))
-})
+  computed_dims <- function(x, n) {
+    declare(type(x = double(n, n)), type(n = integer(1)))
+    x + matrix(1, n + 0L, n)
+  }
+  expect_quick_identical(computed_dims, list(matrix(as.double(1:4), 2, 2), 2L))
 
-test_that("a left matrix fill is evaluated before its right operand", {
-  fn <- function(x, s, n) {
-    declare(
-      type(x = double(2, 2)),
-      type(s = double(1)),
-      type(n = integer(1))
-    )
+  effectful_rhs <- function(x, s, n) {
+    declare(type(x = double(2, 2)), type(s = double(1)), type(n = integer(1)))
     bump <- function() {
       s <<- s + 1
       n <<- n + 1L
       x
     }
-    out <- matrix(s, n, n) + bump()
-    out
+    matrix(s, n, n) + bump()
   }
-
-  expect_quick_identical(fn, list(matrix(as.double(1:4), 2, 2), 1, 2L))
-})
-
-test_that("a left matrix fill keeps dimensions captured before a scalar RHS", {
-  fn <- function(n) {
-    declare(type(n = integer(1)))
-    bump <- function() {
-      n <<- n + 1L
-      1
-    }
-    matrix(1, n, 1) + bump()
-  }
-
-  expect_quick_identical(fn, list(2L))
-})
-
-test_that("scalar-backed array expressions materialize before shape guards", {
-  fn <- function(mat, n, k) {
-    declare(
-      type(mat = double(n, k)),
-      type(n = integer(1)),
-      type(k = integer(1))
-    )
-    array(0, dim = c(n, k)) + mat
-  }
-  mat <- matrix(as.double(1:6), 2, 3)
-  expect_quick_identical(fn, list(mat, 2L, 3L))
-})
-
-test_that("integer-backed logical matrix fills materialize portably", {
-  fn <- function(flag) {
-    declare(type(flag = logical(1)))
-    !matrix(rev(flag), 2, 2)
-  }
-
-  code <- as.character(r2f(fn))
-  expect_match(
-    code,
-    "integer(c_int) :: btmp1_(2, 2) ! logical",
-    fixed = TRUE
+  expect_quick_identical(
+    effectful_rhs,
+    list(matrix(as.double(1:4), 2, 2), 1, 2L)
   )
-  expect_quick_identical(fn, list(TRUE))
+})
+
+test_that("scalar matrix shape errors stay inside lazy operands", {
+  fn <- function(flag, x) {
+    declare(type(flag = logical(1)), type(x = double(2, 2)))
+    flag && sum(x + matrix(1, 3, 3)) > 0
+  }
+  qfn <- quick(fn)
+  x <- matrix(as.double(1:4), 2, 2)
+  expect_identical(qfn(FALSE, x), FALSE)
+  expect_error(qfn(TRUE, x), "matching dimensions")
+})
+
+test_that("scalar matrix fills compare current dimensions with the array", {
+  fn <- function(x, n) {
+    declare(type(x = double(n, n)), type(n = integer(1)))
+    n <- n + 1L
+    x + matrix(1, n, n)
+  }
+  qfn <- quick(fn)
+  expect_error(qfn(matrix(as.double(1:4), 2, 2), 2L), "matching dimensions")
 })

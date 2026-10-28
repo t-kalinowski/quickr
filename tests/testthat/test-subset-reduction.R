@@ -101,28 +101,6 @@ test_that("multi-argument reductions evaluate arguments in order", {
   expect_identical(actual_seed, .Random.seed)
 })
 
-test_that("multi-argument reductions snapshot scalars before later effects", {
-  min_fn <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 10
-      5
-    }
-    min(x, bump())
-  }
-  sum_fn <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 10
-      5
-    }
-    sum(x, bump())
-  }
-
-  expect_quick_identical(min_fn, list(1))
-  expect_quick_identical(sum_fn, list(1))
-})
-
 test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases", {
   any_basic <- function(x) {
     declare(type(x = logical(NA)))

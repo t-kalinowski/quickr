@@ -507,7 +507,7 @@ test_that("& and | require logical operands (R would coerce: error divergence)",
         fn <- make_grid_cell_fn("vec3", "vec3", op, ma, mb)
         expect_error(
           quick(fn),
-          "requires logical operands",
+          paste0("`", op, "` requires logical operands"),
           fixed = TRUE,
           label = paste0(
             "quick() for ",
@@ -815,7 +815,7 @@ test_that("ifelse grid: matrix test shapes the result", {
   expect_grid_cells_match(qfn, fn, args, context = "ifelse/mat")
 })
 
-test_that("ifelse defers branch shape errors until selection", {
+test_that("ifelse contract violations are compile errors", {
   scalar_test <- eval(parse(
     text = paste0(
       "function(t1, y, n) {\n",
@@ -832,13 +832,8 @@ test_that("ifelse defers branch shape errors until selection", {
       "  ifelse(t3, y, n)\n}"
     )
   )[[1L]])
-  qknown_mismatch <- quick(known_mismatch)
-  expect_identical(
-    qknown_mismatch(rep(FALSE, 3), as.double(1:4), as.double(5:7)),
-    as.double(5:7)
-  )
   expect_error(
-    qknown_mismatch(c(TRUE, FALSE, FALSE), as.double(1:4), as.double(5:7)),
+    quick(known_mismatch),
     "must be scalars or match the shape",
     fixed = TRUE
   )
@@ -850,17 +845,8 @@ test_that("ifelse defers branch shape errors until selection", {
       "  ifelse(t3, y, n)\n}"
     )
   )[[1L]])
-  qrank_mismatch <- quick(rank_mismatch)
-  expect_identical(
-    qrank_mismatch(rep(FALSE, 3), matrix(as.double(1:6), 3, 2), as.double(7:9)),
-    as.double(7:9)
-  )
   expect_error(
-    qrank_mismatch(
-      c(TRUE, FALSE, FALSE),
-      matrix(as.double(1:6), 3, 2),
-      as.double(7:9)
-    ),
+    quick(rank_mismatch),
     "must be scalars or match the shape",
     fixed = TRUE
   )

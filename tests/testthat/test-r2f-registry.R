@@ -129,6 +129,26 @@ test_that("dispatch leaves unnamed handlers alone", {
   expect_identical(S7::S7_data(resolved), handler)
 })
 
+test_that("quick compiles and calls a rebound namespace handler", {
+  original <- quickr:::r2f_handlers[["sin"]]
+  withr::defer(
+    assign("sin", original, envir = quickr:::r2f_handlers),
+    envir = environment()
+  )
+  # Register a named placeholder, then rebind it after registration, as
+  # coverage instrumentation does with a namespace-level handler.
+  quickr:::register_r2f_handler("sin", .r2f_handler_not_implemented_yet)
+  local_mocked_bindings(
+    .r2f_handler_not_implemented_yet = S7::S7_data(original)
+  )
+
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    sin(x)
+  }
+  expect_quick_equal(fn, list(c(0, 1, 2)))
+})
+
 test_that("register_r2f_handler registers multiple names", {
   handler <- function(e, scope, ...) NULL
   withr::defer(

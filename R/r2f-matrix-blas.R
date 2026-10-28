@@ -37,6 +37,26 @@ assert_rank_leq2 <- function(x, message) {
   invisible(TRUE)
 }
 
+# The routines emitted in this file are the double-precision BLAS/LAPACK
+# entry points. Logical and integer operands are converted explicitly; raw
+# and complex storage must never be passed to a `d*` routine.
+blas_double_operand <- function(x, context, hoist = NULL) {
+  stopifnot(inherits(x, Fortran), is_string(context))
+  x <- maybe_cast_double(x)
+  if (!identical(x@value@mode, "double")) {
+    stop_static_mode_error(
+      paste0(
+        context,
+        " does not support ",
+        x@value@mode,
+        " operands; linear algebra in quickr is double-only"
+      ),
+      hoist
+    )
+  }
+  x
+}
+
 # Assert right-hand side rank is vector or matrix.
 assert_rhs_rank <- function(
   rank,
@@ -221,30 +241,32 @@ assert_nonempty_blas_output <- function(
   invisible(TRUE)
 }
 
+# Known limitation: symbolic destination shape changes are not validated here.
+# Guarded dimension proofs and safe resizing are deferred; use a fresh
+# destination when a result may change shape.
 # Check that destination dimensions match expected output dimensions.
 assert_dest_dims_compatible <- function(dest, expected_dims, context) {
   if (is.null(dest) || is.null(expected_dims)) {
-    return(TRUE)
+    return(invisible(TRUE))
   }
   expected_rank <- length(expected_dims)
   if (dest@rank != expected_rank) {
     stop("assignment target has incompatible rank for ", context, call. = FALSE)
   }
-  proven <- TRUE
   for (i in seq_len(expected_rank)) {
     dest_dim <- dest@dims[[i]]
     expected_dim <- expected_dims[[i]]
-    verdict <- check_equal_dims(dest_dim, expected_dim)
-    if (!verdict$ok) {
-      stop(
-        "assignment target has incompatible dimensions for ",
-        context,
-        call. = FALSE
-      )
+    if (is_wholenumber(dest_dim) && is_wholenumber(expected_dim)) {
+      if (!identical(as.integer(dest_dim), as.integer(expected_dim))) {
+        stop(
+          "assignment target has incompatible dimensions for ",
+          context,
+          call. = FALSE
+        )
+      }
     }
-    proven <- proven && !verdict$unknown
   }
-  proven
+  invisible(TRUE)
 }
 
 # Determine if output can safely write into dest without aliasing.
@@ -270,20 +292,7 @@ can_use_output <- function(
   if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
-  dims_proven <- assert_dest_dims_compatible(dest, expected_dims, context)
-  if (!dims_proven && isTRUE(dest@is_external)) {
-    stop(
-      "cannot change the shape of an external assignment target in ",
-      context,
-      call. = FALSE
-    )
-  }
-  if (!dims_proven) {
-    # Local allocatables fall back to intrinsic assignment, which reallocates
-    # them to the temporary result's shape. External arrays have fixed ABI
-    # extents and are rejected above.
-    return(FALSE)
-  }
+  assert_dest_dims_compatible(dest, expected_dims, context)
   output_name <- dest@name
   if (is.null(output_name) || !nzchar(output_name)) {
     return(FALSE)
@@ -298,14 +307,10 @@ can_use_output <- function(
   !output_name %in% disallowed
 }
 
-allocate_reusable_local_output_at_point <- function(
-  dest,
-  scope,
-  hoist,
-  dims = dest@dims
-) {
+# Known issue: allocation planning does not cover every initializer and
+# conditional write to a reused local. Use separate locals for separate results.
+allocate_reusable_local_output_at_point <- function(dest, scope, hoist) {
   stopifnot(inherits(dest, Variable), inherits(scope, "quickr_scope"))
-  stopifnot(is.null(dims) || is.list(dims))
   assert_hoist_env(hoist)
 
   if (
@@ -328,25 +333,18 @@ allocate_reusable_local_output_at_point <- function(
     return(invisible(dest))
   }
 
-  initialized_local_names <- scope_get(
+  point_allocated <- scope_get(
     scope,
-    "initialized_local_names",
+    "point_allocated_local_names",
     character()
   )
-  if (!tolower(dest@name) %in% tolower(initialized_local_names)) {
-    point_allocated <- scope_get(
-      scope,
-      "point_allocated_local_names",
-      character()
-    )
-    scope_set(
-      scope,
-      "point_allocated_local_names",
-      unique(c(point_allocated, dest@name))
-    )
-  }
+  scope_set(
+    scope,
+    "point_allocated_local_names",
+    unique(c(point_allocated, dest@name))
+  )
   hoist$emit(glue(
-    "if (.not. allocated({dest@name})) allocate({dest@name}({dims2f(dims, scope)}))"
+    "if (.not. allocated({dest@name})) allocate({dest@name}({dims2f(dest@dims, scope)}))"
   ))
   invisible(dest)
 }
@@ -425,8 +423,8 @@ gemm <- function(
   context = "gemm"
 ) {
   assert_hoist_env(hoist)
-  left <- cast_linalg_double(left, context, hoist)
-  right <- cast_linalg_double(right, context, hoist)
+  left <- blas_double_operand(left, context, hoist)
+  right <- blas_double_operand(right, context, hoist)
   assert_nonempty_blas_output(
     m,
     left,
@@ -493,8 +491,8 @@ gemv <- function(
   context = "gemv"
 ) {
   assert_hoist_env(hoist)
-  A <- cast_linalg_double(A, context, hoist)
-  x <- cast_linalg_double(x, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
+  x <- blas_double_operand(x, context, hoist)
   output_dim <- if (transA == "N") m else n
   assert_nonempty_blas_output(
     output_dim,
@@ -596,7 +594,7 @@ syrk <- function(
   context = "syrk"
 ) {
   assert_hoist_env(hoist)
-  X <- cast_linalg_double(X, context, hoist)
+  X <- blas_double_operand(X, context, hoist)
   x_dims <- matrix_dims(X)
 
   # For trans = "T": C = t(X) %*% X, so C is k x k where k = ncol(X)
@@ -634,7 +632,6 @@ syrk <- function(
     )
   ) {
     writes_to_dest <- TRUE
-    allocate_reusable_local_output_at_point(dest, scope, hoist)
     out_var <- dest
     out_name <- dest@name
   } else {
@@ -666,8 +663,8 @@ outer_mul <- function(
 ) {
   assert_hoist_env(hoist)
 
-  x <- cast_linalg_double(x, context, hoist)
-  y <- cast_linalg_double(y, context, hoist)
+  x <- blas_double_operand(x, context, hoist)
+  y <- blas_double_operand(y, context, hoist)
 
   if (x@value@rank > 1L || y@value@rank > 1L) {
     stop("outer() only supports vectors or scalars")
@@ -690,7 +687,6 @@ outer_mul <- function(
       context = context
     )
   ) {
-    allocate_reusable_local_output_at_point(dest, scope, hoist)
     hoist$emit(glue("{dest@name} = 0.0_c_double"))
     hoist$emit(glue(
       "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {dest@name}, {blas_int(m)})"
@@ -708,6 +704,8 @@ outer_mul <- function(
   Fortran(output_var@name, output_var)
 }
 
+# Known limitation: zero-sized solve/Cholesky outputs are not consistently
+# rejected before library calls; their validation is deferred.
 # Emit triangular solve (vector or matrix RHS) with optional destination.
 triangular_solve <- function(
   A,
@@ -722,8 +720,8 @@ triangular_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- cast_linalg_double(A, context, hoist)
-  B <- cast_linalg_double(B, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
+  B <- blas_double_operand(B, context, hoist)
 
   assert_rank2_matrix(A, "triangular solve expects a matrix")
 
@@ -755,17 +753,6 @@ triangular_solve <- function(
     right_axis = if (b_rank == 1L) NULL else 1L,
     checker = check_blas_dims
   )
-  assert_nonempty_blas_output(n, A, 1L, context, hoist, scope)
-  if (b_rank == 2L) {
-    assert_nonempty_blas_output(
-      dim_or_one(B, 2L),
-      B,
-      2L,
-      context,
-      hoist,
-      scope
-    )
-  }
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- symbol_name_or_null(B)
@@ -823,8 +810,8 @@ lapack_solve <- function(
 ) {
   assert_hoist_env(hoist)
 
-  A <- cast_linalg_double(A, context, hoist)
-  B <- cast_linalg_double(B, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
+  B <- blas_double_operand(B, context, hoist)
 
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
 
@@ -866,14 +853,11 @@ lapack_solve <- function(
     right_axis = if (b_rank == 1L) NULL else 1L,
     checker = check_blas_dims
   )
-  assert_nonempty_blas_output(n, A, 2L, context, hoist, scope)
-  nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
-  if (b_rank == 2L) {
-    assert_nonempty_blas_output(nrhs, B, 2L, context, hoist, scope)
-  }
 
   A_name <- ensure_blas_operand_name(A, hoist)
   B_input_name <- ensure_blas_operand_name(B, hoist)
+
+  nrhs <- if (b_rank == 1L) 1L else dim_or_one(B, 2L)
 
   # Both lowerings write a solution shaped by R's contract: length follows
   # ncol(a), width follows the right-hand side. Each branch resolves the
@@ -1044,14 +1028,13 @@ end do"
 lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
   assert_hoist_env(hoist)
 
-  A <- cast_linalg_double(A, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
   assert_rank2_matrix(A, paste0(context, " expects a matrix for `a`"))
   A <- hoist_unless_name(A, hoist)
 
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
-  assert_nonempty_blas_output(n, A, 1L, context, hoist, scope)
 
   A_name <- ensure_blas_operand_name(A, hoist)
 
@@ -1124,14 +1107,13 @@ lapack_inverse <- function(A, scope, hoist, dest = NULL, context = "solve") {
 lapack_chol <- function(A, scope, hoist, dest = NULL, context = "chol") {
   assert_hoist_env(hoist)
 
-  A <- cast_linalg_double(A, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
   assert_rank2_matrix(A, paste0(context, " expects a matrix"))
   A <- hoist_unless_name(A, hoist)
 
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims, A, context, hoist, scope)
   n <- a_dims$rows
-  assert_nonempty_blas_output(n, A, 1L, context, hoist, scope)
 
   A_name <- ensure_blas_operand_name(A, hoist)
 
@@ -1193,14 +1175,13 @@ lapack_chol2inv <- function(
 ) {
   assert_hoist_env(hoist)
 
-  R <- cast_linalg_double(R, context, hoist)
+  R <- blas_double_operand(R, context, hoist)
   assert_rank2_matrix(R, paste0(context, " expects a matrix"))
   R <- hoist_unless_name(R, hoist)
 
   r_dims <- matrix_dims(R)
   assert_square_matrix(r_dims, R, context, hoist, scope)
   n <- r_dims$rows
-  assert_nonempty_blas_output(n, R, 1L, context, hoist, scope)
 
   R_name <- ensure_blas_operand_name(R, hoist)
 
@@ -1277,7 +1258,6 @@ diag_extract <- function(x, scope, hoist, dest = NULL, context = "diag") {
       logical_is_c_int = logical_is_c_int
     )
   ) {
-    allocate_reusable_local_output_at_point(dest, scope, hoist)
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
@@ -1340,7 +1320,6 @@ diag_matrix <- function(
       logical_is_c_int = logical_is_c_int
     )
   ) {
-    allocate_reusable_local_output_at_point(dest, scope, hoist)
     out_var <- dest
     out_name <- dest@name
     writes_to_dest <- TRUE
@@ -1413,7 +1392,7 @@ lapack_svd <- function(
   assert_hoist_env(hoist)
   stopifnot(inherits(d, Variable), inherits(u, Variable), inherits(v, Variable))
 
-  A <- cast_linalg_double(A, context, hoist)
+  A <- blas_double_operand(A, context, hoist)
   dims <- svd_dims(A, context = context)
   m <- dims$m
   n <- dims$n

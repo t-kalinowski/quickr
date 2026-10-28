@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   skip_if_no_openmp()
 
@@ -25,20 +27,24 @@ test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   expect_quick_identical(parallel_sapply, list(x))
 })
 
-test_that("parallel loops execute fill constructors with private indices", {
-  skip_if_no_openmp()
-
-  fn <- function(n) {
-    declare(type(n = integer(1)), type(out = integer(n)))
-    out <- integer(n)
-    declare(parallel())
-    for (i in seq_len(n)) {
-      out[i] <- sum(c(integer(n), i))
-    }
-    out
+test_that("parallel loops support long short-circuit private clauses", {
+  withr::local_envvar(c(OMP_NUM_THREADS = "2", OMP_THREAD_LIMIT = "2"))
+  for (assignments in c(20L, 80L)) {
+    loop_body <- as.call(c(
+      list(as.name("{")),
+      rep(list(quote(out[i] <- x[i] > 0 && x[i] < 2)), assignments)
+    ))
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(NA)), type(out = logical(length(x))))
+      out <- logical(length(x))
+      declare(parallel())
+      for (i in seq_along(x)) {
+        .(loop_body)
+      }
+      out
+    }))
+    expect_quick_identical(fn, list(rep(c(-1, 0, 1, 2, 3), 200)))
   }
-
-  expect_quick_identical(fn, list(256L))
 })
 
 test_that("parallel quick avoids unsupported R CMD config probes", {

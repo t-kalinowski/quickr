@@ -39,15 +39,7 @@ parent_call_name <- function(calls) {
 # before dispatching, and the constructor handlers forward what they got.
 materialize_via_hoist <- function(code, mode, dims, hoist) {
   stopifnot(is.environment(hoist))
-  logical_storage <- inherits(code, Fortran) &&
-    inherits(code@value, Variable) &&
-    logical_as_int(code@value) &&
-    !isTRUE(code@logical_booleanized)
-  tmp <- hoist$declare_tmp(
-    mode = mode,
-    dims = dims,
-    logical_as_int = logical_storage
-  )
+  tmp <- hoist$declare_tmp(mode = mode, dims = dims)
   hoist$emit(glue("{tmp@name} = {code}"))
   Fortran(tmp@name, tmp)
 }
@@ -64,16 +56,13 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   mode <- promoted$mode
   # Fill constructors are one scalar literal claiming length k; spread them
   # as implied-dos so the emitted element count matches the claimed length.
+  # Known limitations: later closure calls can change symbolic fill lengths,
+  # and the implied-do counter is not OpenMP-private. Capturing lengths and
+  # supporting these constructors in parallel loops are deferred.
   fill_idx <- which(map_lgl(args, is_fill_constructor_call, scope = scope))
   if (length(fill_idx)) {
     spread_var <- NULL
     for (j in fill_idx) {
-      if (
-        !is.null(ff[[j]]@value@name) &&
-          identical(trimws(as.character(ff[[j]])), ff[[j]]@value@name)
-      ) {
-        next
-      }
       len_f <- dims2f(ff[[j]]@value@dims, scope)
       if (!nzchar(len_f)) {
         next # statically length 1: a single spliced scalar is already right
@@ -92,7 +81,6 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
           "integer",
           integer_kind = "c_ptrdiff_t"
         )
-      register_openmp_private(scope, spread_var@name)
       ff[[j]] <- Fortran(
         glue(
           "({ff[[j]]}, {spread_var}=1_c_ptrdiff_t, int({len_f}, kind=c_ptrdiff_t))"
@@ -197,12 +185,11 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 
 # Compile a zero-fill constructor call: a single scalar literal carrying
 # array dims. Whole-array assignment broadcasts that correctly, and
-# c()/array() spread it as an implied-do, so those contexts keep the
-# scalar form. Any other consumer (elementwise ops, reductions,
-# matrix() -- whose reshape() lowering needs an array SOURCE, not a
-# scalar literal) needs a real array expression -- an expression like
-# `numeric(2) + 1` would otherwise contribute one element where its dims
-# claim two -- so materialize the fill into a hoisted temporary there.
+# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
+# the scalar form. Any other consumer (elementwise ops, reductions, ...)
+# needs a real array expression -- an expression like `numeric(2) + 1`
+# would otherwise contribute one element where its dims claim two -- so
+# materialize the fill into a hoisted temporary there.
 fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   dims <- if (length(args)) r2dims(args, scope) else list(0L)
   var <- Variable(mode = mode, dims = dims)
@@ -225,7 +212,7 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
     return(out)
   }
   parent_call <- parent_call_name(list(...)$calls)
-  if (parent_call %in% c("<-", "=", "<<-", "c", "array")) {
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
     return(out)
   }
   materialize_via_hoist(literal, mode, var@dims, hoist)

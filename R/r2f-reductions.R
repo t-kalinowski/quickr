@@ -4,6 +4,10 @@
 # - logical: any, all
 # - index: which.max, which.min
 
+# Known limitations (deferred): scalar masked extrema do not model an empty
+# selection. Multi-argument reductions may lose value/mask evaluation order
+# when later arguments mutate captures or fail during lowering.
+
 # --- Handlers ---
 
 register_r2f_handler(
@@ -34,19 +38,17 @@ register_r2f_handler(
 
     empty_extrema_message <- "min()/max() of empty inputs are not supported"
 
-    reduce_arg <- function(
-      arg,
-      ordered = FALSE,
-      allow_empty = FALSE,
-      later_args = list()
-    ) {
-      stopifnot(is.list(later_args))
+    reduce_arg <- function(arg, ordered = FALSE, allow_empty = FALSE) {
       mask_hoist <- create_mask_hoist()
       # Nested reductions (e.g., min(max(...), ...)) can thread an existing
       # hoist_mask through `...`. We always want a single mask hoister per
       # reduction context, so we ignore any inherited one and install ours.
       dots <- list(...)
-      arg_hoist <- if (ordered) capture_hoist(dots$hoist) else dots$hoist
+      arg_hoist <- if (ordered) {
+        capture_inheriting_deferred_errors(dots$hoist)
+      } else {
+        dots$hoist
+      }
       x <- r2f(
         arg,
         scope,
@@ -63,22 +65,10 @@ register_r2f_handler(
       hoisted_mask <- mask_hoist$get_hoisted()
       nonempty <- TRUE
       empty_condition <- NULL
-      if (
-        call_name %in%
-          c("min", "max") &&
-          (!x@value@is_scalar || !is.null(hoisted_mask))
-      ) {
+      if (call_name %in% c("min", "max") && !x@value@is_scalar) {
         element_count <- var_element_count(x@value)
         if (!is.null(hoisted_mask)) {
-          mask_code <- trimws(as.character(hoisted_mask))
-          mask_is_scalar <-
-            passes_as_scalar(hoisted_mask@value) &&
-            !startsWith(mask_code, "[")
-          nonempty <- if (mask_is_scalar) {
-            glue("{hoisted_mask}")
-          } else {
-            glue("any({hoisted_mask})")
-          }
+          nonempty <- glue("any({hoisted_mask})")
           empty_condition <- glue(".not. ({nonempty})")
         } else if (!is.na(element_count)) {
           nonempty <- element_count > 0
@@ -127,15 +117,6 @@ register_r2f_handler(
       }
 
       if (ordered) {
-        if (!allow_empty || identical(nonempty, TRUE)) {
-          out <- snapshot_operand_before_later_effects(
-            out,
-            arg,
-            later_args,
-            scope,
-            arg_hoist
-          )
-        }
         if (allow_empty) {
           return(list(value = out, nonempty = nonempty, hoist = arg_hoist))
         }
@@ -148,14 +129,7 @@ register_r2f_handler(
     if (length(args) == 1) {
       reduce_arg(args[[1]])
     } else if (call_name %in% c("min", "max")) {
-      reduced <- lapply(seq_along(args), function(i) {
-        reduce_arg(
-          args[[i]],
-          ordered = TRUE,
-          allow_empty = TRUE,
-          later_args = tail(args, -i)
-        )
-      })
+      reduced <- lapply(args, reduce_arg, ordered = TRUE, allow_empty = TRUE)
       if (
         all(vapply(
           reduced,
@@ -244,13 +218,7 @@ register_r2f_handler(
       )
       Fortran(result@name, result)
     } else {
-      args <- lapply(seq_along(args), function(i) {
-        reduce_arg(
-          args[[i]],
-          ordered = TRUE,
-          later_args = tail(args, -i)
-        )
-      })
+      args <- lapply(args, reduce_arg, ordered = TRUE)
       # Fortran's max/min require uniform argument types; cast every operand
       # whose mode differs from the join. The + / * spellings for sum/prod
       # don't strictly need it, but one code path beats two. Logical
