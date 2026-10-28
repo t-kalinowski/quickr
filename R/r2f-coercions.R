@@ -3,9 +3,20 @@
 
 # --- Handlers ---
 
-r2f_handlers[["as.double"]] <- function(args, scope = NULL, ...) {
+r2f_handlers[["as.double"]] <- function(
+  args,
+  scope = NULL,
+  ...,
+  hoist = NULL
+) {
   stopifnot(length(args) == 1L)
-  x <- r2f(args[[1L]], scope, ...)
+  x <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  if (identical(x@value@mode, "complex")) {
+    stop_static_mode_error(
+      "as.double() does not support complex input; imaginary parts would be discarded",
+      hoist
+    )
+  }
   x <- maybe_cast_double(x)
 
   # R drops dimensions for as.double(<array>): the result is a vector.
@@ -29,9 +40,14 @@ r2f_handlers[["as.double"]] <- function(args, scope = NULL, ...) {
   x
 }
 
-r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
+r2f_handlers[["as.integer"]] <- function(
+  args,
+  scope = NULL,
+  ...,
+  hoist = NULL
+) {
   stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1L]], scope, ...)
+  arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
 
   # R semantics:
   # - numeric -> integer truncates toward 0
@@ -53,7 +69,10 @@ r2f_handlers[["as.integer"]] <- function(args, scope = NULL, ...) {
       arg <- booleanize_logical_as_int(arg)
       Fortran(glue("merge(1_c_int, 0_c_int, {arg})"), out_val)
     },
-    stop("as.integer() only implemented for logical, integer, and double")
+    stop_static_mode_error(
+      "as.integer() only implemented for logical, integer, and double",
+      hoist
+    )
   )
 
   # R drops dimensions for as.integer(<array>): the result is a vector.

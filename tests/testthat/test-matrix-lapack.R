@@ -1,5 +1,3 @@
-skip_on_cran()
-
 test_that("solve matches R for vector, matrix, and inverse", {
   solve_vec <- function(A, b) {
     declare(

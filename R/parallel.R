@@ -47,25 +47,51 @@ scope_in_openmp <- function(scope) {
   scope_openmp_depth(scope) > 0L
 }
 
+openmp_private_vars <- function(scope) {
+  if (!inherits(scope, "quickr_scope")) {
+    return(character())
+  }
+  scope_get(scope, "openmp_private_vars", character())
+}
+
+register_openmp_private <- function(scope, name) {
+  stopifnot(inherits(scope, "quickr_scope"), is_string(name))
+  if (!scope_in_openmp(scope)) {
+    return(invisible(scope))
+  }
+  scope_set(
+    scope,
+    "openmp_private_vars",
+    unique(c(openmp_private_vars(scope), name))
+  )
+  invisible(scope)
+}
+
 enter_openmp_scope <- function(scope) {
   if (!inherits(scope, "quickr_scope")) {
     return(NULL)
   }
-  previous_depth <- scope_get(scope, "openmp_depth")
+  previous <- list(
+    depth = scope_get(scope, "openmp_depth"),
+    private_vars = scope_get(scope, "openmp_private_vars")
+  )
   depth <- scope_openmp_depth(scope)
   scope_set(scope, "openmp_depth", depth + 1L)
-  previous_depth
+  scope_set(scope, "openmp_private_vars", character())
+  previous
 }
 
-exit_openmp_scope <- function(scope, previous_depth) {
+exit_openmp_scope <- function(scope, previous) {
   if (!inherits(scope, "quickr_scope")) {
     return(invisible(NULL))
   }
+  previous_depth <- previous$depth
   if (is.null(previous_depth)) {
     scope_set(scope, "openmp_depth", NULL)
   } else {
     scope_set(scope, "openmp_depth", as.integer(previous_depth))
   }
+  scope_set(scope, "openmp_private_vars", previous$private_vars)
   invisible(TRUE)
 }
 

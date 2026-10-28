@@ -1,7 +1,5 @@
 # Unit tests for loop constructs
 
-skip_on_cran()
-
 test_that("repeat/break", {
   inc_to_5 <- function(x) {
     declare(type(x = integer(1)))
@@ -102,4 +100,66 @@ test_that("expr return value", {
 
   expect_translation_snapshots(fn)
   expect_quick_identical(fn, 1:10)
+})
+
+test_that("single-statement while/repeat bodies re-run their hoisted statements", {
+  # A non-`{` loop body whose lone statement hoists code (here a BLAS
+  # call) must emit that code inside the loop; hoisting it out of the
+  # loop would freeze the body's work at its first evaluation. `for` is
+  # covered in test-for-iterables.R.
+  #
+  # Keep the direct repeat assignment as a translation regression because
+  # it cannot terminate. Exercise the generated repeat path separately with
+  # a bounded one-statement body whose else branch repeats the same BLAS work.
+  # fmt: skip
+  squarings_while <- function(m) {
+    declare(type(m = double(2, 2)))
+    while (m[1, 1] < 100) m <- m %*% m
+    m
+  }
+
+  expect_translation_snapshots(squarings_while)
+  expect_quick_identical(squarings_while, list(diag(2) * 2))
+
+  # fmt: skip
+  squarings_repeat <- function(m) {
+    declare(type(m = double(2, 2)))
+    repeat m <- m %*% m
+    m
+  }
+
+  expect_translation_snapshots(squarings_repeat)
+
+  # fmt: skip
+  bounded_squarings_repeat <- function(m) {
+    declare(type(m = double(2, 2)))
+    repeat if (m[1, 1] >= 100) break else m <- m %*% m
+    m
+  }
+
+  expect_quick_identical(bounded_squarings_repeat, list(diag(2) * 2))
+})
+
+test_that("lazy while-condition errors preserve preceding effects", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      while ((runif(1) + abs()) > 0) {
+        later <- runif(2)
+      }
+      TRUE
+    }
+    flag && predicate()
+  }
+  qfn <- quick(fn)
+  withr::local_seed(153)
+  before <- .Random.seed
+  expect_identical(qfn(FALSE), fn(FALSE))
+  expect_identical(.Random.seed, before)
+  set.seed(153)
+  expect_error(fn(TRUE), "abs")
+  expected_seed <- .Random.seed
+  set.seed(153)
+  expect_error(qfn(TRUE), "abs")
+  expect_identical(.Random.seed, expected_seed)
 })

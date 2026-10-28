@@ -32,6 +32,23 @@
   build even in arithmetic, and a symbolic-length `x + m` returned a plain
   vector where R returns a `1x1` matrix.
 
+- `&&` and `||` now short-circuit: the right operand is evaluated only
+  when the left side does not decide the answer, so idioms like
+  `while (i <= n && x[i] > 0)` are safe. Operands must still be length-1
+  logical values; numeric coercion and `NA` semantics remain unsupported.
+  Assignment expressions, loop bindings, and declarations inside these
+  operands are rejected; use separate statements.
+  `print()` remains a statement-only operation.
+
+- Infinite literals now produce a clear diagnostic. Inside `&&` and `||`,
+  it is deferred until the operand is reached. Skipped `Inf` or `-Inf`
+  operands no longer cause a Fortran compilation error. This does not add
+  support for evaluating infinite literals or change infinite values
+  passed as arguments.
+
+- `while` conditions now re-evaluate hoisted expressions each iteration;
+  `repeat` loops evaluate hoisted body expressions on each pass.
+
 - `solve(a, b)` now requires a square `a`, matching R. A rectangular `a`
   previously fell through to a least-squares solve (dgels), returning an
   answer where R raises `'a' (m x n) must be square`. Statically

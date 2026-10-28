@@ -14,6 +14,30 @@ maybe_lower_local_closure_call <- function(
     is_bool(needs_value)
   )
 
+  compile_call <- function(call_expr, closure_obj, proc_name) {
+    compile <- function() {
+      compile_closure_call(
+        call_expr = call_expr,
+        closure_obj = closure_obj,
+        proc_name = proc_name,
+        scope = scope,
+        ...,
+        hoist = hoist,
+        needs_value = needs_value
+      )
+    }
+    if (!isTRUE(hoist$defer_builtin_arity_error)) {
+      return(compile())
+    }
+    tryCatch(
+      compile(),
+      quickr_deferred_branch_error = function(error) stop(error),
+      error = function(error) {
+        stop_deferred_branch_error(conditionMessage(error))
+      }
+    )
+  }
+
   callable_unwrapped <- e[[1L]]
   while (
     is_call(callable_unwrapped, quote(`(`)) &&
@@ -30,15 +54,7 @@ maybe_lower_local_closure_call <- function(
     }
 
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
-    return(compile_closure_call(
-      call_expr = call_expr,
-      closure_obj = closure_obj,
-      proc_name = callable_name,
-      scope = scope,
-      ...,
-      hoist = hoist,
-      needs_value = needs_value
-    ))
+    return(compile_call(call_expr, closure_obj, callable_name))
   }
 
   if (is_function_call(callable_unwrapped)) {
@@ -50,15 +66,7 @@ maybe_lower_local_closure_call <- function(
       name = proc_name
     )
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
-    return(compile_closure_call(
-      call_expr = call_expr,
-      closure_obj = closure_obj,
-      proc_name = proc_name,
-      scope = scope,
-      ...,
-      hoist = hoist,
-      needs_value = needs_value
-    ))
+    return(compile_call(call_expr, closure_obj, proc_name))
   }
 
   NULL
@@ -102,7 +110,8 @@ compile_internal_subroutine <- function(
   res_var,
   allow_void_return = FALSE,
   forbid_superassign = character(),
-  optional_args = character()
+  optional_args = character(),
+  defer_errors = FALSE
 ) {
   stopifnot(is_string(proc_name), inherits(closure_obj, LocalClosure))
   fun <- closure_obj@fun
@@ -133,6 +142,7 @@ compile_internal_subroutine <- function(
 
   proc_scope <- new_scope(fun, parent = formal_scope)
   scope_set(proc_scope, "kind", "closure")
+  scope_set(proc_scope, "defer_branch_errors", defer_errors)
   scope_set(proc_scope, "host_scope", scope_root(parent_scope))
   scope_set(proc_scope, "forbid_superassign", forbid_superassign)
 
@@ -225,59 +235,91 @@ compile_internal_subroutine <- function(
 
   body_prefix <- character()
   assign_code <- character()
+  body_failed <- FALSE
   if (is.null(res_var)) {
     if (is.null(last(stmts))) {
       stmts <- drop_last(stmts)
     }
-    body_prefix <- compile_nonreturn_statements(stmts, proc_scope)
+    body_prefix <- compile_nonreturn_statements(
+      stmts,
+      proc_scope,
+      defer_errors = defer_errors
+    )$code
   } else {
     last_expr <- last(stmts)
     prefix <- drop_last(stmts)
 
-    body_prefix <- compile_nonreturn_statements(prefix, proc_scope)
-
-    h <- new_hoist(proc_scope)
-    expr_error <- NULL
-    expr <- tryCatch(
-      r2f(last_expr, proc_scope, hoist = h),
-      error = function(e) {
-        expr_error <<- e
-        NULL
-      }
+    prefix <- compile_nonreturn_statements(
+      prefix,
+      proc_scope,
+      defer_errors = defer_errors
     )
+    body_prefix <- prefix$code
 
-    if (!is.null(expr_error)) {
-      if (!isTRUE(allow_void_return)) {
-        stop(expr_error)
-      }
-      # If `last_expr` is itself a local closure call that returns no value,
-      # compiling in value-position (with `hoist`) fails. Retry compilation in
-      # statement-position.
-      stmt_expr <- r2f(last_expr, proc_scope)
-      if (!is.null(stmt_expr@value)) {
-        stop(expr_error)
-      }
-      assign_code <- as.character(stmt_expr)
-      res_var <- NULL
-    } else if (is.null(expr@value)) {
-      if (!isTRUE(allow_void_return)) {
-        stop("local closure does not return a value")
-      }
-      assign_code <- h$render(expr)
-      res_var <- NULL
-    } else if (is.null(expr@value@mode)) {
-      stop("could not infer closure return type")
-    } else {
-      res_name <- "res"
-      while (res_name %in% c(formal_names, used_names)) {
-        res_name <- paste0(res_name, "_")
-      }
-      res_var@name <- res_name
-      proc_scope[[res_name]] <- res_var
-      arg_names <- c(arg_names, res_name)
+    h <- new_hoist(proc_scope, defer_errors = defer_errors)
+    expr_error <- prefix$error
+    expr <- if (is.null(expr_error)) {
+      tryCatch(
+        r2f(last_expr, proc_scope, hoist = h),
+        error = function(e) {
+          expr_error <<- e
+          NULL
+        }
+      )
     }
 
-    if (!is.null(res_var)) {
+    if (is.null(prefix$error) && !is.null(expr_error) && allow_void_return) {
+      # A void tail call is valid in statement position. Discard the failed
+      # value attempt's hoists so its effects are not emitted twice.
+      stmt_expr <- r2f(last_expr, proc_scope)
+      if (is.null(stmt_expr@value)) {
+        expr <- stmt_expr
+        expr_error <- NULL
+        h <- new_hoist(proc_scope)
+      }
+    }
+    body_failed <- !is.null(expr_error) && defer_errors
+    if (body_failed) {
+      if (is.null(prefix$error)) {
+        emit_quickr_error_if(
+          ".true.",
+          conditionMessage(expr_error),
+          h,
+          proc_scope
+        )
+      }
+      # This result is unreachable: the closure returns through the error
+      # channel before its caller can read it. Supply only the missing type.
+      if (is.null(res_var@mode)) {
+        res_var@mode <- "logical"
+      }
+      expr <- Fortran("", res_var)
+    } else if (!is.null(expr_error)) {
+      stop(expr_error)
+    }
+    if (is.null(expr_error) || body_failed) {
+      if (is.null(expr@value)) {
+        if (!isTRUE(allow_void_return)) {
+          stop("local closure does not return a value")
+        }
+        assign_code <- h$render(expr)
+        res_var <- NULL
+      } else if (is.null(expr@value@mode)) {
+        stop("could not infer closure return type")
+      } else {
+        res_name <- "res"
+        while (res_name %in% c(formal_names, used_names)) {
+          res_name <- paste0(res_name, "_")
+        }
+        res_var@name <- res_name
+        proc_scope[[res_name]] <- res_var
+        arg_names <- c(arg_names, res_name)
+      }
+    }
+
+    if (body_failed) {
+      assign_code <- h$render("")
+    } else if (!is.null(res_var)) {
       if (is.null(res_var@mode)) {
         res_var@mode <- expr@value@mode
         res_var@dims <- expr@value@dims
@@ -431,7 +473,8 @@ compile_internal_subroutine <- function(
     code = proc_code,
     captures = character(),
     res = res_name,
-    res_var = res_var
+    res_var = res_var,
+    error = if (body_failed) expr_error else NULL
   )
 }
 
@@ -861,7 +904,8 @@ compile_local_closure_proc <- function(
   res_var,
   allow_void_return = FALSE,
   forbid_superassign = character(),
-  optional_args = character()
+  optional_args = character(),
+  defer_errors = FALSE
 ) {
   proc <- compile_internal_subroutine(
     proc_name,
@@ -871,7 +915,8 @@ compile_local_closure_proc <- function(
     res_var = res_var,
     allow_void_return = allow_void_return,
     forbid_superassign = forbid_superassign,
-    optional_args = optional_args
+    optional_args = optional_args,
+    defer_errors = defer_errors
   )
   scope_add_internal_proc(scope_root(scope), proc)
   proc
@@ -908,33 +953,9 @@ compile_closure_call <- function(
   args_present <- call_info$args_present
 
   last_expr <- closure_last_expr(closure_obj@fun)
-
-  if (is.null(last_expr)) {
-    if (needs_value) {
-      stop("local closure calls that return `NULL` cannot be used as values")
-    }
-    proc <- compile_local_closure_proc(
-      proc_name,
-      closure_obj,
-      scope,
-      formal_vars = formal_vars,
-      res_var = NULL,
-      optional_args = optional_args
-    )
-
-    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
-    call_args <- inputs$args
-    if (length(call_args)) {
-      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
-      return(Fortran(str_flatten_lines(
-        call_stmt,
-        quickr_error_return_if_set(scope)
-      )))
-    }
-    return(Fortran(str_flatten_lines(
-      glue("call {proc$name}()"),
-      quickr_error_return_if_set(scope)
-    )))
+  defer_errors <- isTRUE(hoist$defer_builtin_arity_error)
+  if (is.null(last_expr) && needs_value && !defer_errors) {
+    stop("local closure calls that return `NULL` cannot be used as values")
   }
 
   proc <- compile_local_closure_proc(
@@ -942,25 +963,24 @@ compile_closure_call <- function(
     closure_obj,
     scope,
     formal_vars = formal_vars,
-    res_var = Variable(),
-    allow_void_return = !needs_value,
-    optional_args = optional_args
+    res_var = if (is.null(last_expr)) NULL else Variable(),
+    allow_void_return = !needs_value || defer_errors,
+    optional_args = optional_args,
+    defer_errors = defer_errors
   )
 
-  if (!needs_value && is.null(proc$res)) {
+  if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
     call_args <- inputs$args
-    if (length(call_args)) {
-      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
-      return(Fortran(str_flatten_lines(
-        call_stmt,
-        quickr_error_return_if_set(scope)
-      )))
-    }
-    return(Fortran(str_flatten_lines(
-      glue("call {proc$name}()"),
+    call_stmt <- str_flatten_lines(
+      glue("call {proc$name}({str_flatten_commas(call_args)})"),
       quickr_error_return_if_set(scope)
-    )))
+    )
+    if (needs_value) {
+      hoist$emit(call_stmt)
+      stop_deferred_branch_error("local closure does not return a value")
+    }
+    return(Fortran(call_stmt))
   }
 
   res_var <- proc$res_var
@@ -979,6 +999,11 @@ compile_closure_call <- function(
   call_args <- c(call_args, res_arg)
   call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
   call_stmt <- str_flatten_lines(call_stmt, quickr_error_return_if_set(scope))
+
+  if (!is.null(proc$error)) {
+    hoist$emit(call_stmt)
+    stop_deferred_branch_error(conditionMessage(proc$error))
+  }
 
   if (needs_value) {
     hoist$emit(call_stmt)
@@ -1018,7 +1043,8 @@ compile_closure_call_assignment <- function(
     assignment_fortran_name(target_name, scope)
   }
 
-  if (is.null(closure_last_expr(closure_obj@fun))) {
+  defer_errors <- isTRUE(hoist$defer_builtin_arity_error)
+  if (is.null(closure_last_expr(closure_obj@fun)) && !defer_errors) {
     stop("local closure calls that return `NULL` cannot be assigned")
   }
   call_info <- match_closure_call_args(call_expr, closure_obj, scope, ...)
@@ -1051,8 +1077,18 @@ compile_closure_call_assignment <- function(
     scope,
     formal_vars = formal_vars,
     res_var = res_var,
-    optional_args = optional_args
+    optional_args = optional_args,
+    allow_void_return = defer_errors,
+    defer_errors = defer_errors
   )
+  if (is.null(proc$res)) {
+    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+    hoist$emit(str_flatten_lines(
+      glue("call {proc$name}({str_flatten_commas(inputs$args)})"),
+      quickr_error_return_if_set(scope)
+    ))
+    stop_deferred_branch_error("local closure does not return a value")
+  }
   if (!target_exists) {
     inferred_res_var <- proc$res_var
     if (is.null(inferred_res_var@mode)) {
@@ -1080,7 +1116,8 @@ compile_closure_call_assignment <- function(
         scope,
         formal_vars = formal_vars,
         res_var = res_var,
-        optional_args = optional_args
+        optional_args = optional_args,
+        defer_errors = defer_errors
       )
     }
     scope[[target_name]] <- target_var
@@ -1116,13 +1153,18 @@ compile_closure_call_assignment <- function(
     scope[[target_name]] <- target_var
   }
 
-  Fortran(glue(
+  out <- Fortran(glue(
     "
     call {proc$name}({str_flatten_commas(call_args)})
     {quickr_error_return_if_set(scope)}
     {str_flatten_lines(post)}
     "
   ))
+  if (!is.null(proc$error)) {
+    hoist$emit(out)
+    stop_deferred_branch_error(conditionMessage(proc$error))
+  }
+  out
 }
 
 compile_sapply_assignment <- function(
@@ -1253,7 +1295,8 @@ compile_sapply_assignment <- function(
     scope,
     formal_vars,
     res_var,
-    forbid_superassign = out_name
+    forbid_superassign = out_name,
+    defer_errors = isTRUE(hoist$defer_builtin_arity_error)
   )
 
   if (!target_exists) {
@@ -1273,7 +1316,8 @@ compile_sapply_assignment <- function(
         scope,
         formal_vars,
         res_var,
-        forbid_superassign = out_name
+        forbid_superassign = out_name,
+        defer_errors = isTRUE(hoist$defer_builtin_arity_error)
       )
     }
 

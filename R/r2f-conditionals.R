@@ -107,6 +107,8 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
 # --- Handlers ---
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
+  # Known issue: branch bindings can leak into the shared compiler scope.
+  # Keep assignments and declarations separate; branch scope isolation is deferred.
   mask <- lower_operands_in_order(
     args[1L],
     scope,
@@ -127,6 +129,9 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     mask <- Fortran(mask_tmp@name, mask_tmp)
   }
 
+  # Known limitation: static diagnostics in both branches are checked during
+  # lowering, even when R would skip a branch. Deferring these errors is separate
+  # work from scalar &&/|| lowering.
   lower_branch <- function(arg) {
     sub <- hoist$capture_block()
     branch <- r2f(arg, scope, ..., hoist = sub)
@@ -168,7 +173,9 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
 
   mask <- booleanize_logical_as_int(mask)
 
-  # Assign both branches into one result, promoting them to a common mode.
+  # Both branches share one promoted result mode and the selector's shape.
+  # Known limitation: constant selectors do not retain the selected branch's
+  # mode, and branch recycling or scalar tests with array branches are deferred.
   promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
   .[tsource, fsource] <- promoted$args
   mode <- promoted$mode

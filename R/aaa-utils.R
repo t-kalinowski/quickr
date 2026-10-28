@@ -226,29 +226,49 @@ drop_nulls <- function(x, i) {
 last <- function(x) x[[length(x)]]
 drop_last <- function(x) x[-length(x)]
 
-compile_nonreturn_statements <- function(stmts, scope) {
+compile_nonreturn_statements <- function(stmts, scope, defer_errors = FALSE) {
   if (!length(stmts)) {
     check_pending_parallel_consumed(scope)
-    return("")
+    return(list(code = "", error = NULL))
   }
 
   compiled <- vector("list", length(stmts))
+  deferred_error <- NULL
   for (i in seq_along(stmts)) {
     stmt <- stmts[[i]]
-    check_pending_parallel_target(stmt, scope)
-    stmt_f <- r2f(stmt, scope)
-    if (!is.null(stmt_f@value)) {
-      stop(
-        "all expressions except the final return must compile to a statement (no value); found: ",
-        deparse1(stmt),
-        call. = FALSE
-      )
+    h <- new_hoist(scope, defer_errors = defer_errors)
+    stmt_f <- tryCatch(
+      {
+        check_pending_parallel_target(stmt, scope)
+        value <- r2f(stmt, scope, hoist = h, needs_value = FALSE)
+        if (!is.null(value@value)) {
+          stop(
+            "all expressions except the final return must compile to a statement (no value); found: ",
+            deparse1(stmt),
+            call. = FALSE
+          )
+        }
+        value
+      },
+      error = function(error) {
+        if (!defer_errors) {
+          stop(error)
+        }
+        deferred_error <<- error
+        emit_quickr_error_if(".true.", conditionMessage(error), h, scope)
+        Fortran("")
+      }
+    )
+    compiled[[i]] <- h$render(stmt_f)
+    if (!is.null(deferred_error)) {
+      break
     }
-    compiled[[i]] <- stmt_f
   }
 
-  check_pending_parallel_consumed(scope)
-  str_flatten_lines(compiled)
+  if (is.null(deferred_error)) {
+    check_pending_parallel_consumed(scope)
+  }
+  list(code = str_flatten_lines(compiled), error = deferred_error)
 }
 # fmt: skip
 {
