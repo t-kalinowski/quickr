@@ -75,7 +75,18 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
   # evaluate them once, before the loop. Collect them separately and, when
   # present, lower to an explicit exit check at the top of the loop body.
   cond_hoist <- new_hoist(scope)
-  cond <- r2f(args[[1]], scope, ..., hoist = cond_hoist)
+  cond <- tryCatch(
+    r2f(args[[1]], scope, ..., hoist = cond_hoist),
+    error = function(error) {
+      # The failed initial condition cannot enter the loop, but its earlier
+      # effects must precede the deferred diagnostic in the enclosing branch.
+      if (cond_hoist$contains_runtime_guard()) {
+        hoist$mark_runtime_guard()
+      }
+      hoist$emit(cond_hoist$render(""))
+      stop(error)
+    }
+  )
   # The body gets its own hoist target for the same reason: forwarding the
   # enclosing statement's hoist would emit a single-statement body's
   # hoisted code (BLAS calls, temporaries, guards) once, before the loop.
@@ -147,7 +158,6 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
 
     loop_var <- existing %||% Variable(mode = iterable_var@mode)
     loop_var@name <- var_name
-    loop_var@r_name <- var
     if (identical(loop_var@mode, "logical") && !inherits(existing, Variable)) {
       loop_var@logical_as_int <- logical_as_int(iterable_var)
     }
@@ -237,7 +247,7 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   }
 
   # Index iteration: `for (i in 1:n) { ... }`
-  loop_var <- Variable(mode = "integer", name = var_name, r_name = var)
+  loop_var <- Variable(mode = "integer", name = var_name)
   if (iterable_is_singleton_one(iterable_unwrapped, scope)) {
     loop_var@loop_is_singleton <- TRUE
   }

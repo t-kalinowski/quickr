@@ -2074,21 +2074,25 @@
       
         ! locals
         logical, allocatable :: y(:) ! logical
-        integer(c_int), allocatable :: tmp1_(:)
         ! manifest end
       
         allocate(y(x__len_))
       
       
         y = (.not. (x/=0))
-        if (.not. allocated(tmp1_)) allocate(tmp1_(x__len_))
-        if (any(y)) then
-          where (y) tmp1_ = 1_c_int
-        end if
-        if (any(.not. y)) then
-          where (.not. y) tmp1_ = 0_c_int
-        end if
-        out = tmp1_
+        block
+          integer(c_int), allocatable :: btmp1_(:)
+      
+          if (any(y)) then
+            if (.not. allocated(btmp1_)) allocate(btmp1_(x__len_))
+            where (y) btmp1_ = 1_c_int
+          end if
+          if (any(.not. y)) then
+            if (.not. allocated(btmp1_)) allocate(btmp1_(x__len_))
+            where (.not. y) btmp1_ = 0_c_int
+          end if
+          out = btmp1_
+        end block
       end subroutine
     Code
       cat(cwrapper)
@@ -2122,3 +2126,4 @@
         UNPROTECT(1);
         return out;
       }
+

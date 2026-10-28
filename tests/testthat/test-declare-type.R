@@ -55,6 +55,7 @@ test_that("character declarations are refused with a clean message", {
   }
   expect_error(
     quick(fn),
-    "character values are not supported by quickr"
+    "in declare(type(x = character(...))): character values are not supported by quickr",
+    fixed = TRUE
   )
 })

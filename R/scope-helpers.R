@@ -41,8 +41,19 @@ scope_uses_rng <- function(scope) {
 }
 
 scope_mark_uses_rng <- function(scope) {
-  scope_set(scope, "uses_rng", TRUE)
+  scope_set(scope_root(scope), "uses_rng", TRUE)
   invisible(TRUE)
+}
+
+scope_defers_branch_errors <- function(scope) {
+  while (inherits(scope, "quickr_scope")) {
+    defer <- scope_get(scope, "defer_branch_errors")
+    if (!is.null(defer)) {
+      return(isTRUE(defer))
+    }
+    scope <- parent.env(scope)
+  }
+  FALSE
 }
 
 scope_uses_errors_flag <- function(scope) {

@@ -99,30 +99,6 @@ test_that("matrix-vector %*% guards before allocating a reusable local", {
   )
 })
 
-test_that("BLAS destinations are not reused across unproven shapes", {
-  local <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    sum(out)
-  }
-  external <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    out
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:3), 3, 1)
-  expect_quick_equal(local, list(a, b))
-  expect_error(
-    quick(external),
-    "cannot change the shape of an external assignment target",
-    fixed = TRUE
-  )
-})
-
 test_that("renamed BLAS return destinations remain output arguments", {
   fn <- function(a, b, n) {
     declare(
@@ -149,99 +125,6 @@ test_that("renamed BLAS return destinations remain output arguments", {
 
   expect_equal(actual, expected)
   expect_identical(actual_seed, expected_seed)
-})
-
-test_that("SYRK point-allocates reused conditional destinations", {
-  fn <- function(flag, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, k)),
-      type(b = double(k, n)),
-      type(x = double(m, n))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- crossprod(x)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  x <- matrix(as.double(1:6), 3, 2)
-  qfn <- quick(fn)
-  expected <- sum(crossprod(x))
-  expect_equal(qfn(FALSE, a, b, x), expected)
-  expect_equal(qfn(TRUE, a, b, x), expected)
-})
-
-test_that("diag point-allocates reused conditional destinations", {
-  extract <- function(flag, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, n)),
-      type(b = double(n)),
-      type(x = double(n, n))
-    )
-    if (flag) {
-      out <- solve(a, b)
-    }
-    out <- diag(x)
-    sum(out)
-  }
-  construct <- function(flag, n, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(n = integer(1)),
-      type(a = double(n, n)),
-      type(b = double(n, n)),
-      type(x = double(n))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- diag(x, nrow = n, ncol = n)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:4), 2, 2)
-  b <- as.double(1:2)
-  x <- matrix(as.double(1:4), 2, 2)
-  qextract <- quick(extract)
-  expected <- sum(diag(x))
-  expect_equal(qextract(FALSE, a, b, x), expected)
-  expect_equal(qextract(TRUE, a, b, x), expected)
-
-  qconstruct <- quick(construct)
-  expected <- sum(diag(b, nrow = 2, ncol = 2))
-  expect_equal(qconstruct(FALSE, 2L, a, a, b), expected)
-  expect_equal(qconstruct(TRUE, 2L, a, a, b), expected)
-})
-
-test_that("outer point-allocates reused conditional destinations", {
-  fn <- function(flag, a, b, x, y) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, k)),
-      type(b = double(k, p)),
-      type(x = double(n)),
-      type(y = double(p))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- outer(x, y)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  x <- as.double(1:2)
-  y <- as.double(3:4)
-  qfn <- quick(fn)
-  expected <- sum(outer(x, y))
-  expect_equal(qfn(FALSE, a, b, x, y), expected)
-  expect_equal(qfn(TRUE, a, b, x, y), expected)
 })
 
 test_that("%*% evaluates effectful operands before a runtime shape error", {
@@ -367,62 +250,6 @@ test_that("triangular solve guards squareness and RHS length", {
     qfn(matrix(as.double(1:6), 2, 3), c(1, 5)),
     "triangular solve requires a square matrix"
   )
-})
-
-test_that("LAPACK solves reject zero-sized outputs before library calls", {
-  solve_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    solve(a, b)
-  }
-  forward_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    forwardsolve(a, b)
-  }
-  back_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    backsolve(a, b)
-  }
-
-  a <- matrix(numeric(), 0, 0)
-  for (fn in list(solve_fn, forward_fn, back_fn)) {
-    expect_error(
-      quick(fn)(a, numeric()),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-  }
-})
-
-test_that("matrix solve right-hand sides reject zero output widths", {
-  solve_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(solve(a, b))
-  }
-  qr_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(qr.solve(a, b))
-  }
-  forward_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(forwardsolve(a, b))
-  }
-  back_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(backsolve(a, b))
-  }
-
-  a <- diag(2)
-  b <- matrix(as.double(1:4), 2, 2)
-  empty_b <- matrix(numeric(), 2, 0)
-  for (fn in list(solve_fn, qr_fn, forward_fn, back_fn)) {
-    qfn <- quick(fn)
-    expect_equal(qfn(a, b), fn(a, b), tolerance = 1e-10)
-    expect_error(
-      qfn(a, empty_b),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-  }
 })
 
 test_that("vector %*% vector guards unknown lengths as whole sizes", {

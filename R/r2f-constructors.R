@@ -78,7 +78,6 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
           "integer",
           integer_kind = "c_ptrdiff_t"
         )
-      register_openmp_private(scope, spread_var@name)
       ff[[j]] <- Fortran(
         glue(
           "({ff[[j]]}, {spread_var}=1_c_ptrdiff_t, int({len_f}, kind=c_ptrdiff_t))"
@@ -422,6 +421,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       stop("array(dim=) must be known", call. = FALSE)
     }
 
+    is_fill_constructor <- is_fill_constructor_call(args$data, scope)
     axis_terms <- vapply(
       target_dims,
       function(d) {
@@ -443,8 +443,6 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     } else {
       paste0("(", paste0(axis_terms_ptrdiff, collapse = " * "), ")")
     }
-
-    is_fill_constructor <- is_fill_constructor_call(args$data, scope)
     if (is_fill_constructor) {
       source_len <- out@value@dims[[1L]]
       source_may_be_empty <- !is_wholenumber(source_len) || source_len == 0

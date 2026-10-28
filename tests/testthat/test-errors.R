@@ -225,8 +225,7 @@ test_that("unsupported complex operations are refused with R's messages", {
 test_that("complex operands are refused in linear algebra", {
   # The real BLAS/LAPACK lowerings (dgemm, dgesv, ...) would read complex
   # storage as reals and return a plausible wrong answer where R returns a
-  # complex result: complex(2) %*% complex(2) returned a real dot product
-  # of the real parts. Refuse at compile time instead.
+  # complex result. Keep the compile-time refusal when merging diagnostics.
   complex_matmul <- function(x, y) {
     declare(type(x = complex(2)), type(y = complex(2)))
     x %*% y

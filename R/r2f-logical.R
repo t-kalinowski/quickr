@@ -6,21 +6,24 @@
 
 # ---- comparison operators ----
 
-# R supports equality on complex values but refuses ordering. Refuse it
-# here rather than handing gfortran an invalid comparison; shared by the
-# four ordering handlers below (== and /= stay legal, as in R).
-check_ordered_operands <- function(left, right, hoist) {
-  if ("complex" %in% c(left@value@mode, right@value@mode)) {
-    stop_static_mode_error("invalid comparison with complex values", hoist)
+reject_complex_ordering <- function(left, right, hoist) {
+  if (
+    identical(left@value@mode, "complex") ||
+      identical(right@value@mode, "complex")
+  ) {
+    stop_static_mode_error(
+      "invalid comparison with complex values",
+      hoist
+    )
   }
-  invisible(TRUE)
+  invisible()
 }
 
 r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right, hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -35,9 +38,9 @@ r2f_handlers[[">="]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right, hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -52,9 +55,9 @@ r2f_handlers[[">"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right, hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -69,9 +72,9 @@ r2f_handlers[["<"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["<="]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  check_ordered_operands(left, right, hoist)
   # R compares logicals as integers; Fortran has no logical comparison.
   .[left, right] <- promote_arith_pair(left, right, "comparison")
+  reject_complex_ordering(left, right, hoist)
   .[left, right] <- maybe_reshape_vector_matrix(
     left,
     right,
@@ -204,11 +207,23 @@ scalarize_andor_operand <- function(
   scope,
   defer_error = FALSE
 ) {
-  if (is.null(x@value) || !identical(x@value@mode, "logical")) {
-    stop_static_mode_error(
-      paste0("`", op, "` requires logical operands"),
-      hoist
+  if (is.null(x@value) && nzchar(trimws(as.character(x)))) {
+    # Statement-only handlers such as print() cannot supply an operand.
+    # Reject their use here before their emitted statements can be discarded.
+    stop(
+      "`",
+      op,
+      "` does not support statement-only operands; use a separate statement",
+      call. = FALSE
     )
+  }
+  if (is.null(x@value) || !identical(x@value@mode, "logical")) {
+    message <- paste0("`", op, "` requires logical operands")
+    if (!defer_error) {
+      stop(message, call. = FALSE)
+    }
+    emit_quickr_error_if(".true.", message, hoist, scope)
+    return(Fortran(".false.", Variable("logical")))
   }
 
   message <- paste0(
@@ -270,21 +285,21 @@ scalarize_andor_operand <- function(
 # non-trapping operations. Anything else (subscripts, %%/%/%, function
 # calls, ...) gets the conditional lowering.
 is_pure_scalar_condition <- function(e, scope) {
+  # Only these modes have supported promotions throughout the whitelist.
+  # Other modes may fail during lowering even when the expression is pure.
+  eager_modes <- c("logical", "integer", "double")
   if (is.symbol(e)) {
     var <- get0(as.character(e), scope)
-    if (inherits(var, Variable) && !is.null(var@optional_dummy)) {
-      return(FALSE)
-    }
     return(
       inherits(var, Variable) &&
+        var@mode %in% eager_modes &&
         (passes_as_scalar(var) ||
           var@rank > 0L && all(vapply(var@dims, dim_is_one, logical(1L))))
     )
   }
   if (is.atomic(e) && length(e) == 1L) {
     return(
-      !anyNA(e) &&
-        typeof(e) %in% c("logical", "integer", "double", "complex")
+      typeof(e) %in% eager_modes && is.finite(e)
     )
   }
   if (!is.call(e) || !is.symbol(e[[1L]])) {
@@ -335,89 +350,6 @@ is_pure_scalar_condition <- function(e, scope) {
   TRUE
 }
 
-is_statically_complex_expression <- function(e, scope) {
-  if (is.symbol(e)) {
-    var <- get0(as.character(e), scope)
-    return(inherits(var, Variable) && identical(var@mode, "complex"))
-  }
-  if (is.atomic(e)) {
-    return(is.complex(e))
-  }
-  if (!is.call(e) || !is.symbol(e[[1L]])) {
-    return(FALSE)
-  }
-  op <- as.character(e[[1L]])
-  args <- as.list(e)[-1L]
-  if (op == "(" && length(args) == 1L) {
-    return(is_statically_complex_expression(args[[1L]], scope))
-  }
-  op %in%
-    c("+", "-", "*") &&
-    any(vapply(
-      args,
-      is_statically_complex_expression,
-      logical(1L),
-      scope = scope
-    ))
-}
-
-is_statically_safe_expression <- function(e, scope) {
-  if (is.symbol(e)) {
-    var <- get0(as.character(e), scope)
-    return(inherits(var, Variable) && var@mode %in% mode_lattice)
-  }
-  if (is.atomic(e)) {
-    return(length(e) == 1L && typeof(e) %in% mode_lattice)
-  }
-  if (!is.call(e) || !is.symbol(e[[1L]])) {
-    return(FALSE)
-  }
-
-  op <- as.character(e[[1L]])
-  args <- as.list(e)[-1L]
-  allowed <- lazy_builtin_arities[[op]]
-  if (
-    inherits(scope[[op]], LocalClosure) ||
-      is.null(allowed) ||
-      !length(args) %in% allowed
-  ) {
-    return(FALSE)
-  }
-  if (op == "(") {
-    return(is_statically_safe_expression(args[[1L]], scope))
-  }
-  if (op %in% c("!", "&&", "||", "&", "|")) {
-    return(is_statically_logical_condition(e, scope))
-  }
-  if (op %in% c("<", "<=", ">", ">=", "==", "!=")) {
-    operands_are_safe <- all(vapply(
-      args,
-      is_statically_safe_expression,
-      logical(1L),
-      scope = scope
-    ))
-    return(
-      operands_are_safe &&
-        (op %in%
-          c("==", "!=") ||
-          !any(vapply(
-            args,
-            is_statically_complex_expression,
-            logical(1L),
-            scope = scope
-          )))
-    )
-  }
-  op %in%
-    c("+", "-", "*", "abs") &&
-    all(vapply(
-      args,
-      is_statically_safe_expression,
-      logical(1L),
-      scope = scope
-    ))
-}
-
 is_statically_logical_condition <- function(e, scope) {
   if (is.symbol(e)) {
     var <- get0(as.character(e), scope)
@@ -434,8 +366,8 @@ is_statically_logical_condition <- function(e, scope) {
   if (op == "(" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
   }
-  if (op %in% c("<", "<=", ">", ">=", "==", "!=")) {
-    return(is_statically_safe_expression(e, scope))
+  if (op %in% c("==", "!=", "<", "<=", ">", ">=")) {
+    return(TRUE)
   }
   if (op == "!" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
@@ -593,6 +525,21 @@ lazy_builtin_arity_error <- function(e, scope, recursive = TRUE) {
   NULL
 }
 
+# Bindings and compiler annotations must be separate statements. Function
+# literals own their scopes, so their bodies do not affect this check.
+has_current_scope_assignment <- function(e) {
+  if (!is.call(e) || is_function_call(e)) {
+    return(FALSE)
+  }
+  if (
+    is.symbol(e[[1L]]) &&
+      as.character(e[[1L]]) %in% c("<-", "=", "for", "declare")
+  ) {
+    return(TRUE)
+  }
+  any(vapply(as.list(e), has_current_scope_assignment, logical(1L)))
+}
+
 compile_andor <- function(
   args,
   scope,
@@ -602,18 +549,12 @@ compile_andor <- function(
 ) {
   op <- last(list(...)$calls)
   stopifnot(length(args) == 2L, op %in% c("&&", "||"))
-  has_assignment <- vapply(
-    args,
-    function(arg) {
-      any(c("<-", "=") %in% all.names(arg, functions = TRUE))
-    },
-    logical(1L)
-  )
+  has_assignment <- vapply(args, has_current_scope_assignment, logical(1L))
   if (any(has_assignment)) {
     stop(
       "`",
       op,
-      "` does not support assignment expressions; assign on a separate line",
+      "` does not support assignment expressions or declarations; use separate statements",
       call. = FALSE
     )
   }
@@ -679,22 +620,13 @@ compile_andor <- function(
   sub$defer_static_mode_error <- TRUE
   deferred_error <- NULL
   right <- tryCatch(
-    {
-      right <- r2f(
-        args[[2L]],
-        scope,
-        ...,
-        hoist = sub,
-        defer_andor_error = TRUE
-      )
-      scalarize_andor_operand(
-        right,
-        op,
-        sub,
-        scope,
-        defer_error = TRUE
-      )
-    },
+    r2f(
+      args[[2L]],
+      scope,
+      ...,
+      hoist = sub,
+      defer_andor_error = TRUE
+    ),
     quickr_deferred_branch_error = function(error) {
       deferred_error <<- conditionMessage(error)
       NULL
@@ -704,7 +636,15 @@ compile_andor <- function(
       NULL
     }
   )
-  if (!is.null(deferred_error)) {
+  if (is.null(deferred_error)) {
+    right <- scalarize_andor_operand(
+      right,
+      op,
+      sub,
+      scope,
+      defer_error = TRUE
+    )
+  } else {
     emit_quickr_error_if(".true.", deferred_error, sub, scope)
     right <- Fortran(".false.", Variable("logical"))
   }

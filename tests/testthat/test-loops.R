@@ -139,3 +139,27 @@ test_that("single-statement while/repeat bodies re-run their hoisted statements"
 
   expect_quick_identical(bounded_squarings_repeat, list(diag(2) * 2))
 })
+
+test_that("lazy while-condition errors preserve preceding effects", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      while ((runif(1) + abs()) > 0) {
+        later <- runif(2)
+      }
+      TRUE
+    }
+    flag && predicate()
+  }
+  qfn <- quick(fn)
+  withr::local_seed(153)
+  before <- .Random.seed
+  expect_identical(qfn(FALSE), fn(FALSE))
+  expect_identical(.Random.seed, before)
+  set.seed(153)
+  expect_error(fn(TRUE), "abs")
+  expected_seed <- .Random.seed
+  set.seed(153)
+  expect_error(qfn(TRUE), "abs")
+  expect_identical(.Random.seed, expected_seed)
+})

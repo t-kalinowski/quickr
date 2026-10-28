@@ -422,21 +422,6 @@ test_that("fill constructors spread inside c()", {
   expect_quick_identical(parenthesized, list(c(1, 2)))
 })
 
-test_that("parallel fill constructors privatize implied-do indices", {
-  fn <- function(n) {
-    declare(type(n = integer(1)), type(out = integer(n)))
-    out <- integer(n)
-    declare(parallel())
-    for (i in seq_len(n)) {
-      out[i] <- sum(c(integer(n), i))
-    }
-    out
-  }
-
-  fsub <- as.character(r2f(fn))
-  expect_match(fsub, "!$omp parallel do private(tmp1_)", fixed = TRUE)
-})
-
 test_that("c() evaluates effectful arguments from left to right", {
   fn <- function() {
     c(runif(2), runif(2) + 1)

@@ -2,7 +2,11 @@
 
 lower_transposed_operand_in_order <- function(arg, scope, ..., hoist) {
   captured_hoist <- capture_inheriting_deferred_errors(hoist)
-  info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
+  info <- preserve_captured_errors(
+    unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist),
+    captured_hoist,
+    hoist
+  )
   info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
   info
 }
@@ -650,7 +654,7 @@ register_r2f_handler(
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- cast_linalg_double(
+      tol <- blas_double_operand(
         lower_r2f_operand_in_order(tol_arg, scope, ..., hoist = hoist),
         "qr.solve",
         hoist
@@ -943,7 +947,7 @@ crossprod_like <- function(
   context
 ) {
   x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
-  x <- cast_linalg_double(x, context, hoist)
+  x <- blas_double_operand(x, context, hoist)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -956,7 +960,7 @@ crossprod_like <- function(
     ))
   }
 
-  y <- cast_linalg_double(
+  y <- blas_double_operand(
     lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist),
     context,
     hoist
