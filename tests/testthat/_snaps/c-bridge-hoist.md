@@ -52,10 +52,10 @@
       
       
       extern void fn(
-        const int* const n__, 
-        const int* const m__, 
-        const double* const a__, 
-        const double* const b__, 
+        const int* const n__,
+        const int* const m__,
+        const double* const a__,
+        const double* const b__,
         double* const out__);
       
       SEXP fn_(SEXP _args) {

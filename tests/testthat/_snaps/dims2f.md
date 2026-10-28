@@ -67,8 +67,8 @@
       
       
       extern void fn(
-        const int* const n__, 
-        int* const out___, 
+        const int* const n__,
+        int* const out___,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {
@@ -162,8 +162,8 @@
       
       
       extern void fn(
-        const int* const n__, 
-        int* const out___, 
+        const int* const n__,
+        int* const out___,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {

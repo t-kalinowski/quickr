@@ -37,8 +37,8 @@
       
       
       extern void fn(
-        double* const a__, 
-        const double* const b__, 
+        double* const a__,
+        const double* const b__,
         const R_xlen_t a__len_);
       
       SEXP fn_(SEXP _args) {
