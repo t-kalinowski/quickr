@@ -137,3 +137,23 @@ test_that("as.vector numeric coercions ignore local coercion bindings", {
     expect_quick_identical(fn, c(1.5, 2.5))
   }
 })
+
+test_that("singleton matrix concatenation uses scalar storage", {
+  fn <- function(m) {
+    declare(type(m = double(1, 1)))
+    c(m)
+  }
+  expect_quick_identical(fn, list(matrix(2, 1, 1)))
+
+  with_empty <- function(m) {
+    declare(type(m = double(1, 1)))
+    c(integer(0), m, numeric(0))
+  }
+  expect_quick_identical(with_empty, list(matrix(2, 1, 1)))
+
+  logical_fn <- function(m) {
+    declare(type(m = logical(1, 1)))
+    c(m)
+  }
+  expect_quick_identical(logical_fn, list(matrix(TRUE, 1, 1)))
+})

@@ -200,6 +200,11 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     },
     lens
   )
+  if (dim_is_one(len)) {
+    scalar <- Filter(\(x) passes_as_scalar(x@value), ff)
+    stopifnot(length(scalar) == 1L)
+    s <- as.character(scalar[[1L]])
+  }
   Fortran(s, Variable(mode, list(len)))
 }
 
