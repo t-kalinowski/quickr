@@ -621,12 +621,13 @@ mode_rank <- function(mode) {
   match(mode, mode_lattice)
 }
 
-# A dim expression can be spelled in a runtime guard only if every
+# A dim expression can be emitted directly only if every
 # self-size symbol it references (`foo__len_`, `foo__dim_1_`) belongs
 # to an external variable -- those arrive as size dummies; a local's
 # self-sizes are phantoms backing implicit allocation and do not exist
 # in the generated Fortran.
-# Used by: check_assignment_compatible()
+# Used by: check_assignment_compatible(), flatten_to_vector(),
+#          replacement_value_before_indices()
 dim_guard_spellable <- function(dim, scope) {
   if (!is.language(dim)) {
     return(TRUE)

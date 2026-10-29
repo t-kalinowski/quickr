@@ -180,3 +180,21 @@ test_that("singleton logical concatenations select matrix axes", {
     expect_quick_identical(write, list(matrix(c(2, 3, 4), 1), mask))
   }
 })
+
+test_that("flattening deferred-shape locals queries their runtime size", {
+  for (flatten in c("c", "as.vector", "as.integer")) {
+    fn <- eval(substitute(
+      function(x) {
+        declare(type(x = double(NA, NA)), type(m = double(NA, NA)))
+        m <- x
+        sum(FLATTEN(m))
+      },
+      list(FLATTEN = as.name(flatten))
+    ))
+    expect_quick_identical(
+      fn,
+      list(matrix(c(1.5, 2.5, 3.5, 4.5, 5.5, 6.5), 2)),
+      list(matrix(numeric(), 0, 3))
+    )
+  }
+})

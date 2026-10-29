@@ -44,6 +44,10 @@ flatten_to_vector <- function(x, scope, hoist) {
     ))
   }
   len_expr <- value_length_expr(x@value)
+  # Deferred-shape locals have self-size placeholders, not size dummies.
+  if (!dim_guard_spellable(len_expr, scope)) {
+    len_expr <- NA_integer_
+  }
   len_str <- if (is_scalar_na(len_expr)) {
     glue("size({x})")
   } else {
