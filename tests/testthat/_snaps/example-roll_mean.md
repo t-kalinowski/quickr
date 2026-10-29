@@ -55,26 +55,36 @@
         out = 0.0_c_double
         n = size(weights)
         if ((normalize/=0)) then
-          if (size(weights, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+          block
+            real(c_double) :: btmp1_
+      
+            btmp1_ = sum(weights)
+            if (size(weights, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
-            return
-          end if
-          if (size((weights / sum(weights)), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
+              return
+            end if
+            if (size((weights / btmp1_), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
-            return
-          end if
-          weights = ((weights / sum(weights)) * size(weights))
+              return
+            end if
+            weights = ((weights / btmp1_) * size(weights))
+          end block
         end if
         do i = 1, size(out)
+          block
+            real(c_double) :: btmp1_
+      
       if (size(x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) == 0 .or. size(x(i:(((i + n) -&
       & 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) /= size(weights, kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
-            return
-          end if
-          out(i) = (sum((x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)) * weights)) / real(size(weights), kind=c_double))
+              return
+            end if
+            btmp1_ = real(size(weights), kind=c_double)
+            out(i) = (sum((x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)) * weights)) / btmp1_)
+          end block
         end do
       
         contains

@@ -31,7 +31,12 @@
         ! manifest end
       
       
-        out_ = (((a + b)) / ((c + d)))
+        block
+          real(c_double) :: btmp1_
+      
+          btmp1_ = ((c + d))
+          out_ = (((a + b)) / btmp1_)
+        end block
       end subroutine
     Code
       cat(cwrapper)
