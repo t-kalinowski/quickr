@@ -1510,12 +1510,7 @@ compile_subset_designator <- function(
           stop("logical subscript vectors are not supported for assignment")
         }
 
-        # Convert logical vectors to integer vector subscripts (R's `which()`).
-        # Fortran array designators do not accept logical vectors directly.
-        mask <- booleanize_logical_as_int(subscript)
-        it <- scope_unique_var(scope, "integer")
-        f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
-        Fortran(f, Variable("integer", NA))
+        logical_subscript_positions(subscript, scope)
       },
       integer0 = {
         if (drop) {

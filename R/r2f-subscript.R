@@ -39,6 +39,19 @@ lower_subscript_args <- function(idx_args, base_dims, scope, ..., hoist) {
   })
 }
 
+# Convert a per-axis logical mask to integer positions for reads and writes.
+# Recycling shorter masks across a larger axis remains unsupported.
+logical_subscript_positions <- function(mask, scope) {
+  mask <- booleanize_logical_as_int(mask)
+  indices <- if (passes_as_scalar(mask@value)) {
+    "[1_c_int]"
+  } else {
+    i <- scope_unique_var(scope, "integer")
+    glue("[({i}, {i}=1, size({mask}))]")
+  }
+  Fortran(glue("pack({indices}, {mask})"), Variable("integer", NA))
+}
+
 # Indexing a scalar (rank-1 length-1) with `[1]` (or the singleton loop
 # index) is valid in R, but Fortran scalars cannot be subscripted;
 # callers treat it as a no-op.
@@ -158,10 +171,7 @@ r2f_handlers[["["]] <- function(
         Fortran(":", Variable("integer", var@value@dims[[i]]))
       },
       logical1 = {
-        # we convert to a temp integer vector, doing the equivalent of R's which()
-        i <- scope_unique_var(scope, "integer")
-        f <- glue("pack([({i}, {i}=1, size({subscript}))], {subscript})")
-        return(Fortran(f, Variable("integer", NA)))
+        logical_subscript_positions(subscript, scope)
       },
       integer0 = {
         if (drop) {

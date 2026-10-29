@@ -157,3 +157,26 @@ test_that("singleton matrix concatenation uses scalar storage", {
   }
   expect_quick_identical(logical_fn, list(matrix(TRUE, 1, 1)))
 })
+
+test_that("singleton logical concatenations select matrix axes", {
+  literal <- function(m) {
+    declare(type(m = double(1, 3)))
+    sum(m[c(TRUE), ])
+  }
+  expect_quick_identical(literal, list(matrix(c(2, 3, 4), 1)))
+
+  read <- function(m, mask) {
+    declare(type(m = double(3, 1)), type(mask = logical(1)))
+    sum(m[, c(mask)])
+  }
+  write <- function(m, mask) {
+    declare(type(m = double(1, 3)), type(mask = logical(1)))
+    out <- m
+    out[c(mask), ] <- 7
+    out
+  }
+  for (mask in c(TRUE, FALSE)) {
+    expect_quick_identical(read, list(matrix(c(2, 3, 4), 3), mask))
+    expect_quick_identical(write, list(matrix(c(2, 3, 4), 1), mask))
+  }
+})
