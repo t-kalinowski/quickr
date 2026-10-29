@@ -765,7 +765,7 @@ register_r2f_handler(
         if (is.atomic(size_arg)) {
           as.integer(size_arg)
         } else {
-          call("as.integer", size_arg)
+          call("quickr_as_integer", size_arg)
         }
       } else {
         stop(

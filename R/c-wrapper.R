@@ -627,7 +627,7 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
     return(glue("(({e1}) < 0 ? -({e1}) : ({e1}))"))
   }
 
-  if (identical(op, "as.integer")) {
+  if (op %in% c("as.integer", "quickr_as_integer")) {
     if (length(args) != 1L) {
       stop("as.integer() expects one argument")
     }

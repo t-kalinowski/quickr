@@ -502,7 +502,8 @@ dims2f_eval_base_env[["("]] <- baseenv()[["("]]
 dims2f_eval_base_env[["+"]] <- function(e1, e2) glue("({e1} + {e2})")
 dims2f_eval_base_env[["-"]] <- function(e1, e2) glue("({e1} - {e2})")
 dims2f_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
-dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("real({e1}) / real({e2})")
+# DBLE preserves double precision without needing c_double in declarations.
+dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("dble({e1}) / dble({e2})")
 # dividing integers truncates towards 0
 dims2f_eval_base_env[["%/%"]] <- function(e1, e2) glue("int({e1}) / int({e2})")
 dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
@@ -512,6 +513,9 @@ dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
 dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
 # Fortran INT() truncates toward zero, like as.integer() in R.
 dims2f_eval_base_env[["as.integer"]] <- function(x) glue("int({x})")
+dims2f_eval_base_env[["quickr_as_integer"]] <- dims2f_eval_base_env[[
+  "as.integer"
+]]
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
   safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
   glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")

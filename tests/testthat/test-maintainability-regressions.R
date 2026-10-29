@@ -52,3 +52,48 @@ test_that("binding sizes preserve division before integer coercion", {
   }
   expect_quick_identical(fn, list(3L, as.double(1:3)))
 })
+
+test_that("dimension division preserves double precision", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    m <- diag(nrow = as.integer(x / 1L))
+    sum(m)
+  }
+  expect_quick_identical(fn, 2.99999999, 3.00000001)
+})
+
+test_that("integer-only functions can divide dimensions", {
+  fn <- function(n, x) {
+    declare(type(n = integer(1)), type(x = integer(as.integer(n / 2L))))
+    x + 1L
+  }
+  expect_quick_identical(fn, list(5L, 1:2))
+})
+
+test_that("size coercions reject local as.integer functions", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    as.integer <- function(x) x + 1L
+    numeric(as.integer(n))
+  }
+  expect_identical(fn(2L), numeric(3))
+  expect_error(
+    quick(fn),
+    "local as.integer() functions are not supported in size expressions",
+    fixed = TRUE
+  )
+
+  builtin <- function(n) {
+    declare(type(n = integer(1)))
+    numeric(as.integer(n))
+  }
+  expect_quick_identical(builtin, 2L)
+
+  identity <- function(x) {
+    declare(type(x = double(1)))
+    as.integer <- function(x) x + 1L
+    m <- diag(x)
+    numeric(nrow(m))
+  }
+  expect_quick_identical(identity, 2.9)
+})

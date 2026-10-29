@@ -213,6 +213,18 @@ r2size <- function(r, scope) {
       language = {
         op <- as.character(r[[1]])
 
+        if (identical(op, "as.integer")) {
+          if (inherits(scope[["as.integer"]], LocalClosure)) {
+            stop(
+              "local as.integer() functions are not supported in size expressions",
+              call. = FALSE
+            )
+          }
+          # Record built-in coercion semantics so reparsing stored dimensions
+          # and diag()'s implicit coercion do not consult local bindings.
+          op <- "quickr_as_integer"
+        }
+
         if (op %in% c("+", "-", "/", "*", "^", "%/%", "%%")) {
           args <- as.list(r)[-1]
           args <- lapply(args, r2size, scope)
@@ -228,7 +240,7 @@ r2size <- function(r, scope) {
 
         switch(
           op,
-          as.integer = {
+          quickr_as_integer = {
             if (length(r) != 2L) {
               stop("as.integer() in a size expression expects one argument")
             }
@@ -264,7 +276,7 @@ r2size <- function(r, scope) {
               # truncates toward zero, as as.integer() does in R
               return(as.integer(inner))
             }
-            call("as.integer", inner)
+            call("quickr_as_integer", inner)
           },
           length = {
             var <- get0(as.character(r[[2L]]), scope)
