@@ -15,13 +15,10 @@ register_unary_intrinsic <- function(
     stopifnot(length(args) == 1L)
     arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
     intrinsic <- last(list(...)$calls)
-    if (
-      intrinsic %in%
-        c("asin", "acos", "sqrt", "exp", "log") &&
-        isTRUE(hoist$defer_static_mode_error)
-    ) {
-      # Keep constant domain errors and overflow inside the selected branch.
-      arg <- hoist_unless_name(arg, hoist, hoist_literals = TRUE)
+    if (intrinsic %in% c("asin", "acos", "sqrt", "exp", "log")) {
+      # Derived constants can fold to domain errors or overflow. Evaluate
+      # at runtime both here and inside a branch that may not run.
+      arg <- hoist_domain_operand(arg, hoist)
     }
     val <- Variable(mode = mode_fun(arg), dims = arg@value@dims)
     Fortran(expr_fun(arg, intrinsic), val)
@@ -118,9 +115,7 @@ r2f_handlers[["trunc"]] <- function(args, scope, ..., hoist = NULL) {
 r2f_handlers[["log10"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
   arg <- r2f(args[[1]], scope, ..., hoist = hoist)
-  if (isTRUE(hoist$defer_static_mode_error)) {
-    arg <- hoist_unless_name(arg, hoist, hoist_literals = TRUE)
-  }
+  arg <- hoist_domain_operand(arg, hoist)
   f <- if (arg@value@mode == "complex") {
     glue("(log({arg}) / log(10.0_c_double))")
   } else {

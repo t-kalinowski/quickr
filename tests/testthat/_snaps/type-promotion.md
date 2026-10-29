@@ -542,7 +542,14 @@
         ! manifest end
       
       
-        out_ = (real(x, kind=c_double) ** (-1_c_int))
+        block
+          real(c_double) :: btmp1_
+          integer(c_int) :: btmp2_
+      
+          btmp1_ = real(x, kind=c_double)
+          btmp2_ = -1_c_int
+          out_ = (btmp1_ ** (btmp2_))
+        end block
       end subroutine
     Code
       cat(cwrapper)

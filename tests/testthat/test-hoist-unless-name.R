@@ -79,3 +79,40 @@ test_that("log10 constants remain inside short-circuit branches", {
   }
   expect_quick_identical(fn, list(FALSE), list(TRUE))
 })
+
+for (expr in alist(
+  1 / floor(0.5),
+  1 / ceiling(0),
+  sqrt(floor(0.5) - 1),
+  log(floor(0.5)),
+  log10(floor(0.5)),
+  asin(ceiling(2.5)),
+  acos(ceiling(2.5)),
+  exp(floor(1000.5)),
+  (floor(0.5) - 1)^0.5
+)) {
+  test_that(paste("derived constants evaluate at runtime in", deparse1(expr)), {
+    fn <- eval(bquote(function() {
+      .(expr)
+    }))
+    # R warns on domain errors; generated functions return the same NaN.
+    expected <- suppressWarnings(fn())
+    expect_identical(quick(fn)(), expected)
+  })
+
+  test_that(
+    paste("derived constants compile in lazy operands:", deparse1(expr)),
+    {
+      and <- eval(bquote(function(flag) {
+        declare(type(flag = logical(1)))
+        flag && (.(expr) > 0)
+      }))
+      or <- eval(bquote(function(flag) {
+        declare(type(flag = logical(1)))
+        flag || (.(expr) > 0)
+      }))
+      expect_quick_identical(and, list(FALSE))
+      expect_quick_identical(or, list(TRUE))
+    }
+  )
+}
