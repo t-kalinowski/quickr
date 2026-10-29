@@ -8,20 +8,11 @@ defuse_numeric_literals <- function(e) {
     } else {
       nargs == 2L
     }
-    zero_divisor <-
-      is_string(op) &&
-      op %in% c("%%", "%/%") &&
-      valid_arity &&
-      is.atomic(e[[3L]]) &&
-      length(e[[3L]]) == 1L &&
-      !is.na(e[[3L]]) &&
-      e[[3L]] == 0
     if (
       is_string(op) &&
         op %in% c("+", "-", "*", "/", "%%", "%/%", "^") &&
         valid_arity &&
-        all(map_lgl(e[-1L], is.atomic)) &&
-        !zero_divisor
+        all(map_lgl(e[-1L], is.atomic))
     ) {
       folded <- tryCatch(eval(e, baseenv()), error = identity)
       if (!inherits(folded, "error") && all(is.finite(folded))) {

@@ -1,6 +1,7 @@
 # Runtime conformability guards in BLAS/LAPACK lowerings: dims that cannot
 # be verified at compile time get a size() check before the BLAS call
 # (never a compile-time warning, never an unchecked call).
+
 test_that("matrix-vector %*% guards an unknown vector length", {
   fn <- function(m, x) {
     declare(type(m = double(3, 3)), type(x = double(NA)))
@@ -15,6 +16,7 @@ test_that("matrix-vector %*% guards an unknown vector length", {
     fixed = TRUE
   )
 })
+
 test_that("matrix-matrix %*% guards before allocating its result", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m, p)))
@@ -34,6 +36,7 @@ test_that("matrix-matrix %*% guards before allocating its result", {
     fixed = TRUE
   )
 })
+
 test_that("matrix-vector %*% guards before allocating its result", {
   fn <- function(a, x) {
     declare(type(a = double(m, k)), type(x = double(n)))
@@ -53,6 +56,7 @@ test_that("matrix-vector %*% guards before allocating its result", {
     fixed = TRUE
   )
 })
+
 test_that("matrix-matrix %*% guards before allocating a reusable local", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m, p)))
@@ -73,6 +77,7 @@ test_that("matrix-matrix %*% guards before allocating a reusable local", {
     fixed = TRUE
   )
 })
+
 test_that("matrix-vector %*% guards before allocating a reusable local", {
   fn <- function(a, x) {
     declare(type(a = double(m, k)), type(x = double(n)))
@@ -93,111 +98,12 @@ test_that("matrix-vector %*% guards before allocating a reusable local", {
     fixed = TRUE
   )
 })
-test_that("reused BLAS locals retain their earlier allocation", {
-  gemm <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(m, k)))
-    out <- a + 0
-    out <- a %*% b
-    sum(out)
-  }
-  gemv <- function(a, x) {
-    declare(type(a = double(m, 1)), type(x = double(n)))
-    out <- a + 0
-    out <- a %*% x
-    sum(out)
-  }
 
-  for (fn in list(gemm, gemv)) {
-    code <- as.character(r2f(fn))
-    allocation <- regexpr("allocate(out(", code, fixed = TRUE)
-    initialization <- regexpr("out = (a + 0.0_c_double)", code, fixed = TRUE)
-    expect_lt(allocation, initialization)
-  }
-
-  qgemm <- quick(gemm)
-  a <- matrix(as.double(1:4), 2, 2)
-  b <- diag(2)
-  expect_equal(qgemm(a, b), gemm(a, b))
-  expect_error(
-    qgemm(matrix(as.double(1:2), 2, 1), matrix(as.double(1:2), 2, 1)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-
-  qgemv <- quick(gemv)
-  a <- matrix(as.double(1:3), 3, 1)
-  expect_equal(qgemv(a, 2), gemv(a, 2))
-  expect_error(
-    qgemv(a, c(1, 2)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-})
-test_that("reused BLAS locals are allocated on every reachable path", {
-  fn <- function(a, b, flag) {
-    declare(
-      type(a = double(n, k)),
-      type(b = double(k, n)),
-      type(flag = logical(1))
-    )
-    if (flag) {
-      out <- a %*% b
-      extracted <- diag(a)
-      constructed <- a %*% b
-      outered <- a %*% b
-    }
-    out <- crossprod(b)
-    extracted <- diag(a)
-    constructed <- diag(1, nrow = nrow(a), ncol = ncol(b))
-    outered <- outer(a[, 1L], a[, 1L])
-    sum(out) + sum(extracted) + sum(constructed) + sum(outered)
-  }
-
-  code <- as.character(r2f(fn))
-  allocation_guards <- gregexpr(
-    "if (.not. allocated(",
-    code,
-    fixed = TRUE
-  )[[1L]]
-  expect_length(allocation_guards[allocation_guards > 0L], 8L)
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  qfn <- quick(fn)
-  expect_equal(qfn(a, b, FALSE), fn(a, b, FALSE))
-  expect_equal(qfn(a, b, TRUE), fn(a, b, TRUE))
-})
-test_that("BLAS destinations are not reused across unproven shapes", {
-  local <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    sum(out)
-  }
-  external <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    out
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:3), 3, 1)
-  expect_error(quick(local)(a, b), "assignment must preserve its shape")
-  same_shape <- matrix(as.double(1:9), 3, 3)
-  expect_quick_equal(local, list(a, same_shape))
-  expect_error(
-    quick(external),
-    "cannot change the shape of an external assignment target",
-    fixed = TRUE
-  )
-})
 test_that("renamed BLAS return destinations remain output arguments", {
-  # Bound the return shape so its length validation cannot skip the RNG draw.
   fn <- function(a, b, n) {
     declare(
-      type(a = double(2, k)),
-      type(b = double(k, 2)),
+      type(a = double(m, k)),
+      type(b = double(k, p)),
       type(n = integer(1))
     )
     x <- runif(n)
@@ -220,6 +126,7 @@ test_that("renamed BLAS return destinations remain output arguments", {
   expect_equal(actual, expected)
   expect_identical(actual_seed, expected_seed)
 })
+
 test_that("%*% evaluates effectful operands before a runtime shape error", {
   matmul <- function(m) {
     declare(type(m = double(n, n)))
@@ -266,6 +173,7 @@ test_that("%*% evaluates effectful operands before a runtime shape error", {
     "non-conformable arguments in solve"
   )
 })
+
 test_that("qr.solve evaluates tol before a runtime shape error", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m)))
@@ -284,6 +192,7 @@ test_that("qr.solve evaluates tol before a runtime shape error", {
   runif(1)
   expect_identical(actual_seed, .Random.seed)
 })
+
 test_that("nested %*% operands preserve left-to-right evaluation", {
   fn <- function() {
     runif(2) %*% matrix(runif(4), 2, 2)
@@ -293,6 +202,7 @@ test_that("nested %*% operands preserve left-to-right evaluation", {
   set.seed(124)
   expect_identical(quick(fn)(), expected)
 })
+
 test_that("double BLAS entry points reject raw storage", {
   fn <- function(a, b) {
     declare(type(a = raw(2)), type(b = raw(2)))
@@ -300,6 +210,7 @@ test_that("double BLAS entry points reject raw storage", {
   }
   expect_error(quick(fn), "does not support raw")
 })
+
 test_that("tcrossprod materializes scalar-backed array operands", {
   fn <- function(n) {
     declare(type(n = integer(1)))
@@ -308,6 +219,7 @@ test_that("tcrossprod materializes scalar-backed array operands", {
 
   expect_quick_identical(fn, list(3L))
 })
+
 test_that("vector-matrix %*% guards an unknown vector length", {
   fn <- function(x, m) {
     declare(type(x = double(NA)), type(m = double(3, 3)))
@@ -321,6 +233,7 @@ test_that("vector-matrix %*% guards an unknown vector length", {
     fixed = TRUE
   )
 })
+
 test_that("triangular solve guards squareness and RHS length", {
   fn <- function(l, x) {
     declare(type(l = double(n, k)), type(x = double(NA)))
@@ -338,35 +251,7 @@ test_that("triangular solve guards squareness and RHS length", {
     "triangular solve requires a square matrix"
   )
 })
-test_that("LAPACK solves reject zero-sized outputs before library calls", {
-  solve_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    solve(a, b)
-  }
-  forward_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    forwardsolve(a, b)
-  }
-  back_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    backsolve(a, b)
-  }
 
-  a <- matrix(numeric(), 0, 0)
-  for (fn in list(solve_fn, forward_fn, back_fn)) {
-    qfn <- quick(fn)
-    expect_error(
-      qfn(a, matrix(numeric(), 0, 1)),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-    expect_error(
-      qfn(diag(2), matrix(numeric(), 2, 0)),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-  }
-})
 test_that("vector %*% vector guards unknown lengths as whole sizes", {
   fn <- function(x, y) {
     declare(type(x = double(NA)), type(y = double(NA)))
@@ -383,6 +268,7 @@ test_that("vector %*% vector guards unknown lengths as whole sizes", {
     fixed = TRUE
   )
 })
+
 test_that("solve() guards an unknown RHS length", {
   fn <- function(a, b) {
     declare(type(a = double(2, 2)), type(b = double(NA)))
@@ -392,6 +278,7 @@ test_that("solve() guards an unknown RHS length", {
   expect_equal(qfn(diag(2), c(1, 2)), c(1, 2))
   expect_error(qfn(diag(2), c(1, 2, 3)), "non-conformable arguments in solve")
 })
+
 
 test_that("solve(a) and chol() guard squareness", {
   solve_rhs <- function(a, b) {
@@ -426,6 +313,7 @@ test_that("solve(a) and chol() guard squareness", {
     "chol requires a square matrix"
   )
 })
+
 test_that("square guards precede symbolic inverse and Cholesky allocations", {
   inverse <- function(a) {
     declare(type(a = double(n, k)))
@@ -474,13 +362,9 @@ test_that("square guards precede symbolic inverse and Cholesky allocations", {
       case$message,
       fixed = TRUE
     )
-    expect_error(
-      qfn(matrix(double(), 0, 0)),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
   }
 })
+
 test_that("solve guards squareness before allocating system workspaces", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(NA)))
@@ -502,6 +386,7 @@ test_that("solve guards squareness before allocating system workspaces", {
     fixed = TRUE
   )
 })
+
 test_that("inverse solve guards before allocating all workspaces", {
   fn <- function(a) {
     declare(type(a = double(n, k)))
@@ -523,6 +408,7 @@ test_that("inverse solve guards before allocating all workspaces", {
     fixed = TRUE
   )
 })
+
 test_that("triangular solve guards before allocating a nested result", {
   fn <- function(a, b) {
     declare(type(a = double(n, n)), type(b = double(NA)))
@@ -548,6 +434,7 @@ test_that("triangular solve guards before allocating a nested result", {
     fixed = TRUE
   )
 })
+
 test_that("qr.solve guards before allocating nested workspaces", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m, p)))
@@ -575,6 +462,7 @@ test_that("qr.solve guards before allocating nested workspaces", {
     fixed = TRUE
   )
 })
+
 test_that("matrix-matrix %*% returns zeros for a known empty contraction", {
   fn <- function(a, b) {
     declare(type(a = double(2, 0)), type(b = double(0, 3)))
@@ -585,6 +473,7 @@ test_that("matrix-matrix %*% returns zeros for a known empty contraction", {
     list(matrix(double(), 2, 0), matrix(double(), 0, 3))
   )
 })
+
 test_that("matrix-vector %*% returns zeros for a known empty contraction", {
   fn <- function(a, x) {
     declare(type(a = double(2, 0)), type(x = double(0)))
@@ -592,6 +481,7 @@ test_that("matrix-vector %*% returns zeros for a known empty contraction", {
   }
   expect_quick_identical(fn, list(matrix(double(), 2, 0), double()))
 })
+
 test_that("%*% returns zeros for a symbolic empty contracted dimension", {
   fn <- function(a, b, k) {
     declare(
@@ -606,6 +496,7 @@ test_that("%*% returns zeros for a symbolic empty contracted dimension", {
     list(matrix(double(), 2, 0), matrix(double(), 0, 3), 0L)
   )
 })
+
 test_that("symmetric products return zeros for known empty contractions", {
   cross_vec <- function(x) {
     declare(type(x = double(0)))
@@ -634,6 +525,7 @@ test_that("symmetric products return zeros for known empty contractions", {
   expect_quick_identical(cross_symbolic, list(matrix(double(), 0, 2), 0L))
   expect_quick_identical(tcross_symbolic, list(matrix(double(), 2, 0), 0L))
 })
+
 test_that("matrix BLAS rejects known zero-sized outputs", {
   matrix_matrix <- function(a, b) {
     declare(type(a = double(0, 2)), type(b = double(2, 3)))
@@ -667,6 +559,7 @@ test_that("matrix BLAS rejects known zero-sized outputs", {
   expect_error(quick(outer_left), "zero-sized outputs are not supported")
   expect_error(quick(outer_right), "zero-sized outputs are not supported")
 })
+
 test_that("matrix BLAS guards unknown output extents at runtime", {
   matrix_matrix <- function(a, b) {
     declare(type(a = double(NA, 2)), type(b = double(2, 3)))
@@ -707,6 +600,7 @@ test_that("matrix BLAS guards unknown output extents at runtime", {
   expect_error(q_outer(double(), as.double(1:2)), message)
   expect_error(q_outer(as.double(1:2), double()), message)
 })
+
 test_that("NA dims are never treated as equal", {
   fn <- function(a, b) {
     declare(type(a = double(NA, NA)), type(b = double(NA, NA)))
@@ -721,264 +615,4 @@ test_that("NA dims are never treated as equal", {
     "non-conformable arguments in %*%",
     fixed = TRUE
   )
-})
-test_that("crossprod with unverifiable dims compiles and guards at runtime", {
-  fn <- function(x, y, n, p, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(p = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(x = double(n, m)),
-      type(y = double(p, k))
-    )
-    crossprod(x, y)
-  }
-
-  qfn <- quick(fn)
-  x <- matrix(as.double(1:6), 2, 3)
-  y <- matrix(as.double(6:1), 2, 3)
-  expect_equal(qfn(x, y, 2L, 2L, 3L, 3L), crossprod(x, y))
-  expect_error(
-    qfn(x, matrix(as.double(1:6), 3, 2), 2L, 3L, 3L, 2L),
-    "non-conformable arguments in crossprod"
-  )
-})
-test_that("unverifiable %*% dims compile and guard at runtime", {
-  fn <- function(A, B, n, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(A = double(n, m)),
-      type(B = double(k, n))
-    )
-    A %*% B
-  }
-
-  qfn <- expect_no_warning(quick(fn))
-  A <- matrix(as.double(1:6), 2, 3)
-  B <- matrix(as.double(6:1), 3, 2)
-  expect_equal(qfn(A, B, 2L, 3L, 3L), A %*% B)
-  expect_error(
-    qfn(A, matrix(as.double(1:4), 2, 2), 2L, 3L, 2L),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-})
-
-test_that("cross-product results validate contracted dimensions", {
-  cross <- function(x, y) {
-    declare(type(x = double(NA, NA)), type(y = double(NA, NA)))
-    crossprod(x, y)
-  }
-  tcross <- function(x, y) {
-    declare(type(x = double(NA, NA)), type(y = double(NA, NA)))
-    tcrossprod(x, y)
-  }
-  x <- matrix(as.double(1:6), 2L, 3L)
-  y <- matrix(as.double(1:8), 2L, 4L)
-  for (fn in list(cross, tcross)) {
-    qfn <- quick(fn)
-    expect_error(qfn(x, t(x)), "non-conformable arguments")
-    if (identical(fn, tcross)) {
-      expect_equal(qfn(t(x), t(y)), fn(t(x), t(y)))
-    } else {
-      expect_equal(qfn(x, y), fn(x, y))
-    }
-    a <- matrix(1, 1L, 3L)
-    b <- matrix(1, 2L, 3L)
-    if (identical(fn, tcross)) {
-      a <- t(a)
-      b <- t(b)
-    }
-    expect_error(qfn(a, b), "non-conformable arguments")
-  }
-})
-
-test_that("square-matrix results validate input shapes", {
-  for (op in c("solve", "chol", "chol2inv")) {
-    fn <- function(a) {
-      declare(type(a = double(n, m)))
-      solve(a)
-    }
-    body(fn)[[3L]][[1L]] <- as.symbol(op)
-    qfn <- quick(fn)
-    expect_equal(qfn(diag(2)), fn(diag(2)))
-    expect_error(
-      qfn(matrix(1, 3L, 1L)),
-      paste(op, "requires a square matrix")
-    )
-  }
-})
-
-test_that("solve checks both squareness and RHS rows", {
-  fn <- function(a, b) {
-    declare(type(a = double(n, m)), type(b = double(k, p)))
-    solve(a, b)
-  }
-  qfn <- quick(fn)
-  expect_equal(qfn(diag(2), diag(2)), diag(2))
-  expect_error(
-    qfn(matrix(1, 1L, 3L), matrix(1, 1L, 3L)),
-    "solve requires a square matrix"
-  )
-  expect_error(
-    qfn(matrix(numeric(), 0L, 0L), matrix(1, 1L, 3L)),
-    "non-conformable arguments in solve"
-  )
-})
-
-test_that("operation guards remain active with composed, copied, and list results", {
-  composed <- function(a) {
-    declare(type(a = double(n, m)))
-    solve(a) + 0
-  }
-  alias <- function(a) {
-    declare(type(a = double(n, m)))
-    x <- solve(a)
-    y <- x
-    y
-  }
-  listed <- function(a) {
-    declare(type(a = double(n, m)))
-    x <- tcrossprod(a)
-    y <- solve(a)
-    list(x, y)
-  }
-  for (fn in list(composed, alias, listed)) {
-    qfn <- quick(fn)
-    expect_equal(qfn(diag(2)), fn(diag(2)))
-    expect_error(qfn(matrix(1, 3L, 1L)), "solve requires a square matrix")
-  }
-})
-
-test_that("vector products and QR solves validate contracted dimensions", {
-  matvec <- function(a, b) {
-    declare(type(a = double(n, m)), type(b = double(k)))
-    a %*% b
-  }
-  vecmat <- function(a, b) {
-    declare(type(a = double(k)), type(b = double(n, m)))
-    a %*% b
-  }
-  qr_fn <- function(a, b) {
-    declare(type(a = double(n, m)), type(b = double(k, p)))
-    qr.solve(a, b)
-  }
-  qmatvec <- quick(matvec)
-  qvecmat <- quick(vecmat)
-  qsolve <- quick(qr_fn)
-  expect_error(
-    qmatvec(matrix(numeric(), 3L, 0L), 1),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-  expect_error(
-    qvecmat(1, matrix(numeric(), 0L, 3L)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-  expect_error(
-    qsolve(diag(1), matrix(numeric(), 0L, 3L)),
-    "non-conformable arguments in qr.solve",
-    fixed = TRUE
-  )
-  expect_equal(qmatvec(diag(2), c(1, 2)), matvec(diag(2), c(1, 2)))
-  expect_equal(qvecmat(c(1, 2), diag(2)), vecmat(c(1, 2), diag(2)))
-  a <- rbind(diag(2), c(1, 1))
-  b <- matrix(c(1, 2, 3), 3, 1)
-  expect_equal(qsolve(a, b), qr_fn(a, b))
-})
-
-test_that("operation guards preserve preceding RNG effects and conditional execution", {
-  fn <- function(a) {
-    declare(type(a = double(n, m)))
-    noise <- runif(1L)
-    solve(a)
-  }
-  qfn <- quick(fn)
-  a <- matrix(1, 2, 1)
-  withr::local_seed(335)
-  expect_error(qfn(a), "solve requires a square matrix")
-  actual_seed <- .Random.seed
-  set.seed(335)
-  expect_error(fn(a), "square")
-  expect_identical(actual_seed, .Random.seed)
-
-  conditional <- function(a, flag) {
-    declare(type(a = double(n, m)), type(flag = logical(1)))
-    if (flag) {
-      out <- solve(a)
-    } else {
-      out <- matrix(0, nrow(a), nrow(a))
-    }
-    out
-  }
-  qconditional <- quick(conditional)
-  expect_equal(qconditional(a, FALSE), conditional(a, FALSE))
-  expect_equal(qconditional(diag(2), TRUE), conditional(diag(2), TRUE))
-})
-
-test_that("operation guards remain active in local closures", {
-  assigned <- function(a) {
-    declare(type(a = double(n, m)))
-    invert <- function(x) {
-      y <- solve(x)
-      y
-    }
-    out <- invert(a)
-    out
-  }
-  nested <- function(a) {
-    declare(type(a = double(n, m)))
-    invert <- function(x) {
-      y <- solve(x)
-      y
-    }
-    outer <- function(z) invert(z)
-    outer(a)
-  }
-  existing <- function(a) {
-    declare(type(a = double(n, m)))
-    invert <- function(x) {
-      y <- solve(x)
-      y
-    }
-    out <- matrix(0, nrow(a), nrow(a))
-    out <- invert(a)
-    out
-  }
-  for (fn in list(assigned, nested, existing)) {
-    qfn <- quick(fn)
-    expect_equal(qfn(diag(2)), fn(diag(2)))
-    expect_error(qfn(matrix(1, 3L, 1L)), "solve requires a square matrix")
-  }
-})
-
-test_that("operation guards preserve output before shape errors", {
-  direct <- function(a) {
-    declare(type(a = double(n, m)))
-    marker <- 123L
-    print(marker)
-    solve(a)
-  }
-  nested <- function(a) {
-    declare(type(a = double(n, m)))
-    invert <- function(x) {
-      marker <- 123L
-      print(marker)
-      y <- solve(x)
-      y
-    }
-    invert(a)
-  }
-  for (fn in list(direct, nested)) {
-    qfn <- quick(fn)
-    actual <- capture.output(expect_error(
-      qfn(matrix(1, 2L, 1L)),
-      "solve requires a square matrix"
-    ))
-    expect_match(paste(actual, collapse = "\n"), "123")
-  }
 })

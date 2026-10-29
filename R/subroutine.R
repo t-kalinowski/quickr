@@ -5,7 +5,6 @@ new_fortran_subroutine <- function(
 ) {
   check_fortran_subroutine_name_valid(name)
   check_all_var_names_valid(closure)
-  check_static_closure_bindings(body(closure), names(formals(closure)))
 
   # translate body, and populate scope with variables
   body <- body(closure)
@@ -35,8 +34,7 @@ new_fortran_subroutine <- function(
   #           type(bar = integer(foo_dim_1_, 3L)))
   body <- substitute_declared_sizes(body)
   stmts <- as.list(body)[-1L]
-  body <- compile_nonreturn_statements(drop_last(stmts), scope)
-  check_definite_assignment(closure, scope)
+  body <- compile_nonreturn_statements(drop_last(stmts), scope)$code
 
   # check all input vars were declared
   # TODO: this check might be too late, because r2f() might throw cryptic errors
@@ -63,7 +61,6 @@ new_fortran_subroutine <- function(
   }
 
   uses_errors <- scope_uses_errors_flag(scope)
-  verify_output_sizes(scope)
   uses_openmp <- scope_uses_openmp_flag(scope)
   manifest <- r2f.scope(scope, include_errors = uses_errors)
   local_allocs <- attr(manifest, "local_allocations", exact = TRUE) %||%
@@ -201,10 +198,15 @@ insert_fortran_line_continuations <- function(
         "Too long line encountered.",
         "Please split long expressions into a sequence of smaller expressions."
       )
+      continuation <- if (grepl("^!\\$omp\\b", line, ignore.case = TRUE)) {
+        "!$omp& "
+      } else {
+        "& "
+      }
       wrapped <- strwrap(
         line,
         width = max_len - 1L,
-        prefix = "& ",
+        prefix = continuation,
         initial = ""
       )
       if (length(wrapped) > 256L || any(nchar(wrapped) > max_len - 1L)) {
@@ -216,8 +218,9 @@ insert_fortran_line_continuations <- function(
     # remove leading indentation
     lines[too_long] <- trimws(lines[too_long], "left")
 
-    # move trailing comment at the end
-    lines[too_long] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[too_long])
+    # OpenMP sentinels are directives, not trailing comments.
+    code_lines <- too_long & !grepl("^!\\$omp\\b", lines, ignore.case = TRUE)
+    lines[code_lines] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[code_lines])
     lines <- str_split_lines(lines)
 
     lines <- unlist(lapply(lines, split_long_fortran_line), use.names = FALSE)

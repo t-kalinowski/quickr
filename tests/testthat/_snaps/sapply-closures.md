@@ -44,14 +44,6 @@
         end if
         out = 0.0_c_double
       
-        if (x__len_ == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 1, kind=c_ptrdiff_t) /= x__len_) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -88,30 +80,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         double* const out__,
@@ -128,7 +96,7 @@
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
+        const R_xlen_t out__len_ = x__len_;
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
@@ -194,14 +162,6 @@
           return
         end if
         out = .false.
-        if (x__len_ == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 1, kind=c_ptrdiff_t) /= x__len_) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -238,30 +198,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const double* const thresh__,
@@ -291,7 +227,7 @@
         if (thresh__len_ != 1)
           Rf_error("length(thresh) must be 1, not %0.f",
                     (double)thresh__len_);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
+        const R_xlen_t out__len_ = x__len_;
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         
@@ -357,14 +293,6 @@
           return
         end if
         out = 0_c_int
-        if (x__len_ == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 1, kind=c_ptrdiff_t) /= x__len_) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -401,30 +329,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         int* const out__,
@@ -441,7 +345,7 @@
         const double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
+        const R_xlen_t out__len_ = x__len_;
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
         
@@ -482,7 +386,7 @@
       cat(fsub)
     Output
       subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -502,23 +406,7 @@
         ! manifest end
       
       
-        if (x__dim_1_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
-        if (x__dim_2_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
         out = 0.0_c_double
-        if (x__dim_2_ == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 2, kind=c_ptrdiff_t) /= x__dim_2_) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -560,30 +448,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         double* const out__,
@@ -608,7 +472,7 @@
         const int x__dim_1_ = x__dim_[0];
         const int x__dim_2_ = x__dim_[1];
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_}, 2);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -657,7 +521,7 @@
       cat(fsub)
     Output
       subroutine fn(x, thresh, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -678,23 +542,7 @@
         ! manifest end
       
       
-        if (x__dim_1_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
-        if (x__dim_2_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
         out = .false.
-        if (x__dim_2_ == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 2, kind=c_ptrdiff_t) /= x__dim_2_) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, x__dim_2_
           call closure1_(tmp1_, out(:, tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -736,30 +584,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const double* const thresh__,
@@ -797,7 +621,7 @@
         if (thresh__len_ != 1)
           Rf_error("length(thresh) must be 1, not %0.f",
                     (double)thresh__len_);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_}, 2);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_);
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         {
@@ -847,7 +671,7 @@
       cat(fsub)
     Output
       subroutine fn(x, k, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -868,23 +692,7 @@
         ! manifest end
       
       
-        if (k < 0) then
-          call quickr_set_error_msg("array() dimensions must be non-negative")
-          return
-        end if
         out = 0.0_c_double
-        if (k < 0) then
-          call quickr_set_error_msg("seq_len() bound must be non-negative")
-          return
-        end if
-        if (k == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 3, kind=c_ptrdiff_t) /= k) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -929,30 +737,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const int* const k__,
@@ -991,7 +775,7 @@
           Rf_error("length(k) must be 1, not %0.f",
                     (double)k__len_);
         const int _as_int_k = Rf_asInteger(k);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_, _as_int_k}, 3);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (_as_int_k);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -1046,7 +830,7 @@
       cat(fsub)
     Output
       subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -1072,14 +856,6 @@
           integer(c_int) :: btmp1_(3)
       
           btmp1_ = shape(x)
-          if (x__dim_3_ == 0) then
-            call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-            return
-          end if
-          if (size(out, 3, kind=c_ptrdiff_t) /= x__dim_3_) then
-            call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-            return
-          end if
           do tmp1_ = 1_c_int, x__dim_3_
             call closure1_(tmp1_, out(:, :, tmp1_))
             if (quickr_err_msg(1) /= c_null_char) return
@@ -1125,30 +901,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         double* const out__,
@@ -1175,7 +927,7 @@
         const int x__dim_2_ = x__dim_[1];
         const int x__dim_3_ = x__dim_[2];
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_, x__dim_3_}, 3);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (x__dim_3_);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -1230,7 +982,7 @@
       cat(fsub)
     Output
       subroutine fn(x, out, x__dim_1_, x__dim_2_, x__dim_3_, x__dim_4_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -1257,14 +1009,6 @@
           integer(c_int) :: btmp1_(4)
       
           btmp1_ = shape(x)
-          if (x__dim_4_ == 0) then
-            call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-            return
-          end if
-          if (size(out, 4, kind=c_ptrdiff_t) /= x__dim_4_) then
-            call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-            return
-          end if
           do tmp1_ = 1_c_int, x__dim_4_
             call closure1_(tmp1_, out(:, :, :, tmp1_))
             if (quickr_err_msg(1) /= c_null_char) return
@@ -1314,30 +1058,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         double* const out__,
@@ -1366,7 +1086,7 @@
         const int x__dim_3_ = x__dim_[2];
         const int x__dim_4_ = x__dim_[3];
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_, x__dim_3_, x__dim_4_}, 4);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (x__dim_3_) * (x__dim_4_);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -1419,7 +1139,7 @@
       cat(fsub)
     Output
       subroutine fn(x, k, out, x__dim_1_, x__dim_2_, x__dim_3_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -1441,23 +1161,7 @@
         ! manifest end
       
       
-        if (k < 0) then
-          call quickr_set_error_msg("array() dimensions must be non-negative")
-          return
-        end if
         out = 0.0_c_double
-        if (k < 0) then
-          call quickr_set_error_msg("seq_len() bound must be non-negative")
-          return
-        end if
-        if (k == 0) then
-          call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-          return
-        end if
-        if (size(out, 4, kind=c_ptrdiff_t) /= k) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         do tmp1_ = 1_c_int, k
           call closure1_(tmp1_, out(:, :, :, tmp1_))
           if (quickr_err_msg(1) /= c_null_char) return
@@ -1506,30 +1210,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const int* const k__,
@@ -1570,7 +1250,7 @@
           Rf_error("length(k) must be 1, not %0.f",
                     (double)k__len_);
         const int _as_int_k = Rf_asInteger(k);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_, x__dim_3_, _as_int_k}, 4);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_) * (x__dim_3_) * (_as_int_k);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {
@@ -1720,7 +1400,7 @@
       cat(fsub)
     Output
       subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -1740,36 +1420,12 @@
         ! manifest end
       
       
-        if (x__dim_1_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
-        if (x__dim_2_ < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
         out = 0.0_c_double
-        if (size(out, 1, kind=c_ptrdiff_t) /= size(x, 1, kind=c_ptrdiff_t)) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
-        if (size(out, 2, kind=c_ptrdiff_t) /= size(x, 2, kind=c_ptrdiff_t)) then
-          call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-          return
-        end if
         out = x
         block
           real(c_double), allocatable :: btmp1_(:, :)
       
           allocate(btmp1_(x__dim_1_, x__dim_2_))
-          if (x__dim_2_ == 0) then
-            call quickr_set_error_msg("sapply() requires a nonempty input; R returns a list for empty input")
-            return
-          end if
-          if (size(out, 2, kind=c_ptrdiff_t) /= x__dim_2_) then
-            call quickr_set_error_msg("cannot reassign `out`: assignment must preserve its shape")
-            return
-          end if
           do tmp1_ = 1_c_int, x__dim_2_
             call closure1_(tmp1_, btmp1_(:, tmp1_))
             if (quickr_err_msg(1) /= c_null_char) return
@@ -1814,30 +1470,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         double* const out__,
@@ -1862,7 +1494,7 @@
         const int x__dim_1_ = x__dim_[0];
         const int x__dim_2_ = x__dim_[1];
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__dim_1_, x__dim_2_}, 2);
+        const R_xlen_t out__len_ = (x__dim_1_) * (x__dim_2_);
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         {

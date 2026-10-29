@@ -16,39 +16,17 @@ r2f_handlers[["["]] <- function(
   #   an integer of rank 0 or 1. In this case, a rank 1 logical becomes
   #   converted to an integer with
 
-  var_arg <- args[[1L]]
+  var <- args[[1]]
+  var <- lower_r2f_operand_in_order(var, scope, ..., hoist = hoist)
+
   idx_args <- args[-1]
   drop <- idx_args$drop %||% TRUE
   idx_args$drop <- NULL
-  later_idx_args <- idx_args[!vapply(idx_args, is_missing, logical(1L))]
-  var <- lower_r2f_operand_in_order(
-    var_arg,
-    scope,
-    ...,
-    hoist = hoist,
-    hoist_mask = function(mask) FALSE,
-    later_args = later_idx_args
-  )
 
   check_subscript_exprs(var@value, idx_args)
-  rank1_array <- var@value@has_dim && var@value@rank == 1L
-
-  # Empty indexing preserves all R attributes, including dim = 1L.
-  if (
-    rank1_array &&
-      length(idx_args) == 1L &&
-      is_missing(idx_args[[1L]])
-  ) {
-    return(var)
-  }
-  keep_rank1_dim <- rank1_array && !drop
-  if (keep_rank1_dim) {
-    # Keep the R dimension independently of scalar Fortran storage.
-    drop <- TRUE
-  }
 
   idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(unname(idxs), function(idx, i) {
+  idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", var@value@dims[[i]]))
     } else {
@@ -56,23 +34,7 @@ r2f_handlers[["["]] <- function(
       # subscript expressions that need temporaries (e.g. rev(seq_len(n)))
       # will self-render as an inline `block ... end block` *expression*,
       # which is invalid Fortran inside an array designator.
-      later_idx_args <- if (i < length(idxs)) {
-        idxs[seq.int(i + 1L, length(idxs))]
-      } else {
-        list()
-      }
-      later_idx_args <- later_idx_args[
-        !vapply(later_idx_args, is_missing, logical(1L))
-      ]
-      sub <- lower_r2f_operand_in_order(
-        idx,
-        scope,
-        ...,
-        hoist = hoist,
-        hoist_mask = function(mask) FALSE,
-        later_args = later_idx_args
-      )
-      check_scalar_logical_subscript(sub, idx, var, i, scope, hoist)
+      sub <- lower_r2f_operand_in_order(idx, scope, ..., hoist = hoist)
       if (sub@value@mode == "double") {
         # Fortran subscripts must be integers; coerce numeric expressions
         Fortran(
@@ -90,50 +52,15 @@ r2f_handlers[["["]] <- function(
       idxs[[1]]@value@mode == "logical" &&
       idxs[[1]]@value@rank == var@value@rank
   ) {
-    # Fortran broadcasts scalar masks, just as R recycles length-one masks.
-    # All other masks must conform, including when a reduction consumes them.
-    mask <- scalarize_logical_mask(idxs[[1]])
-    if (passes_as_scalar(mask@value) && !passes_as_scalar(var@value)) {
-      emit_quickr_error_if(
-        glue("({mask}) .and. size({var}) == 0"),
-        "logical mask selects beyond empty indexed value",
-        hoist,
-        scope
-      )
-    }
-    for (axis in if (passes_as_scalar(mask@value)) {
-      integer()
-    } else {
-      seq_len(mask@value@rank)
-    }) {
-      guard_conformable_dims(
-        dim_or_one(var, axis),
-        dim_or_one(mask, axis),
-        "logical mask extents must match indexed value",
-        hoist,
-        scope,
-        left = var,
-        right = mask,
-        left_axis = axis,
-        right_axis = axis,
-        checker = check_equal_dims
-      )
-    }
+    mask <- idxs[[1]]
+    mask <- booleanize_logical_as_int(mask)
     if (hoist_mask(mask)) {
       return(var)
     }
-    if (passes_as_scalar(var@value)) {
-      var <- Fortran(glue("[{var}]"), Variable(var@value@mode, 1L))
-    }
-    out <- Fortran(
+    return(Fortran(
       glue("pack({var}, {mask})"),
       Variable(var@value@mode, dims = NA)
-    )
-    if (rank1_array) {
-      out@value@has_dim <- TRUE
-      if (!keep_rank1_dim) out <- drop_rank1_array_dim(out, scope, hoist)
-    }
-    return(out)
+    ))
   }
 
   # Indexing a scalar (rank-1 length-1) with `[1]` is valid in R, but Fortran
@@ -146,15 +73,9 @@ r2f_handlers[["["]] <- function(
   ) {
     idx_r <- attr(idxs[[1]], "r", exact = TRUE)
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      var@value@has_dim <- keep_rank1_dim
       return(var)
     }
     if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
-      var@value@has_dim <- keep_rank1_dim
-      return(var)
-    }
-    if (rank1_array) {
-      var@value@has_dim <- keep_rank1_dim
       return(var)
     }
   }
@@ -201,7 +122,10 @@ r2f_handlers[["["]] <- function(
         Fortran(":", Variable("integer", var@value@dims[[i]]))
       },
       logical1 = {
-        logical_axis_subscript(var, subscript, i, scope, hoist)
+        # we convert to a temp integer vector, doing the equivalent of R's which()
+        i <- scope_unique_var(scope, "integer")
+        f <- glue("pack([({i}, {i}=1, size({subscript}))], {subscript})")
+        return(Fortran(f, Variable("int", NA)))
       },
       integer0 = {
         if (drop) {
@@ -279,10 +203,6 @@ r2f_handlers[["["]] <- function(
     idx@value@dims[[1]]
   }))
   outval <- Variable(var@value@mode, dims)
-  if (rank1_array) {
-    outval@dims <- if (length(dims)) dims else list(1L)
-    outval@has_dim <- keep_rank1_dim || !passes_as_scalar(outval)
-  }
 
   # Fortran does not allow subscripting arbitrary parenthesized expressions,
   # so if the base is an array expression (not a named array designator),
@@ -302,36 +222,11 @@ r2f_handlers[["["]] <- function(
   if (var@value@mode == "logical" && logical_as_int(var@value)) {
     base_name <- var@value@name %||% stop("missing array name for subscripting")
     designator <- glue("{base_name}({str_flatten_commas(idxs)})")
-    out <- Fortran(glue("({designator} /= 0)"), outval)
+    Fortran(glue("({designator} /= 0)"), outval)
   } else {
     base_name <- var@value@name %||% stop("missing array name for subscripting")
-    out <- Fortran(glue("{base_name}({str_flatten_commas(idxs)})"), outval)
+    Fortran(glue("{base_name}({str_flatten_commas(idxs)})"), outval)
   }
-  if (!keep_rank1_dim) {
-    out <- drop_rank1_array_dim(out, scope, hoist)
-  }
-  out
-}
-
-# R drops a singleton axis when subsetting/reversing a rank-one array.
-# Runtime-dependent attribute changes cannot be inferred for the C bridge;
-# retain the array shape and refuse the singleton case, as drop() already
-# does for matrices with dynamic extents.
-drop_rank1_array_dim <- function(x, scope, hoist) {
-  if (!x@value@has_dim || x@value@rank != 1L) {
-    return(x)
-  }
-  if (passes_as_scalar(x@value)) {
-    x@value@has_dim <- FALSE
-  } else if (!is_wholenumber(x@value@dims[[1L]])) {
-    emit_quickr_error_if(
-      glue("size({x}, kind=c_ptrdiff_t) == 1"),
-      "cannot drop a one-dimensional array's dimension when its runtime length is 1; use drop = FALSE or c()",
-      hoist,
-      scope
-    )
-  }
-  x
 }
 
 # Reject non-positive subscripts at compile time. R's negative subscript
@@ -460,85 +355,4 @@ subscript_axis_extents <- function(var, n_idx) {
     return(list(prod(unlist(dims))))
   }
   rep(list(NULL), n_idx)
-}
-
-
-# A scalar mask is recycled over the indexed extent in R. Only literal TRUE
-# can become a full section, provided the indexed extent is nonempty.
-# Validate before mask hoisting as well as before constructing designators.
-check_scalar_logical_subscript <- function(
-  subscript,
-  expr,
-  base,
-  axis,
-  scope,
-  hoist
-) {
-  if (subscript@value@mode != "logical" || subscript@value@rank != 0L) {
-    return(invisible(NULL))
-  }
-  if (!identical(unwrap_parens(expr), TRUE)) {
-    stop(
-      "scalar logical subscripts other than literal TRUE are not supported",
-      call. = FALSE
-    )
-  }
-  extent <- dim_or_one(base, axis)
-  message <- "logical mask selects beyond empty indexed axis"
-  if (is_wholenumber(extent)) {
-    if (extent == 0L) {
-      stop(message, call. = FALSE)
-    }
-    return(invisible(NULL))
-  }
-  emit_quickr_error_if(
-    glue("{guard_dim_f(extent, base, axis)} == 0"),
-    message,
-    hoist,
-    scope
-  )
-}
-
-# A length-one expression can be a scalar or an array in Fortran. Wrapping
-# either in an array constructor and reducing handles parentheses as well.
-scalarize_logical_mask <- function(mask) {
-  mask <- booleanize_logical_as_int(mask)
-  if (passes_as_scalar(mask@value)) {
-    return(Fortran(glue("any([{mask}])"), Variable("logical")))
-  }
-  mask
-}
-
-# Share per-axis logical-vector validation between reads and writes.
-logical_axis_subscript <- function(var, mask, axis, scope, hoist) {
-  mask <- scalarize_logical_mask(mask)
-  if (passes_as_scalar(mask@value)) {
-    index <- scope_unique_var(scope, "integer")
-    register_openmp_private(scope, index@name)
-    extent <- guard_dim_f(dim_or_one(var, axis), var, axis)
-    emit_quickr_error_if(
-      glue("({mask}) .and. {extent} == 0"),
-      "logical mask selects beyond empty indexed axis",
-      hoist,
-      scope
-    )
-    f <- glue("pack([({index}, {index}=1, {extent})], {mask})")
-    return(Fortran(f, Variable("int", NA)))
-  }
-  guard_conformable_dims(
-    dim_or_one(var, axis),
-    dim_or_one(mask, 1L),
-    "logical mask extents must match indexed axis",
-    hoist,
-    scope,
-    left = var,
-    right = mask,
-    left_axis = axis,
-    right_axis = 1L,
-    checker = check_equal_dims
-  )
-  index <- scope_unique_var(scope, "integer")
-  register_openmp_private(scope, index@name)
-  f <- glue("pack([({index}, {index}=1, size({mask}))], {mask})")
-  Fortran(f, Variable("int", NA))
 }

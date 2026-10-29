@@ -4,6 +4,10 @@
 # - logical: any, all
 # - index: which.max, which.min
 
+# Known limitations (deferred): scalar masked extrema do not model an empty
+# selection. Multi-argument reductions may lose value/mask evaluation order
+# when later arguments mutate captures or fail during lowering.
+
 # --- Handlers ---
 
 register_r2f_handler(
@@ -11,8 +15,7 @@ register_r2f_handler(
   function(
     args,
     scope,
-    ...,
-    hoist = NULL
+    ...
   ) {
     # Named arguments like `na.rm` would otherwise be treated as data
     # arguments (e.g. `sum(x, na.rm = TRUE)` -> `(sum(x) + .true.)`).
@@ -35,32 +38,23 @@ register_r2f_handler(
 
     empty_extrema_message <- "min()/max() of empty inputs are not supported"
 
-    stop_empty_extrema <- function(current_hoist) {
-      if (isTRUE(current_hoist$defer_static_shape_error)) {
-        stop_deferred_branch_error(empty_extrema_message)
-      }
-      stop(empty_extrema_message, call. = FALSE)
-    }
-
-    reduce_arg <- function(arg, index = length(args), allow_empty = FALSE) {
-      arg_hoist <- capture_hoist(hoist)
+    reduce_arg <- function(arg, ordered = FALSE, allow_empty = FALSE) {
       mask_hoist <- create_mask_hoist()
-      # Only a direct subset can donate its mask. Moving a mask across rev(),
-      # length(), arithmetic, or other calls can change the selected values.
       # Nested reductions (e.g., min(max(...), ...)) can thread an existing
       # hoist_mask through `...`. We always want a single mask hoister per
       # reduction context, so we ignore any inherited one and install ours.
       dots <- list(...)
+      arg_hoist <- if (ordered) {
+        capture_inheriting_deferred_errors(dots$hoist)
+      } else {
+        dots$hoist
+      }
       x <- r2f(
         arg,
         scope,
         calls = dots$calls,
         hoist = arg_hoist,
-        hoist_mask = if (is_call(unwrap_parens(arg), "[")) {
-          mask_hoist$try_set
-        } else {
-          function(mask) FALSE
-        }
+        hoist_mask = mask_hoist$try_set
       )
       if (mask_hoist$has_conflict()) {
         stop(
@@ -71,20 +65,10 @@ register_r2f_handler(
       hoisted_mask <- mask_hoist$get_hoisted()
       nonempty <- TRUE
       empty_condition <- NULL
-      if (
-        call_name %in%
-          c("min", "max") &&
-          (!x@value@is_scalar || !is.null(hoisted_mask))
-      ) {
+      if (call_name %in% c("min", "max") && !x@value@is_scalar) {
         element_count <- var_element_count(x@value)
         if (!is.null(hoisted_mask)) {
-          mask_is_scalar <- passes_as_scalar(hoisted_mask@value) &&
-            !startsWith(trimws(as.character(hoisted_mask)), "[")
-          nonempty <- if (mask_is_scalar) {
-            glue("{hoisted_mask}")
-          } else {
-            glue("any({hoisted_mask})")
-          }
+          nonempty <- glue("any({hoisted_mask})")
           empty_condition <- glue(".not. ({nonempty})")
         } else if (!is.na(element_count)) {
           nonempty <- element_count > 0
@@ -100,7 +84,7 @@ register_r2f_handler(
 
         if (!allow_empty) {
           if (identical(nonempty, FALSE)) {
-            stop_empty_extrema(arg_hoist)
+            stop(empty_extrema_message, call. = FALSE)
           }
           if (is_string(nonempty)) {
             emit_quickr_error_if(
@@ -119,14 +103,9 @@ register_r2f_handler(
         arith_join_mode(x),
         sprintf("%s()", call_name)
       )
-      scalar_array <- startsWith(trimws(as.character(x)), "[")
-      out <- if (x@value@is_scalar && is.null(hoisted_mask) && !scalar_array) {
-        x@value@has_dim <- FALSE
+      out <- if (x@value@is_scalar) {
         x
       } else {
-        if (x@value@is_scalar) {
-          x <- Fortran(glue("[{x}]"), Variable(x@value@mode, 1L))
-        }
         s <- glue(
           if (is.null(hoisted_mask)) {
             "{intrinsic}({x})"
@@ -136,33 +115,21 @@ register_r2f_handler(
         )
         Fortran(s, Variable(x@value@mode))
       }
-      later_args <- tail(args, -index)
-      if (allow_empty && !identical(nonempty, TRUE)) {
-        later_args <- list()
-      }
-      out <- snapshot_operand_before_later_effects(
-        out,
-        arg,
-        later_args,
-        scope,
-        arg_hoist
-      )
 
-      if (allow_empty) {
-        return(list(value = out, nonempty = nonempty, hoist = arg_hoist))
+      if (ordered) {
+        if (allow_empty) {
+          return(list(value = out, nonempty = nonempty, hoist = arg_hoist))
+        }
+        out <- hoist_unless_name(out, arg_hoist)
+        dots$hoist$emit(arg_hoist$render(character()))
       }
-      finish_captured_operand(out, arg_hoist, hoist)
+      out
     }
 
     if (length(args) == 1) {
       reduce_arg(args[[1]])
     } else if (call_name %in% c("min", "max")) {
-      reduced <- Map(
-        reduce_arg,
-        args,
-        seq_along(args),
-        MoreArgs = list(allow_empty = TRUE)
-      )
+      reduced <- lapply(args, reduce_arg, ordered = TRUE, allow_empty = TRUE)
       if (
         all(vapply(
           reduced,
@@ -170,12 +137,13 @@ register_r2f_handler(
           logical(1L)
         ))
       ) {
-        stop_empty_extrema(hoist)
+        stop(empty_extrema_message, call. = FALSE)
       }
 
       values <- lapply(reduced, `[[`, "value")
       mode <- arith_join_mode(values)
       context <- sprintf("%s()", call_name)
+      dots <- list(...)
 
       if (
         !any(vapply(
@@ -187,11 +155,11 @@ register_r2f_handler(
         active <- list()
         for (i in seq_along(reduced)) {
           if (identical(reduced[[i]]$nonempty, FALSE)) {
-            hoist$emit(reduced[[i]]$hoist$render(character()))
+            dots$hoist$emit(reduced[[i]]$hoist$render(character()))
             next
           }
           value <- hoist_unless_name(values[[i]], reduced[[i]]$hoist)
-          hoist$emit(reduced[[i]]$hoist$render(character()))
+          dots$hoist$emit(reduced[[i]]$hoist$render(character()))
           active[[length(active) + 1L]] <- value
         }
         active <- lapply(
@@ -209,12 +177,12 @@ register_r2f_handler(
       }
 
       values <- lapply(values, cast_to_mode, mode = mode, context = context)
-      result <- hoist$declare_tmp(mode = mode, dims = NULL)
-      seen <- hoist$declare_tmp(mode = "integer", dims = NULL)
-      hoist$emit(glue("{seen@name} = 0_c_int"))
+      result <- dots$hoist$declare_tmp(mode = mode, dims = NULL)
+      seen <- dots$hoist$declare_tmp(mode = "integer", dims = NULL)
+      dots$hoist$emit(glue("{seen@name} = 0_c_int"))
 
       for (i in seq_along(reduced)) {
-        hoist$emit(reduced[[i]]$hoist$render(character()))
+        dots$hoist$emit(reduced[[i]]$hoist$render(character()))
         nonempty <- reduced[[i]]$nonempty
         if (identical(nonempty, FALSE)) {
           next
@@ -239,18 +207,18 @@ register_r2f_handler(
             "
           )
         }
-        hoist$emit(update)
+        dots$hoist$emit(update)
       }
 
       emit_quickr_error_if(
         glue("{seen@name} == 0_c_int"),
         empty_extrema_message,
-        hoist,
+        dots$hoist,
         scope
       )
       Fortran(result@name, result)
     } else {
-      args <- Map(reduce_arg, args, seq_along(args))
+      args <- lapply(args, reduce_arg, ordered = TRUE)
       # Fortran's max/min require uniform argument types; cast every operand
       # whose mode differs from the join. The + / * spellings for sum/prod
       # don't strictly need it, but one code path beats two. Logical
@@ -275,8 +243,7 @@ register_r2f_handler(
   function(
     args,
     scope,
-    ...,
-    hoist = NULL
+    ...
   ) {
     # For now, we only support the most common `any(x)` / `all(x)` shape.
     # We intentionally do not support named arguments like `na.rm`.
@@ -302,20 +269,9 @@ register_r2f_handler(
       return(Fortran(lit, Variable("logical")))
     }
 
-    reduce_arg <- function(arg, arg_hoist = hoist) {
+    reduce_arg <- function(arg) {
       mask_hoist <- create_mask_hoist()
-      dots <- list(...)
-      x <- r2f(
-        arg,
-        scope,
-        calls = dots$calls,
-        hoist = arg_hoist,
-        hoist_mask = if (is_call(unwrap_parens(arg), "[")) {
-          mask_hoist$try_set
-        } else {
-          function(mask) FALSE
-        }
-      )
+      x <- r2f(arg, scope, ..., hoist_mask = mask_hoist$try_set)
       if (mask_hoist$has_conflict()) {
         stop(
           "reduction expressions only support a single logical mask",
@@ -338,7 +294,6 @@ register_r2f_handler(
           if (startsWith(x_code, "[")) {
             return(Fortran(glue("{intrinsic}({x})"), Variable("logical")))
           }
-          x@value@has_dim <- FALSE
           return(x)
         }
 
@@ -357,8 +312,17 @@ register_r2f_handler(
           passes_as_scalar(hoisted_mask@value) &&
           !is_array_ctor
 
-        # The subscript guard has already checked that a non-scalar mask
-        # matches this scalar input, even when its length is dynamic.
+        mask_len1 <-
+          !is.null(hoisted_mask@value) &&
+          identical(hoisted_mask@value@dims, list(1L))
+
+        if (!mask_is_scalar && !mask_len1) {
+          stop(
+            "any()/all(): scalar masked subsets only support scalar or length-1 masks",
+            call. = FALSE
+          )
+        }
+
         mask_scalar <- if (mask_is_scalar) {
           glue("{hoisted_mask}")
         } else {
@@ -418,23 +382,7 @@ register_r2f_handler(
       return(reduce_arg(args[[1L]]))
     }
 
-    source_args <- args
-    args <- Map(
-      function(arg, index) {
-        arg_hoist <- capture_hoist(hoist)
-        out <- reduce_arg(arg, arg_hoist)
-        out <- snapshot_operand_before_later_effects(
-          out,
-          arg,
-          tail(source_args, -index),
-          scope,
-          arg_hoist
-        )
-        finish_captured_operand(out, arg_hoist, hoist)
-      },
-      source_args,
-      seq_along(source_args)
-    )
+    args <- lapply(args, reduce_arg)
     op <- if (identical(call_name, "any")) ".or." else ".and."
     Fortran(glue("({str_flatten(args, glue(' {op} '))})"), Variable("logical"))
   }

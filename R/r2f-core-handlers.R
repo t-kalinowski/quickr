@@ -65,10 +65,7 @@ r2f_handlers[["stop"]] <- function(args, scope = NULL, ...) {
 
 r2f_handlers[["("]] <- function(args, scope, ...) {
   x <- r2f(args[[1L]], scope, ...)
-  out <- Fortran(glue("({x})"), x@value)
-  out@logical_booleanized <- x@logical_booleanized
-  out@scalar_fill_dims <- x@scalar_fill_dims
-  out
+  Fortran(glue("({x})"), x@value)
 }
 
 r2f_handlers[["$"]] <- function(args, scope, ..., hoist = NULL) {

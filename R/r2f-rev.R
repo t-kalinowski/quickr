@@ -8,7 +8,6 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
   if (is.null(x@value)) {
     stop("rev() expects a typed value", call. = FALSE)
   }
-  x <- drop_rank1_array_dim(x, scope, hoist)
 
   # Scalars (incl. length-1 vectors that are lowered as scalars) reverse to self.
   if (passes_as_scalar(x@value)) {
@@ -34,7 +33,6 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
     tmp <- hoist$declare_tmp(
       mode = x@value@mode,
       dims = x@value@dims,
-      has_dim = x@value@has_dim,
       logical_as_int = logical_as_int(x@value)
     )
     hoist$emit(glue("{tmp@name} = {x}"))
@@ -50,7 +48,7 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
   # Note: this returns integer storage (0/1/NA) for bind(c) logicals, which
   # preserves NA when the reversed value is returned back to R.
   if (identical(x@value@mode, "logical") && logical_as_int(x@value)) {
-    out_val <- Variable("logical", x@value@dims, has_dim = x@value@has_dim)
+    out_val <- Variable("logical", x@value@dims)
     out_val@logical_as_int <- TRUE
     return(Fortran(
       glue("{base_name}(size({base_name}):1:-1)"),
@@ -58,6 +56,6 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
     ))
   }
 
-  out_val <- Variable(x@value@mode, x@value@dims, has_dim = x@value@has_dim)
+  out_val <- Variable(x@value@mode, x@value@dims)
   Fortran(glue("{base_name}(size({base_name}):1:-1)"), out_val)
 }

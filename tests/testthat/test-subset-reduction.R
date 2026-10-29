@@ -73,6 +73,34 @@ test_that("reduction intrinsics cover scalar, multi-arg, and mask cases", {
   expect_quick_equal(prod_two, list(c(1, 2, 3), c(4, 5, 6)))
 })
 
+test_that("multi-argument reductions evaluate arguments in order", {
+  fn <- function(x) {
+    declare(type(x = double(n)))
+    max(runif(1), x + runif(3))
+  }
+  qfn <- quick(fn)
+
+  set.seed(472)
+  expected <- fn(c(1, 2, 3))
+  expected_next <- runif(1)
+
+  set.seed(472)
+  actual <- qfn(c(1, 2, 3))
+  actual_next <- runif(1)
+
+  expect_identical(actual, expected)
+  expect_identical(actual_next, expected_next)
+
+  set.seed(913)
+  expect_error(qfn(c(1, 2)), "elementwise vector operations")
+  actual_seed <- .Random.seed
+
+  set.seed(913)
+  runif(1)
+  runif(3)
+  expect_identical(actual_seed, .Random.seed)
+})
+
 test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases", {
   any_basic <- function(x) {
     declare(type(x = logical(NA)))
@@ -157,13 +185,13 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
     declare(type(x = logical(1)))
     any(x[c(FALSE, TRUE)])
   }
-  expect_error(r2f(any_scalar_masked_long_mask), "logical mask extents")
+  expect_error(r2f(any_scalar_masked_long_mask), "scalar masked subsets")
 
   all_scalar_masked_long_mask <- function(x) {
     declare(type(x = logical(1)))
     all(x[c(FALSE, TRUE)])
   }
-  expect_error(r2f(all_scalar_masked_long_mask), "logical mask extents")
+  expect_error(r2f(all_scalar_masked_long_mask), "scalar masked subsets")
 
   # 1-element vector expressions like c(FALSE) compile to Fortran array
   # constructors (`[.false.]`) but any()/all() must still return scalars.
@@ -278,25 +306,6 @@ test_that("multi-argument any/all evaluate arguments before later guards", {
       fixed = TRUE
     )
     expect_identical(.Random.seed, expected_seed)
-  }
-  any_mutation <- function() {
-    x <- 1L
-    flip <- function() {
-      x <<- 0L
-      FALSE
-    }
-    any(x > 0L, ((flip))())
-  }
-  all_mutation <- function() {
-    x <- 0L
-    flip <- function() {
-      x <<- 1L
-      TRUE
-    }
-    all(x == 0L, ((flip))())
-  }
-  for (fn in list(any_mutation, all_mutation)) {
-    expect_quick_identical(fn, list())
   }
 })
 

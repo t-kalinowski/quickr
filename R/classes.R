@@ -303,26 +303,7 @@ Variable := new_class(
       }
     ),
 
-    # Fortran rank does not distinguish an R vector from a one-dimensional
-    # array. Keep that R attribute independently, even for scalar storage.
-    has_dim = new_property(
-      class_logical,
-      default = FALSE,
-      getter = function(self) {
-        self@rank > 1L || isTRUE(attr(self, "has_dim", exact = TRUE))
-      },
-      setter = function(self, value) {
-        attr(self, "has_dim") <- value
-        self
-      }
-    ),
-
     modified = prop_bool(default = FALSE),
-
-    # A snapshot of a size expression at its assignment point. An empty
-    # list means unknown; this is separate from @r, which records source code.
-    size_value = new_property(class_list, default = list()),
-    size_tracked = prop_bool(default = FALSE),
 
     loop_is_singleton = prop_bool(default = FALSE),
 
@@ -403,8 +384,6 @@ Fortran := new_class(
     # consistently propagated with the Fortran object.
     logical_booleanized = prop_bool(default = FALSE),
     writes_to_dest = prop_bool(default = FALSE),
-    # Scalar constructor code carrying the shape of the array it fills.
-    scalar_fill_dims = NULL | class_list,
 
     r = new_property(
       # custom setter only to workaround https://github.com/RConsortium/S7/issues/511
@@ -434,8 +413,6 @@ SvdResult := new_class(
 LocalClosure := new_class(
   properties = list(
     name = prop_string(default = NULL, allow_null = TRUE),
-    proc_name = prop_string(default = NULL, allow_null = TRUE),
-    definition_scope = NULL | class_environment,
     fun = class_function
   )
 )

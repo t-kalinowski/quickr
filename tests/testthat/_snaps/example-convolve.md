@@ -38,9 +38,7 @@
       
         ! locals
         integer(c_int) :: i
-        integer(c_int) :: tmp1_
         integer(c_int) :: j
-        integer(c_int) :: tmp2_
         ! manifest end
       
       
@@ -50,10 +48,8 @@
           return
         end if
         ab = 0.0_c_double
-        do tmp1_ = 1, size(a)
-          i = tmp1_
-          do tmp2_ = 1, size(b)
-            j = tmp2_
+        do i = 1, size(a)
+          do j = 1, size(b)
             ab(((i + j) - 1_c_int)) = (ab(((i + j) - 1_c_int)) + (a(i) * b(j)))
           end do
         end do
@@ -78,30 +74,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void slow_convolve(
         const double* const a__,
         const double* const b__,
@@ -129,7 +101,7 @@
         const double* const b__ = REAL(b);
         const R_xlen_t b__len_ = Rf_xlength(b);
         
-        const R_xlen_t ab__len_ = quickr_return_length((const double[]){((a__len_ + b__len_) - 1)}, 1);
+        const R_xlen_t ab__len_ = ((a__len_ + b__len_) - 1);
         SEXP ab = PROTECT(Rf_allocVector(REALSXP, ab__len_));
         double* ab__ = REAL(ab);
         

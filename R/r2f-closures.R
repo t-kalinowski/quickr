@@ -54,11 +54,7 @@ maybe_lower_local_closure_call <- function(
     }
 
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
-    return(compile_call(
-      call_expr,
-      closure_obj,
-      closure_obj@proc_name %||% callable_name
-    ))
+    return(compile_call(call_expr, closure_obj, callable_name))
   }
 
   if (is_function_call(callable_unwrapped)) {
@@ -69,7 +65,6 @@ maybe_lower_local_closure_call <- function(
       env = environment(host_closure),
       name = proc_name
     )
-    closure_obj@definition_scope <- scope
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
     return(compile_call(call_expr, closure_obj, proc_name))
   }
@@ -116,16 +111,11 @@ compile_internal_subroutine <- function(
   allow_void_return = FALSE,
   forbid_superassign = character(),
   optional_args = character(),
-  preserve_result_attributes = TRUE
+  defer_errors = FALSE
 ) {
   stopifnot(is_string(proc_name), inherits(closure_obj, LocalClosure))
   fun <- closure_obj@fun
   stopifnot(is.function(fun))
-  check_closure_capture_scope(
-    closure_obj,
-    parent_scope,
-    supplied = names(formals(fun))
-  )
   stopifnot(is.null(res_var) || inherits(res_var, Variable))
   stopifnot(is_bool(allow_void_return))
   stopifnot(is.character(forbid_superassign))
@@ -152,6 +142,7 @@ compile_internal_subroutine <- function(
 
   proc_scope <- new_scope(fun, parent = formal_scope)
   scope_set(proc_scope, "kind", "closure")
+  scope_set(proc_scope, "defer_branch_errors", defer_errors)
   scope_set(proc_scope, "host_scope", scope_root(parent_scope))
   scope_set(proc_scope, "forbid_superassign", forbid_superassign)
 
@@ -175,7 +166,6 @@ compile_internal_subroutine <- function(
     arg_var <- Variable(
       mode = var@mode,
       dims = var@dims,
-      has_dim = var@has_dim,
       name = fortran_name,
       r_name = nm
     )
@@ -190,7 +180,6 @@ compile_internal_subroutine <- function(
       local_var <- Variable(
         mode = var@mode,
         dims = var@dims,
-        has_dim = var@has_dim,
         name = local_name,
         r_name = nm
       )
@@ -224,26 +213,12 @@ compile_internal_subroutine <- function(
   if (length(optional_args)) {
     unsafe <- character()
     for (nm in optional_args) {
-      used <- any(map_lgl(
-        stmts,
-        optional_arg_used,
-        nm = nm,
-        scope = proc_scope
-      ))
+      used <- any(map_lgl(stmts, optional_arg_used, nm = nm))
       if (!used) {
         next
       }
-      missing_init <- any(map_lgl(
-        stmts,
-        optional_arg_missing_init,
-        nm = nm,
-        scope = proc_scope
-      ))
-      assigned_before_use <- optional_arg_assigned_before_use(
-        stmts,
-        nm = nm,
-        scope = proc_scope
-      )
+      missing_init <- any(map_lgl(stmts, optional_arg_missing_init, nm = nm))
+      assigned_before_use <- optional_arg_assigned_before_use(stmts, nm = nm)
       if (!missing_init && !assigned_before_use) {
         unsafe <- c(unsafe, nm)
       }
@@ -260,71 +235,96 @@ compile_internal_subroutine <- function(
 
   body_prefix <- character()
   assign_code <- character()
+  body_failed <- FALSE
   if (is.null(res_var)) {
     if (is.null(last(stmts))) {
       stmts <- drop_last(stmts)
     }
-    body_prefix <- compile_nonreturn_statements(stmts, proc_scope)
+    body_prefix <- compile_nonreturn_statements(
+      stmts,
+      proc_scope,
+      defer_errors = defer_errors
+    )$code
   } else {
     last_expr <- last(stmts)
     prefix <- drop_last(stmts)
 
-    body_prefix <- compile_nonreturn_statements(prefix, proc_scope)
-
-    h <- new_hoist(proc_scope)
-    expr_error <- NULL
-    expr <- tryCatch(
-      r2f(last_expr, proc_scope, hoist = h),
-      error = function(e) {
-        expr_error <<- e
-        NULL
-      }
+    prefix <- compile_nonreturn_statements(
+      prefix,
+      proc_scope,
+      defer_errors = defer_errors
     )
+    body_prefix <- prefix$code
 
-    if (!is.null(expr_error)) {
-      if (!isTRUE(allow_void_return)) {
-        stop(expr_error)
-      }
-      # If `last_expr` is itself a local closure call that returns no value,
-      # compiling in value-position (with `hoist`) fails. Retry compilation in
-      # statement-position.
-      stmt_expr <- r2f(last_expr, proc_scope)
-      if (!is.null(stmt_expr@value)) {
-        stop(expr_error)
-      }
-      assign_code <- as.character(stmt_expr)
-      res_var <- NULL
-    } else if (is.null(expr@value)) {
-      if (!isTRUE(allow_void_return)) {
-        stop("local closure does not return a value")
-      }
-      assign_code <- h$render(expr)
-      res_var <- NULL
-    } else if (is.null(expr@value@mode)) {
-      stop("could not infer closure return type")
-    } else {
-      res_name <- "res"
-      while (res_name %in% c(formal_names, used_names)) {
-        res_name <- paste0(res_name, "_")
-      }
-      res_var@name <- res_name
-      proc_scope[[res_name]] <- res_var
-      arg_names <- c(arg_names, res_name)
+    h <- new_hoist(proc_scope, defer_errors = defer_errors)
+    expr_error <- prefix$error
+    expr <- if (is.null(expr_error)) {
+      tryCatch(
+        r2f(last_expr, proc_scope, hoist = h),
+        error = function(e) {
+          expr_error <<- e
+          NULL
+        }
+      )
     }
 
-    if (!is.null(res_var)) {
+    if (is.null(prefix$error) && !is.null(expr_error) && allow_void_return) {
+      # A void tail call is valid in statement position. Discard the failed
+      # value attempt's hoists so its effects are not emitted twice.
+      stmt_expr <- r2f(last_expr, proc_scope)
+      if (is.null(stmt_expr@value)) {
+        expr <- stmt_expr
+        expr_error <- NULL
+        h <- new_hoist(proc_scope)
+      }
+    }
+    body_failed <- !is.null(expr_error) && defer_errors
+    if (body_failed) {
+      if (is.null(prefix$error)) {
+        emit_quickr_error_if(
+          ".true.",
+          conditionMessage(expr_error),
+          h,
+          proc_scope
+        )
+      }
+      # This result is unreachable: the closure returns through the error
+      # channel before its caller can read it. Supply only the missing type.
+      if (is.null(res_var@mode)) {
+        res_var@mode <- "logical"
+      }
+      expr <- Fortran("", res_var)
+    } else if (!is.null(expr_error)) {
+      stop(expr_error)
+    }
+    if (is.null(expr_error) || body_failed) {
+      if (is.null(expr@value)) {
+        if (!isTRUE(allow_void_return)) {
+          stop("local closure does not return a value")
+        }
+        assign_code <- h$render(expr)
+        res_var <- NULL
+      } else if (is.null(expr@value@mode)) {
+        stop("could not infer closure return type")
+      } else {
+        res_name <- "res"
+        while (res_name %in% c(formal_names, used_names)) {
+          res_name <- paste0(res_name, "_")
+        }
+        res_var@name <- res_name
+        proc_scope[[res_name]] <- res_var
+        arg_names <- c(arg_names, res_name)
+      }
+    }
+
+    if (body_failed) {
+      assign_code <- h$render("")
+    } else if (!is.null(res_var)) {
       if (is.null(res_var@mode)) {
         res_var@mode <- expr@value@mode
         res_var@dims <- expr@value@dims
-        res_var@has_dim <- expr@value@has_dim
+        proc_scope[[res_name]] <- res_var
       }
-      if (preserve_result_attributes && res_var@has_dim != expr@value@has_dim) {
-        stop(
-          "closure result must preserve its array/vector shape",
-          call. = FALSE
-        )
-      }
-      proc_scope[[res_name]] <- res_var
       if (!identical(expr@value@mode, res_var@mode)) {
         stop(
           "closure result mode (",
@@ -365,12 +365,10 @@ compile_internal_subroutine <- function(
       if (is.null(local_var@mode) && !is.null(dummy_var@mode)) {
         local_var@mode <- dummy_var@mode
         local_var@dims <- dummy_var@dims
-        local_var@has_dim <- dummy_var@has_dim
       }
       if (is.null(dummy_var@mode) && !is.null(local_var@mode)) {
         dummy_var@mode <- local_var@mode
         dummy_var@dims <- local_var@dims
-        dummy_var@has_dim <- local_var@has_dim
       }
       if (is.null(dummy_var@mode) || is.null(local_var@mode)) {
         stop(
@@ -437,11 +435,6 @@ compile_internal_subroutine <- function(
     if (length(locals)) emit_decls(locals, proc_scope) else character()
   )
 
-  check_definite_assignment(
-    fun,
-    proc_scope,
-    captured = names(scope_vars(parent_scope))
-  )
   body_code <- str_flatten_lines(optional_inits, body_prefix, assign_code)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = vars_declared,
@@ -481,7 +474,7 @@ compile_internal_subroutine <- function(
     captures = character(),
     res = res_name,
     res_var = res_var,
-    uses_rng = scope_uses_rng(proc_scope)
+    error = if (body_failed) expr_error else NULL
   )
 }
 
@@ -499,10 +492,10 @@ closure_last_expr <- function(fun) {
   }
 }
 
-optional_arg_used <- function(expr, nm, scope) {
-  stopifnot(inherits(scope, "quickr_scope"))
-  builtin_is_null <- !inherits(scope[["is.null"]], LocalClosure)
-
+# Known limitation: optional-argument use and initialization analysis below
+# recognizes is.null by name, without resolving shadowed local bindings.
+# Support for shadowed predicates and additional short-circuit idioms is deferred.
+optional_arg_used <- function(expr, nm) {
   if (is.symbol(expr)) {
     return(identical(as.character(expr), nm))
   }
@@ -512,32 +505,7 @@ optional_arg_used <- function(expr, nm, scope) {
   }
 
   if (
-    builtin_is_null &&
-      is_call(expr, quote(`||`)) &&
-      is_call(expr[[2L]], quote(is.null)) &&
-      length(expr[[2L]]) == 2L &&
-      is.symbol(expr[[2L]][[2L]]) &&
-      identical(as.character(expr[[2L]][[2L]]), nm)
-  ) {
-    return(FALSE)
-  }
-
-  if (
-    builtin_is_null &&
-      is_call(expr, quote(`&&`)) &&
-      is_call(expr[[2L]], quote(`!`)) &&
-      length(expr[[2L]]) == 2L &&
-      is_call(expr[[2L]][[2L]], quote(is.null)) &&
-      length(expr[[2L]][[2L]]) == 2L &&
-      is.symbol(expr[[2L]][[2L]][[2L]]) &&
-      identical(as.character(expr[[2L]][[2L]][[2L]]), nm)
-  ) {
-    return(FALSE)
-  }
-
-  if (
-    builtin_is_null &&
-      is_call(expr, quote(is.null)) &&
+    is_call(expr, quote(is.null)) &&
       length(expr) == 2L &&
       is.symbol(expr[[2L]]) &&
       identical(as.character(expr[[2L]]), nm)
@@ -546,8 +514,7 @@ optional_arg_used <- function(expr, nm, scope) {
   }
 
   if (
-    builtin_is_null &&
-      is_call(expr, quote(`!`)) &&
+    is_call(expr, quote(`!`)) &&
       length(expr) == 2L &&
       is_call(expr[[2L]], quote(is.null)) &&
       length(expr[[2L]]) == 2L &&
@@ -558,25 +525,17 @@ optional_arg_used <- function(expr, nm, scope) {
   }
 
   if (is_call(expr, quote(`{`))) {
-    return(any(map_lgl(
-      as.list(expr)[-1L],
-      optional_arg_used,
-      nm = nm,
-      scope = scope
-    )))
+    return(any(map_lgl(as.list(expr)[-1L], optional_arg_used, nm = nm)))
   }
 
   if (is_call(expr, quote(`if`))) {
-    if (optional_arg_used(expr[[2L]], nm = nm, scope = scope)) {
+    if (optional_arg_used(expr[[2L]], nm = nm)) {
       return(TRUE)
     }
-    if (optional_arg_used(expr[[3L]], nm = nm, scope = scope)) {
+    if (optional_arg_used(expr[[3L]], nm = nm)) {
       return(TRUE)
     }
-    if (
-      length(expr) == 4L &&
-        optional_arg_used(expr[[4L]], nm = nm, scope = scope)
-    ) {
+    if (length(expr) == 4L && optional_arg_used(expr[[4L]], nm = nm)) {
       return(TRUE)
     }
     return(FALSE)
@@ -587,15 +546,10 @@ optional_arg_used <- function(expr, nm, scope) {
       is_call(expr, quote(`=`)) ||
       is_call(expr, quote(`<<-`))
   ) {
-    return(optional_arg_used(expr[[3L]], nm = nm, scope = scope))
+    return(optional_arg_used(expr[[3L]], nm = nm))
   }
 
-  any(map_lgl(
-    as.list(expr)[-1L],
-    optional_arg_used,
-    nm = nm,
-    scope = scope
-  ))
+  any(map_lgl(as.list(expr)[-1L], optional_arg_used, nm = nm))
 }
 
 optional_arg_assigned <- function(expr, nm) {
@@ -635,21 +589,13 @@ optional_arg_assigned <- function(expr, nm) {
   any(map_lgl(as.list(expr)[-1L], optional_arg_assigned, nm = nm))
 }
 
-optional_arg_missing_init <- function(expr, nm, scope) {
-  stopifnot(inherits(scope, "quickr_scope"))
-  builtin_is_null <- !inherits(scope[["is.null"]], LocalClosure)
-
+optional_arg_missing_init <- function(expr, nm) {
   if (!is.call(expr)) {
     return(FALSE)
   }
 
   if (is_call(expr, quote(`{`))) {
-    return(any(map_lgl(
-      as.list(expr)[-1L],
-      optional_arg_missing_init,
-      nm = nm,
-      scope = scope
-    )))
+    return(any(map_lgl(as.list(expr)[-1L], optional_arg_missing_init, nm = nm)))
   }
 
   if (is_call(expr, quote(`if`))) {
@@ -658,8 +604,7 @@ optional_arg_missing_init <- function(expr, nm, scope) {
     else_branch <- if (length(expr) == 4L) expr[[4L]] else NULL
 
     if (
-      builtin_is_null &&
-        is_call(cond, quote(is.null)) &&
+      is_call(cond, quote(is.null)) &&
         length(cond) == 2L &&
         is.symbol(cond[[2L]]) &&
         identical(as.character(cond[[2L]]), nm)
@@ -668,8 +613,7 @@ optional_arg_missing_init <- function(expr, nm, scope) {
     }
 
     if (
-      builtin_is_null &&
-        is_call(cond, quote(`!`)) &&
+      is_call(cond, quote(`!`)) &&
         length(cond) == 2L &&
         is_call(cond[[2L]], quote(is.null)) &&
         length(cond[[2L]]) == 2L &&
@@ -684,12 +628,12 @@ optional_arg_missing_init <- function(expr, nm, scope) {
       }
     }
 
-    if (optional_arg_missing_init(then_branch, nm = nm, scope = scope)) {
+    if (optional_arg_missing_init(then_branch, nm = nm)) {
       return(TRUE)
     }
     if (
       !is.null(else_branch) &&
-        optional_arg_missing_init(else_branch, nm = nm, scope = scope)
+        optional_arg_missing_init(else_branch, nm = nm)
     ) {
       return(TRUE)
     }
@@ -699,12 +643,8 @@ optional_arg_missing_init <- function(expr, nm, scope) {
   FALSE
 }
 
-optional_arg_assigned_before_use <- function(stmts, nm, scope) {
-  stopifnot(
-    is.list(stmts),
-    is_string(nm),
-    inherits(scope, "quickr_scope")
-  )
+optional_arg_assigned_before_use <- function(stmts, nm) {
+  stopifnot(is.list(stmts), is_string(nm))
   assigned <- FALSE
 
   scan_expr <- function(expr, assigned) {
@@ -730,7 +670,7 @@ optional_arg_assigned_before_use <- function(stmts, nm, scope) {
       }
     }
 
-    if (optional_arg_used(expr, nm = nm, scope = scope)) {
+    if (optional_arg_used(expr, nm = nm)) {
       return(list(assigned = assigned, used_before = !assigned))
     }
 
@@ -778,7 +718,6 @@ closure_formal_vars <- function(args_f, formal_names) {
       v <- Variable(
         mode = f@value@mode,
         dims = f@value@dims,
-        has_dim = f@value@has_dim,
         name = fortran_name,
         r_name = nm
       )
@@ -873,72 +812,7 @@ match_closure_call_args <- function(
     )
   }
 
-  # Defaults see the callee's formal bindings. Expand their dependencies using
-  # matched actuals, leaving explicitly supplied expressions in caller scope.
-  supplied <- names(as.list(call_expr)[-1L])[
-    !vapply(as.list(call_expr)[-1L], is_missing, logical(1L))
-  ]
-  body_bindings <- character()
-  collect_body_bindings <- function(e) {
-    if (!is.call(e) || is_function_call(e)) {
-      return(invisible(NULL))
-    }
-    if (
-      any(vapply(
-        c("<-", "=", "<<-", "for"),
-        function(op) is_call(e, op),
-        logical(1L)
-      ))
-    ) {
-      body_bindings <<- union(body_bindings, all.vars(e[[2L]]))
-    }
-    lapply(as.list(e)[-1L], collect_body_bindings)
-    invisible(NULL)
-  }
-  collect_body_bindings(body(fun))
-  resolve_default <- function(nm, seen = character()) {
-    if (nm %in% supplied) {
-      return(args_aligned[[nm]])
-    }
-    if (nm %in% seen) {
-      stop("recursive local closure default argument: ", nm, call. = FALSE)
-    }
-    if (length(intersect(all.vars(args_aligned[[nm]]), body_bindings))) {
-      stop(
-        "local closure defaults cannot depend on bindings assigned in the body",
-        call. = FALSE
-      )
-    }
-    replace_formals <- function(e) {
-      if (is_missing(e)) {
-        return(e)
-      }
-      if (is.symbol(e) && as.character(e) %in% formal_names) {
-        return(resolve_default(as.character(e), c(seen, nm)))
-      }
-      if (!is.call(e)) {
-        return(e)
-      }
-      # R resolves a function-position symbol separately from a value formal
-      # (e.g. a numeric formal named abs does not hide base::abs()).
-      as.call(c(list(e[[1L]]), lapply(as.list(e)[-1L], replace_formals)))
-    }
-    replace_formals(args_aligned[[nm]])
-  }
-  args_expr <- setNames(lapply(formal_names, resolve_default), formal_names)
-  check_closure_capture_scope(closure_obj, scope, supplied)
-
-  writes <- closure_superassign_names(
-    closure_obj@fun,
-    closure_obj@definition_scope %||% scope
-  )
-  dependencies <- unique(unlist(lapply(args_expr, all.vars), use.names = FALSE))
-  if (length(intersect(dependencies, writes))) {
-    stop(
-      "local closure arguments cannot depend on bindings modified by the callee",
-      call. = FALSE
-    )
-  }
+  args_expr <- args_aligned
 
   # Local closures lower to Fortran procedures, so they cannot reproduce R's
   # lazy promise forcing for effectful or trapping actual expressions. Keep
@@ -1033,7 +907,8 @@ compile_local_closure_proc <- function(
   res_var,
   allow_void_return = FALSE,
   forbid_superassign = character(),
-  optional_args = character()
+  optional_args = character(),
+  defer_errors = FALSE
 ) {
   proc <- compile_internal_subroutine(
     proc_name,
@@ -1043,7 +918,8 @@ compile_local_closure_proc <- function(
     res_var = res_var,
     allow_void_return = allow_void_return,
     forbid_superassign = forbid_superassign,
-    optional_args = optional_args
+    optional_args = optional_args,
+    defer_errors = defer_errors
   )
   scope_add_internal_proc(scope_root(scope), proc)
   proc
@@ -1080,33 +956,9 @@ compile_closure_call <- function(
   args_present <- call_info$args_present
 
   last_expr <- closure_last_expr(closure_obj@fun)
-
-  if (is.null(last_expr)) {
-    if (needs_value) {
-      stop("local closure calls that return `NULL` cannot be used as values")
-    }
-    proc <- compile_local_closure_proc(
-      proc_name,
-      closure_obj,
-      scope,
-      formal_vars = formal_vars,
-      res_var = NULL,
-      optional_args = optional_args
-    )
-
-    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
-    call_args <- inputs$args
-    if (length(call_args)) {
-      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
-      return(Fortran(str_flatten_lines(
-        call_stmt,
-        quickr_error_return_if_set(scope)
-      )))
-    }
-    return(Fortran(str_flatten_lines(
-      glue("call {proc$name}()"),
-      quickr_error_return_if_set(scope)
-    )))
+  defer_errors <- isTRUE(hoist$defer_builtin_arity_error)
+  if (is.null(last_expr) && needs_value && !defer_errors) {
+    stop("local closure calls that return `NULL` cannot be used as values")
   }
 
   proc <- compile_local_closure_proc(
@@ -1114,25 +966,24 @@ compile_closure_call <- function(
     closure_obj,
     scope,
     formal_vars = formal_vars,
-    res_var = Variable(),
-    allow_void_return = !needs_value,
-    optional_args = optional_args
+    res_var = if (is.null(last_expr)) NULL else Variable(),
+    allow_void_return = !needs_value || defer_errors,
+    optional_args = optional_args,
+    defer_errors = defer_errors
   )
 
-  if (!needs_value && is.null(proc$res)) {
+  if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
     call_args <- inputs$args
-    if (length(call_args)) {
-      call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
-      return(Fortran(str_flatten_lines(
-        call_stmt,
-        quickr_error_return_if_set(scope)
-      )))
-    }
-    return(Fortran(str_flatten_lines(
-      glue("call {proc$name}()"),
+    call_stmt <- str_flatten_lines(
+      glue("call {proc$name}({str_flatten_commas(call_args)})"),
       quickr_error_return_if_set(scope)
-    )))
+    )
+    if (needs_value) {
+      hoist$emit(call_stmt)
+      stop_deferred_branch_error("local closure does not return a value")
+    }
+    return(Fortran(call_stmt))
   }
 
   res_var <- proc$res_var
@@ -1140,11 +991,7 @@ compile_closure_call <- function(
     stop("internal error: could not infer closure return type")
   }
 
-  tmp <- hoist$declare_tmp(
-    mode = res_var@mode,
-    dims = res_var@dims,
-    has_dim = res_var@has_dim
-  )
+  tmp <- hoist$declare_tmp(mode = res_var@mode, dims = res_var@dims)
   inputs <- closure_call_inputs(args_f, args_present, formal_vars)
   call_args <- inputs$args
   res_arg <- if (inputs$use_keywords) {
@@ -1155,6 +1002,11 @@ compile_closure_call <- function(
   call_args <- c(call_args, res_arg)
   call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
   call_stmt <- str_flatten_lines(call_stmt, quickr_error_return_if_set(scope))
+
+  if (!is.null(proc$error)) {
+    hoist$emit(call_stmt)
+    stop_deferred_branch_error(conditionMessage(proc$error))
+  }
 
   if (needs_value) {
     hoist$emit(call_stmt)
@@ -1185,7 +1037,6 @@ compile_closure_call_assignment <- function(
   if (!inherits(closure_obj, LocalClosure)) {
     stop("internal error: expected a LocalClosure")
   }
-  proc_name <- closure_obj@proc_name %||% closure_name
 
   target_var <- get0(target_name, scope)
   target_exists <- inherits(target_var, Variable)
@@ -1195,7 +1046,8 @@ compile_closure_call_assignment <- function(
     assignment_fortran_name(target_name, scope)
   }
 
-  if (is.null(closure_last_expr(closure_obj@fun))) {
+  defer_errors <- isTRUE(hoist$defer_builtin_arity_error)
+  if (is.null(closure_last_expr(closure_obj@fun)) && !defer_errors) {
     stop("local closure calls that return `NULL` cannot be assigned")
   }
   call_info <- match_closure_call_args(call_expr, closure_obj, scope, ...)
@@ -1211,7 +1063,6 @@ compile_closure_call_assignment <- function(
     out <- Variable(
       mode = target_var@mode,
       dims = target_var@dims,
-      has_dim = target_var@has_dim,
       name = target_fortran_name,
       r_name = target_name
     )
@@ -1224,13 +1075,23 @@ compile_closure_call_assignment <- function(
   }
 
   proc <- compile_local_closure_proc(
-    proc_name,
+    closure_name,
     closure_obj,
     scope,
     formal_vars = formal_vars,
     res_var = res_var,
-    optional_args = optional_args
+    optional_args = optional_args,
+    allow_void_return = defer_errors,
+    defer_errors = defer_errors
   )
+  if (is.null(proc$res)) {
+    inputs <- closure_call_inputs(args_f, args_present, formal_vars)
+    hoist$emit(str_flatten_lines(
+      glue("call {proc$name}({str_flatten_commas(inputs$args)})"),
+      quickr_error_return_if_set(scope)
+    ))
+    stop_deferred_branch_error("local closure does not return a value")
+  }
   if (!target_exists) {
     inferred_res_var <- proc$res_var
     if (is.null(inferred_res_var@mode)) {
@@ -1238,8 +1099,7 @@ compile_closure_call_assignment <- function(
     }
     target_var <- Variable(
       mode = inferred_res_var@mode,
-      dims = inferred_res_var@dims,
-      has_dim = inferred_res_var@has_dim
+      dims = inferred_res_var@dims
     )
     target_var@r_name <- target_name
     target_var@name <- target_fortran_name
@@ -1249,27 +1109,22 @@ compile_closure_call_assignment <- function(
     ) {
       target_var@logical_as_int <- TRUE
       # Recompile with the correct storage for the output dummy argument.
-      res_var <- Variable(
-        mode = target_var@mode,
-        dims = target_var@dims,
-        has_dim = target_var@has_dim
-      )
+      res_var <- Variable(mode = target_var@mode, dims = target_var@dims)
       res_var@r_name <- target_name
       res_var@name <- target_fortran_name
       res_var@logical_as_int <- TRUE
       proc <- compile_local_closure_proc(
-        proc_name,
+        closure_name,
         closure_obj,
         scope,
         formal_vars = formal_vars,
         res_var = res_var,
-        optional_args = optional_args
+        optional_args = optional_args,
+        defer_errors = defer_errors
       )
     }
+    scope[[target_name]] <- target_var
   }
-  target_var@size_tracked <- TRUE
-  target_var@size_value <- list()
-  scope[[target_name]] <- target_var
   scope_add_internal_proc(scope_root(scope), proc)
 
   arg_reads_target <- any(map_lgl(args_expr, function(e) {
@@ -1282,7 +1137,6 @@ compile_closure_call_assignment <- function(
     tmp <- hoist$declare_tmp(
       mode = target_var@mode,
       dims = target_var@dims,
-      has_dim = target_var@has_dim,
       logical_as_int = logical_as_int(target_var)
     )
     res_target <- tmp@name
@@ -1302,13 +1156,18 @@ compile_closure_call_assignment <- function(
     scope[[target_name]] <- target_var
   }
 
-  Fortran(glue(
+  out <- Fortran(glue(
     "
     call {proc$name}({str_flatten_commas(call_args)})
     {quickr_error_return_if_set(scope)}
     {str_flatten_lines(post)}
     "
   ))
+  if (!is.null(proc$error)) {
+    hoist$emit(out)
+    stop_deferred_branch_error(conditionMessage(proc$error))
+  }
+  out
 }
 
 compile_sapply_assignment <- function(
@@ -1347,12 +1206,6 @@ compile_sapply_assignment <- function(
     if (out_var@rank < 1L) {
       stop("sapply() output must be an array: ", out_name)
     }
-    if (out_var@rank == 1L && out_var@has_dim) {
-      stop(
-        "sapply() cannot replace an array binding with a vector",
-        call. = FALSE
-      )
-    }
     if (
       out_var@rank > 2L && (is.null(simplify) || !identical(simplify, "array"))
     ) {
@@ -1367,11 +1220,10 @@ compile_sapply_assignment <- function(
     if (!inherits(closure_obj, LocalClosure)) {
       stop("unsupported FUN in sapply(): ", fun_name)
     }
-    proc_name <- closure_obj@proc_name %||% fun_name
+    proc_name <- fun_name
   } else if (is_function_call(fun_expr)) {
     proc_name <- scope_unique_proc(scope_root(scope), prefix = "closure")
     closure_obj <- as_local_closure(fun_expr, env, name = proc_name)
-    closure_obj@definition_scope <- scope
   } else {
     stop("unsupported FUN in sapply(); use a local closure or function(i) ...")
   }
@@ -1379,20 +1231,6 @@ compile_sapply_assignment <- function(
   formal_names <- names(formals(closure_obj@fun)) %||% character()
   if (length(formal_names) != 1L || any(!nzchar(formal_names))) {
     stop("sapply() FUN must have exactly one named argument")
-  }
-
-  if (!is.null(parallel)) {
-    writes <- closure_superassign_names(
-      closure_obj@fun,
-      closure_obj@definition_scope %||% scope
-    )
-    if (length(writes)) {
-      stop(
-        "parallel sapply() callbacks must not modify enclosing bindings: ",
-        str_flatten_commas(writes),
-        call. = FALSE
-      )
-    }
   }
 
   seq_call_unwrapped <- seq_call
@@ -1461,7 +1299,7 @@ compile_sapply_assignment <- function(
     formal_vars,
     res_var,
     forbid_superassign = out_name,
-    preserve_result_attributes = FALSE
+    defer_errors = isTRUE(hoist$defer_builtin_arity_error)
   )
 
   if (!target_exists) {
@@ -1482,7 +1320,7 @@ compile_sapply_assignment <- function(
         formal_vars,
         res_var,
         forbid_superassign = out_name,
-        preserve_result_attributes = FALSE
+        defer_errors = isTRUE(hoist$defer_builtin_arity_error)
       )
     }
 
@@ -1494,9 +1332,7 @@ compile_sapply_assignment <- function(
     ) {
       stop('sapply() that returns arrays requires `simplify = "array"`.')
     }
-    # Length-one vectors also use scalar procedure arguments and simplify to
-    # a vector, without an extra result axis.
-    out_dims <- if (passes_as_scalar(res_var)) {
+    out_dims <- if (res_var@rank == 0L) {
       list(iterable_len_expr)
     } else {
       c(res_var@dims, list(iterable_len_expr))
@@ -1508,9 +1344,6 @@ compile_sapply_assignment <- function(
     scope[[out_name]] <- out_var
   }
 
-  if (!is.null(parallel) && isTRUE(proc$uses_rng)) {
-    stop("runif() is not supported inside parallel loops", call. = FALSE)
-  }
   scope_add_internal_proc(scope_root(scope), proc)
 
   out_target <- out_name
@@ -1526,11 +1359,6 @@ compile_sapply_assignment <- function(
   }
 
   idx <- scope_unique_var(scope, "integer")
-  if (!index_iterable) {
-    # Materialize before inquiring about size: deferred temporaries acquire
-    # their extents on assignment, and the iterable is evaluated only once.
-    hoist$emit(iterable_tmp_assign)
-  }
   last_i <- if (index_iterable) {
     if (is.null(iterable_len_expr) || is_scalar_na(iterable_len_expr)) {
       NULL
@@ -1544,42 +1372,6 @@ compile_sapply_assignment <- function(
   }
   if (is.null(last_i)) {
     stop("sapply() requires a vector input with a known length")
-  }
-
-  empty_message <- "sapply() requires a nonempty input; R returns a list for empty input"
-  if (is_wholenumber(iterable_len_expr)) {
-    if (iterable_len_expr == 0L) {
-      stop(empty_message, call. = FALSE)
-    }
-  } else {
-    emit_quickr_error_if(
-      glue("{last_i} == 0"),
-      empty_message,
-      hoist,
-      scope
-    )
-  }
-  if (target_exists) {
-    guard_conformable_dims(
-      if (is_wholenumber(out_var@dims[[out_var@rank]])) {
-        out_var@dims[[out_var@rank]]
-      } else {
-        NA_integer_
-      },
-      iterable_len_expr,
-      paste0(
-        "cannot reassign `",
-        out_name,
-        "`: assignment must preserve its shape"
-      ),
-      hoist,
-      scope,
-      left = out_var@name,
-      right = NULL,
-      left_axis = out_var@rank,
-      right_f = as.character(last_i),
-      checker = check_equal_dims
-    )
   }
 
   res_target <- if (out_var@rank == 1L) {
@@ -1613,8 +1405,6 @@ compile_sapply_assignment <- function(
   ))
 
   out_var@modified <- TRUE
-  out_var@size_tracked <- TRUE
-  out_var@size_value <- list()
   scope[[out_name]] <- out_var
 
   directives <- openmp_directives(parallel)
@@ -1638,7 +1428,10 @@ compile_sapply_assignment <- function(
     ""
   }
   loop_header <- glue("do {idx@name} = 1_c_int, {last_i}")
-  prefix <- str_flatten_lines(directives$prefix, loop_header)
+  prefix <- str_flatten_lines(
+    if (!index_iterable) iterable_tmp_assign else NULL,
+    str_flatten_lines(directives$prefix, loop_header)
+  )
   Fortran(glue(
     "
     {prefix}
@@ -1676,24 +1469,12 @@ compile_subset_designator <- function(
   # silent out-of-bounds Fortran writes.
   check_subscript_exprs(base_var, idx_args)
 
-  designator <- function(code, dims = NULL) {
-    Fortran(code, Variable(base_var@mode, dims))
-  }
-
   idxs <- whole_doubles_to_ints(idx_args)
   idxs <- imap(idxs, function(idx, i) {
     if (is_missing(idx)) {
       Fortran(":", Variable("integer", base_var@dims[[i]]))
     } else {
       sub <- r2f(idx, scope, ..., hoist = hoist)
-      check_scalar_logical_subscript(
-        sub,
-        idx,
-        Fortran(base_name, base_var),
-        i,
-        scope,
-        hoist
-      )
       if (sub@value@mode == "double") {
         Fortran(
           glue("int({sub}, kind=c_ptrdiff_t)"),
@@ -1715,10 +1496,10 @@ compile_subset_designator <- function(
   ) {
     idx_r <- attr(idxs[[1]], "r", exact = TRUE)
     if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      return(designator(base_name))
+      return(base_name)
     }
     if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
-      return(designator(base_name))
+      return(base_name)
     }
   }
 
@@ -1730,7 +1511,7 @@ compile_subset_designator <- function(
       base_var@rank > 1
   ) {
     subs <- linear_subscripts_from_1d(base_name, base_var@rank, idxs[[1]])
-    return(designator(glue("{base_name}({str_flatten_commas(subs)})")))
+    return(as.character(glue("{base_name}({str_flatten_commas(subs)})")))
   }
 
   if (length(idxs) != base_var@rank) {
@@ -1751,13 +1532,12 @@ compile_subset_designator <- function(
           stop("logical subscript vectors are not supported for assignment")
         }
 
-        logical_axis_subscript(
-          Fortran(base_name, base_var),
-          subscript,
-          i,
-          scope,
-          hoist
-        )
+        # Convert logical vectors to integer vector subscripts (R's `which()`).
+        # Fortran array designators do not accept logical vectors directly.
+        mask <- booleanize_logical_as_int(subscript)
+        it <- scope_unique_var(scope, "integer")
+        f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
+        Fortran(f, Variable("int", NA))
       },
       integer0 = {
         if (drop) {
@@ -1776,24 +1556,7 @@ compile_subset_designator <- function(
     )
   })
 
-  # Retain the physical section rank, including length-one triplets. Unlike
-  # ordinary Variables, dims = list(1L) here denotes a Fortran array section.
-  section_dims <- drop_nulls(lapply(idxs, function(idx) {
-    code <- as.character(idx)
-    if (
-      passes_as_scalar(idx@value) &&
-        !grepl(":", code, fixed = TRUE) &&
-        !startsWith(trimws(code), "[")
-    ) {
-      return(NULL)
-    }
-    idx@value@dims[[1L]]
-  }))
-  if (passes_as_scalar(base_var)) {
-    # A scalar's full section has one element but no Fortran subscript.
-    return(designator(base_name))
-  }
-  designator(glue("{base_name}({str_flatten_commas(idxs)})"), section_dims)
+  as.character(glue("{base_name}({str_flatten_commas(idxs)})"))
 }
 
 compile_subscript_lhs <- function(
@@ -1823,11 +1586,7 @@ compile_subscript_lhs <- function(
           stop("could not resolve symbol: ", base_name)
         }
 
-        shadow <- Variable(
-          mode = parent_base@mode,
-          dims = parent_base@dims,
-          has_dim = parent_base@has_dim
-        )
+        shadow <- Variable(mode = parent_base@mode, dims = parent_base@dims)
         shadow@r_name <- base_name
         shadow@name <- make_shadow_fortran_name(
           scope,
@@ -1839,10 +1598,6 @@ compile_subscript_lhs <- function(
         scope[[base_name]] <- shadow
 
         pre <- glue("{shadow@name} = {parent_base@name}")
-        # Section inquiries and logical-index guards need an initialized
-        # shadow, including when its storage is allocated by this copy.
-        hoist$emit(pre)
-        pre <- NULL
       }
     }
 
@@ -1877,7 +1632,7 @@ compile_subscript_lhs <- function(
       )
     )
 
-    return(list(pre = pre, lhs = designator))
+    return(list(pre = pre, lhs = Fortran(designator)))
   }
 
   if (is.null(scope) || !identical(scope_kind(scope), "closure")) {
@@ -1919,162 +1674,5 @@ compile_subscript_lhs <- function(
     allow_logical_vector_subscripts = TRUE
   )
 
-  list(pre = NULL, lhs = designator)
-}
-
-# Closure bindings select a fixed Fortran procedure at compile time. Reject
-# runtime selection and rebinding before lowering can overwrite compiler scope.
-check_static_closure_bindings <- function(expr, formals = character()) {
-  bindings <- formals
-  closure_names <- character()
-  scan <- function(e, conditional = FALSE) {
-    if (is_missing(e) || !is.call(e)) {
-      return(invisible(NULL))
-    }
-    if (is_function_call(e)) {
-      # Each nested function owns its bindings and control flow.
-      check_static_closure_bindings(e[[3L]], names(as.list(e[[2L]])))
-      return(invisible(NULL))
-    }
-    if (
-      (is_call(e, "<-") || is_call(e, "=")) &&
-        is.symbol(e[[2L]])
-    ) {
-      name <- as.character(e[[2L]])
-      bindings <<- c(bindings, name)
-      if (is_function_call(unwrap_parens(e[[3L]]))) {
-        if (conditional) {
-          stop(
-            "local closure definitions must be outside conditionals and loops",
-            call. = FALSE
-          )
-        }
-        closure_names <<- union(closure_names, name)
-      }
-    }
-    if (is_call(e, "for")) {
-      bindings <<- c(bindings, as.character(e[[2L]]))
-    }
-    conditional <- conditional ||
-      any(vapply(
-        c("if", "for", "while", "repeat", "ifelse", "&&", "||"),
-        function(name) is_call(e, name),
-        logical(1L)
-      ))
-    # Include anonymous callees as well as arguments and nested blocks.
-    lapply(as.list(e), scan, conditional = conditional)
-    invisible(NULL)
-  }
-  scan(expr)
-  rebound <- intersect(closure_names, bindings[duplicated(bindings)])
-  if (length(rebound)) {
-    stop(
-      "local closure `",
-      rebound[[1L]],
-      "` cannot be redefined or share its binding with a variable or argument",
-      call. = FALSE
-    )
-  }
-  invisible(NULL)
-}
-
-# Procedure bodies still lower using their call-site compiler scope. Refuse
-# captures whose lexical binding would change there, rather than silently
-# reading a caller's shadowing binding. Environment identity distinguishes
-# bindings even when their values or generated names happen to be equal.
-check_closure_capture_scope <- function(
-  closure,
-  scope,
-  supplied = character()
-) {
-  definition_scope <- closure@definition_scope
-  if (is.null(definition_scope)) {
-    return(invisible(NULL))
-  }
-  binding_scope <- function(name, scope) {
-    while (inherits(scope, "quickr_scope")) {
-      if (exists(name, scope, inherits = FALSE)) {
-        return(scope)
-      }
-      scope <- parent.env(scope)
-    }
-    NULL
-  }
-  definition <- as.call(list(
-    quote(`function`),
-    formals(closure@fun),
-    body(closure@fun)
-  ))
-  for (name in closure_free_names(definition, supplied)) {
-    if (
-      !identical(
-        binding_scope(name, definition_scope),
-        binding_scope(name, scope)
-      )
-    ) {
-      stop(
-        "local closure capture `",
-        name,
-        "` is shadowed at the call site; use distinct binding names",
-        call. = FALSE
-      )
-    }
-  }
-  invisible(NULL)
-}
-
-# Conservative transitive write summary for eager argument/default evaluation.
-# Include nested definitions even if not called; do not try to prove a call's
-# execution path or its promise-forcing order. Follow captured procedures with
-# cycle protection, so moving a read before an indirect write is refused too.
-closure_superassign_names <- function(fun, scope) {
-  definition <- as.call(list(quote(`function`), formals(fun), body(fun)))
-  r2f_expression_host_mutations(definition, scope)
-}
-
-# Names a function needs from its enclosing scope, including callees and the
-# free names of nested functions. Each function owns its bindings: a nested
-# formal or assignment cannot bind a name read by its enclosing function.
-closure_free_names <- function(expr, supplied = character()) {
-  stopifnot(is_function_call(expr))
-  fun <- as.function(c(as.list(expr[[2L]]), list(expr[[3L]])))
-  body_reads <- check_definite_assignment(fun, emptyenv(), capture_reads = TRUE)
-  reads <- function(e) {
-    if (is_missing(e)) {
-      return(character())
-    }
-    if (is.symbol(e)) {
-      return(as.character(e))
-    }
-    if (!is.call(e) || is_call(e, "declare")) {
-      return(character())
-    }
-    if (is_function_call(e)) {
-      return(closure_free_names(e))
-    }
-    # Include the callee, including parenthesized and anonymous callees.
-    # Function names are dependencies too: calling g() may reach f()'s reads.
-    unique(unlist(lapply(as.list(e), reads), use.names = FALSE))
-  }
-  defaults <- as.list(expr[[2L]])
-  defaults <- defaults[setdiff(names(defaults), supplied)]
-  # Defaults resolve formal dependencies in the callee, while other names
-  # remain lexical captures. Body assignments must not hide these reads.
-  union(
-    body_reads,
-    setdiff(
-      unlist(lapply(defaults, reads), use.names = FALSE),
-      names(as.list(expr[[2L]]))
-    )
-  )
-}
-
-# Use R's argument matching, as the closure lowering does, to avoid requiring
-# captures from defaults replaced by explicitly supplied arguments.
-closure_call_free_names <- function(definition, call) {
-  fun <- as.function(c(as.list(definition[[2L]]), list(definition[[3L]])))
-  matched <- match.call(fun, call)
-  args <- as.list(matched)[-1L]
-  supplied <- names(args)[!vapply(args, is_missing, logical(1L))]
-  closure_free_names(definition, supplied = supplied)
+  list(pre = NULL, lhs = Fortran(designator))
 }

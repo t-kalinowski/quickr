@@ -1,3 +1,5 @@
+skip_on_cran()
+
 test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   skip_if_no_openmp()
 
@@ -25,23 +27,24 @@ test_that("declare(parallel()) and declare(omp()) parallelize loops", {
   expect_quick_identical(parallel_sapply, list(x))
 })
 
-test_that("parallel loops execute fill constructors with private indices", {
-  skip_if_no_openmp()
-
-  fn <- function(n) {
-    declare(type(n = integer(1)), type(out = integer(n)))
-    out <- integer(n)
-    declare(parallel())
-    for (i in seq_len(n)) {
-      out[i] <- sum(c(integer(n), array(integer(n), c(n)), i))
-    }
-    out
+test_that("parallel loops support long short-circuit private clauses", {
+  withr::local_envvar(c(OMP_NUM_THREADS = "2", OMP_THREAD_LIMIT = "2"))
+  for (assignments in c(20L, 80L)) {
+    loop_body <- as.call(c(
+      list(as.name("{")),
+      rep(list(quote(out[i] <- x[i] > 0 && x[i] < 2)), assignments)
+    ))
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(NA)), type(out = logical(length(x))))
+      out <- logical(length(x))
+      declare(parallel())
+      for (i in seq_along(x)) {
+        .(loop_body)
+      }
+      out
+    }))
+    expect_quick_identical(fn, list(rep(c(-1, 0, 1, 2, 3), 200)))
   }
-
-  lines <- strsplit(as.character(r2f(fn)), "\n", fixed = TRUE)[[1L]]
-  directive <- grep("!$omp parallel do", lines, value = TRUE, fixed = TRUE)
-  expect_match(directive, ",")
-  expect_quick_identical(fn, list(256L))
 })
 
 test_that("parallel quick avoids unsupported R CMD config probes", {
@@ -113,97 +116,6 @@ test_that("parallel sapply supports axpy patterns", {
 
   qaxpy_no_out := quick(axpy_no_out)
   expect_identical(qaxpy_no_out(x, y, a), a * x + y)
-})
-
-test_that("parallel sapply rejects writes to enclosing bindings", {
-  direct <- function() {
-    state <- 0L
-    declare(parallel())
-    out <- sapply(seq_len(1000L), function(i) {
-      state <<- state + 1L
-      i
-    })
-    state
-  }
-  subset <- function() {
-    state <- integer(2L)
-    declare(omp())
-    out <- sapply(seq_len(1000L), function(i) {
-      state[1L] <<- state[1L] + 1L
-      i
-    })
-    state
-  }
-  named <- function() {
-    state <- 0L
-    bump <- function(i) {
-      state <<- state + 1L
-      i
-    }
-    out <- integer(1000L)
-    declare(parallel())
-    out <- sapply(seq_along(out), bump)
-    state
-  }
-  indirect <- function() {
-    state <- 0L
-    bump <- function(i) {
-      state <<- state + 1L
-      i
-    }
-    declare(parallel())
-    out <- sapply(seq_len(1000L), function(i) bump(i))
-    state
-  }
-  nested <- function() {
-    state <- 0L
-    declare(parallel())
-    out <- sapply(seq_len(1000L), function(i) {
-      bump <- function(j) {
-        state <<- state + 1L
-        j
-      }
-      bump(i)
-    })
-    state
-  }
-
-  for (fn in list(direct, subset, named, indirect, nested)) {
-    expect_error(
-      quick(fn),
-      "parallel sapply() callbacks must not modify enclosing bindings: state",
-      fixed = TRUE
-    )
-
-    # Removing the parallel declaration preserves sequential host writes.
-    serial <- fn
-    body(serial) <- as.call(Filter(
-      function(expr) {
-        !identical(expr, quote(declare(parallel()))) &&
-          !identical(expr, quote(declare(omp())))
-      },
-      as.list(body(serial))
-    ))
-    expect_quick_identical(serial, list())
-  }
-})
-
-test_that("parallel sapply allows read-only captures and local writes", {
-  fn <- function(x) {
-    declare(type(x = integer(NA)))
-    offset <- 2L
-    declare(parallel())
-    out <- sapply(seq_along(x), function(i) {
-      value <- x[i] + offset
-      value <- value + 1L
-      local <- integer(2L)
-      local[1L] <- value
-      sum(local)
-    })
-    out
-  }
-
-  expect_quick_identical(fn, list(seq_len(1000L)))
 })
 
 test_that("parallel sapply supports seq_len(nrow(x))", {

@@ -472,7 +472,7 @@ test_that("reductions hoist logical masks and linear indexing works", {
   expect_quick_identical(fn_linear, list(A))
 })
 
-test_that("reductions materialize distinct subsets within one expression", {
+test_that("reductions reject distinct masks within one expression", {
   fn <- function(x, a, b) {
     declare(
       type(x = double(n)),
@@ -481,13 +481,10 @@ test_that("reductions materialize distinct subsets within one expression", {
     )
     sum(x[a] + x[b])
   }
-  expect_quick_equal(
-    fn,
-    list(
-      c(1, 2, 4, 8),
-      c(TRUE, FALSE, TRUE, FALSE),
-      c(FALSE, TRUE, FALSE, TRUE)
-    )
+  expect_error(
+    quick(fn),
+    "reduction expressions only support a single logical mask",
+    fixed = TRUE
   )
 })
 
@@ -907,7 +904,7 @@ test_that("recycling uses fortranized size expressions", {
   expect_equal(qfn(3L, x, y), x + y)
 })
 
-test_that("reductions accept repeated subsets", {
+test_that("mask hoisting accepts repeated masks", {
   same_mask <- function(x) {
     declare(type(x = double(n)))
     sum(x[x > 0] + x[x > 0])

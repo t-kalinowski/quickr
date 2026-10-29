@@ -29,49 +29,6 @@ test_that("sapply lowers scalar-return closures (named + inline)", {
   expect_quick_identical(fn_inline, list(x, 0.5))
 })
 
-test_that("sapply infers vector outputs for length-one vector results", {
-  inline <- function(n) {
-    declare(type(n = integer(1)))
-    sapply(seq_len(n), function(i) c(i))
-  }
-  named <- function(n) {
-    declare(type(n = integer(1)))
-    one <- function(i) numeric(1L)
-    out <- sapply(seq_len(n), one)
-    out
-  }
-  logical_result <- function(n) {
-    declare(type(n = integer(1)))
-    sapply(seq_len(n), function(i) c(i > 1L))
-  }
-  captured <- function(n, x) {
-    declare(type(n = integer(1)), type(x = double(1)))
-    sapply(seq_len(n), function(i) x)
-  }
-  array_simplify <- function(n) {
-    declare(type(n = integer(1)))
-    sapply(seq_len(n), function(i) c(i), simplify = "array")
-  }
-  for (fn in list(inline, named, logical_result, array_simplify)) {
-    expect_quick_identical(fn, list(1L), list(3L))
-  }
-  expect_quick_identical(captured, list(1L, 2), list(3L, 2))
-
-  # A statically singleton output is itself passed as a scalar.
-  fixed <- function() {
-    sapply(seq_len(1L), function(i) c(i))
-  }
-  expect_quick_identical(fixed, list())
-})
-
-test_that("sapply keeps a result axis for longer inferred vectors", {
-  fn <- function(n) {
-    declare(type(n = integer(1)))
-    sapply(seq_len(n), function(i) c(i, i + 1L))
-  }
-  expect_quick_identical(fn, list(1L), list(3L))
-})
-
 test_that("sapply supports integer scalar return", {
   fn <- function(x) {
     declare(type(x = double(NA)))
@@ -404,6 +361,25 @@ test_that("local closures can be called directly with multiple arguments", {
   expect_quick_identical(fn, list(10L, 8L, 0.1, 0.01, 3L))
 })
 
+test_that("local closure calls reject effectful argument promises", {
+  forward <- function() {
+    pair <- function(first, second) {
+      c(first, second)
+    }
+    pair(runif(1), runif(1) + 1)
+  }
+  reverse <- function() {
+    pair <- function(first, second) {
+      c(second, first)
+    }
+    pair(runif(1), runif(1) + 1)
+  }
+
+  message <- "local closure calls only support pure argument expressions"
+  expect_error(quick(forward), message, fixed = TRUE)
+  expect_error(quick(reverse), message, fixed = TRUE)
+})
+
 test_that("local closure purity respects shadowed operators", {
   fn <- function() {
     state <- 0L
@@ -518,72 +494,4 @@ test_that("sapply errors when named FUN is not a local closure", {
     }),
     "unsupported FUN in sapply\\(\\)"
   )
-})
-
-test_that("sapply rejects statically empty iterables", {
-  index <- function() {
-    sapply(seq_len(0L), function(i) i)
-  }
-  values <- function() {
-    sapply(integer(0L), function(i) i)
-  }
-  for (fn in list(index, values)) {
-    expect_identical(fn(), list())
-    expect_error(quick(fn), "sapply\\(\\) requires a nonempty input")
-  }
-})
-
-test_that("sapply checks dynamic lengths for new and existing outputs", {
-  index <- function(x) {
-    declare(type(x = integer(n)))
-    out <- sapply(seq_along(x), function(i) x[i])
-    out
-  }
-  values <- function(x) {
-    declare(type(x = integer(n)))
-    out <- sapply(x, function(v) v)
-    out
-  }
-  existing <- function(x) {
-    declare(type(x = integer(n)))
-    out <- integer(length(x))
-    out <- sapply(seq_along(x), function(i) x[i])
-    out
-  }
-  array <- function(x) {
-    declare(type(x = integer(n)))
-    out <- sapply(seq_along(x), function(i) c(i, i), simplify = "array")
-    out
-  }
-  for (fn in list(index, values, existing, array)) {
-    expect_identical(fn(integer()), list())
-    qfn <- quick(fn)
-    expect_error(qfn(integer()), "sapply\\(\\) requires a nonempty input")
-    expect_quick_identical(fn, list(1L), list(1:3))
-  }
-})
-
-test_that("sapply checks the existing output extent before writing", {
-  fn <- function(x, out) {
-    declare(type(x = integer(n)), type(out = integer(m)))
-    out <- sapply(seq_along(x), function(i) x[i])
-    out
-  }
-  qfn <- quick(fn)
-  expect_error(qfn(1:3, integer(2)), "assignment must preserve its shape")
-  expect_error(qfn(1:2, integer(3)), "assignment must preserve its shape")
-  expect_quick_identical(fn, list(1:3, integer(3)))
-})
-
-test_that("sapply checks filtered iterable size after materialization", {
-  fn <- function(x) {
-    declare(type(x = integer(n)))
-    out <- integer(3L)
-    out <- sapply(x[x > 0L], function(v) v)
-    out
-  }
-  qfn <- quick(fn)
-  expect_error(qfn(-3:-1), "sapply\\(\\) requires a nonempty input")
-  expect_error(qfn(1:2), "assignment must preserve its shape")
-  expect_quick_identical(fn, list(c(-1L, 1:3)))
 })

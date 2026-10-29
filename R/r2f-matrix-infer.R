@@ -6,8 +6,7 @@ infer_symbol_var <- function(arg, scope) {
   if (!is.symbol(arg)) {
     return(NULL)
   }
-  # Closure formals live in a parent scope, as do host-associated captures.
-  var <- get0(as.character(arg), scope)
+  var <- get0(as.character(arg), scope, inherits = FALSE)
   if (inherits(var, Variable)) var else NULL
 }
 
@@ -84,14 +83,17 @@ infer_dest_matmul <- function(args, scope) {
     right_dims
   }
 
-  out_dims <- if (left_rank == 2L && right_rank == 1L) {
-    list(left_eff$rows, 1L)
-  } else if (left_rank == 1L && right_rank == 2L) {
-    list(1L, right_eff$cols)
-  } else {
-    list(left_eff$rows, right_eff$cols)
+  if (left_rank == 2L && right_rank == 1L) {
+    out_len <- if (left_trans == "N") left_dims$rows else left_dims$cols
+    return(Variable("double", list(out_len, 1L)))
   }
-  Variable("double", out_dims)
+  if (left_rank == 1L && right_rank == 2L) {
+    transA <- if (right_trans == "N") "T" else "N"
+    out_len <- if (transA == "N") right_dims$rows else right_dims$cols
+    return(Variable("double", list(1L, out_len)))
+  }
+
+  Variable("double", list(left_eff$rows, right_eff$cols))
 }
 
 # Shared inference for crossprod/tcrossprod destination sizes.
@@ -194,15 +196,20 @@ infer_dest_solve <- function(args, scope) {
   n_cols <- a_dims$cols
 
   b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
-  B <- if (!is.null(b_arg)) infer_symbol_var(b_arg, scope) else NULL
   if (is.null(b_arg)) {
-    out <- Variable("double", list(n_rows, n_rows))
-  } else if (!is.null(B) && B@rank %in% c(1L, 2L)) {
-    out <- Variable("double", c(list(n_cols), B@dims[-1L]))
-  } else {
+    return(Variable("double", list(n_rows, n_cols)))
+  }
+  B <- infer_symbol_var(b_arg, scope)
+  if (is.null(B)) {
     return(NULL)
   }
-  out
+  if (B@rank == 1L) {
+    return(Variable("double", list(n_cols)))
+  }
+  if (B@rank == 2L) {
+    return(Variable("double", list(n_cols, B@dims[[2L]])))
+  }
+  NULL
 }
 
 # Infer destination dimensions for chol().
@@ -216,7 +223,21 @@ infer_dest_chol <- function(args, scope) {
     return(NULL)
   }
   x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$rows))
+  Variable("double", list(x_dims$rows, x_dims$cols))
+}
+
+# Infer destination dimensions for chol2inv().
+infer_dest_chol2inv <- function(args, scope) {
+  x_arg <- args$x %||% args[[1L]]
+  if (is.null(x_arg)) {
+    return(NULL)
+  }
+  X <- infer_symbol_var(x_arg, scope)
+  if (is.null(X) || X@rank != 2L) {
+    return(NULL)
+  }
+  x_dims <- matrix_dims_var(X)
+  Variable("double", list(x_dims$rows, x_dims$cols))
 }
 
 # Helper to infer a size from a literal or symbol.
@@ -324,16 +345,8 @@ infer_dest_diag <- function(args, scope) {
     }
   }
 
-  # Case: x is a scalar symbol without nrow/ncol (identity matrix). The
-  # result size depends on the symbol's value, so assignment destination
-  # inference must leave allocation to the diag() handler.
-  if (
-    !is.null(x) &&
-      passes_as_scalar(x) &&
-      x@mode %in% c("integer", "double") &&
-      !has_nrow &&
-      !has_ncol
-  ) {
+  # Case: x is a scalar symbol without nrow/ncol (identity matrix)
+  if (!is.null(x) && x@rank == 0L && !has_nrow && !has_ncol) {
     return(NULL)
   }
 

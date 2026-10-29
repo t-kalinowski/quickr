@@ -47,3 +47,15 @@ test_that("declare(type()) variants", {
   })
   expect_quick_identical(quick_seq, list(1L, 5L))
 })
+
+test_that("character declarations are refused with a clean message", {
+  fn <- function(x) {
+    declare(type(x = character(1)))
+    x
+  }
+  expect_error(
+    quick(fn),
+    "in declare(type(x = character(...))): character values are not supported by quickr",
+    fixed = TRUE
+  )
+})

@@ -391,34 +391,3 @@ test_that("diag() initializes integer-backed logical outputs as integers", {
   expect_translation_snapshots(fn)
   expect_quick_identical(fn, list(c(TRUE, FALSE)))
 })
-
-test_that("matrix retains normalized double dimensions", {
-  returned <- function(n) {
-    declare(type(n = double(1)))
-    matrix(1, n, n)
-  }
-  temporary <- function(n) {
-    declare(type(n = double(1)))
-    sum(matrix(1, n, n))
-  }
-  reshaped <- function(n) {
-    declare(type(n = double(1)))
-    matrix(c(1L, 2L, 3L, 4L), n, 2L)
-  }
-  for (fn in list(returned, temporary)) {
-    expect_quick_identical(fn, list(0), list(1), list(2), list(2.5))
-    qfn <- quick(fn)
-    for (n in c(-1, Inf, NaN, as.double(.Machine$integer.max) + 1)) {
-      expect_error(qfn(n), "matrix\\(\\) dimensions must be non-negative")
-    }
-  }
-  expect_quick_identical(reshaped, list(2), list(2.5))
-})
-
-test_that("matrix truncates double size expressions after evaluating them", {
-  fn <- function(n) {
-    declare(type(n = double(1)))
-    matrix(1, n * 2L, 2L)
-  }
-  expect_quick_identical(fn, list(1.8), list(2))
-})

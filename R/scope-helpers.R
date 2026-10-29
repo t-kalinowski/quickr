@@ -41,21 +41,19 @@ scope_uses_rng <- function(scope) {
 }
 
 scope_mark_uses_rng <- function(scope) {
-  # Internal procedures share the outer subroutine's RNG interface and state
-  # protocol. Mark intermediate scopes too, so procedure summaries include
-  # nested calls and active parallel loops cannot hide a closure's RNG use.
-  repeat {
-    scope_set(scope, "uses_rng", TRUE)
-    mark_openmp_scope_uses_rng(scope)
-    if (
-      identical(scope_kind(scope), "subroutine") ||
-        !inherits(parent.env(scope), "quickr_scope")
-    ) {
-      break
+  scope_set(scope_root(scope), "uses_rng", TRUE)
+  invisible(TRUE)
+}
+
+scope_defers_branch_errors <- function(scope) {
+  while (inherits(scope, "quickr_scope")) {
+    defer <- scope_get(scope, "defer_branch_errors")
+    if (!is.null(defer)) {
+      return(isTRUE(defer))
     }
     scope <- parent.env(scope)
   }
-  invisible(TRUE)
+  FALSE
 }
 
 scope_uses_errors_flag <- function(scope) {

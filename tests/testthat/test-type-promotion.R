@@ -266,24 +266,3 @@ test_that("subassignment that would narrow the mode is a compile error", {
   }
   expect_quick_equal(fn_ok, list(c(1.5, 2.5, 3.5)))
 })
-
-test_that("whole-binding widening retains the existing type intentionally", {
-  fn <- function(x) {
-    declare(type(x = double(1)))
-    x <- 1L
-    x
-  }
-  super <- function(x) {
-    declare(type(x = double(1)))
-    replace_x <- function() {
-      x <<- 1L
-      0L
-    }
-    replace_x()
-    x
-  }
-  for (f in list(fn, super)) {
-    expect_identical(f(2), 1L)
-    expect_identical(quick(f)(2), 1)
-  }
-})

@@ -34,10 +34,6 @@
       & supported")
           return
         end if
-        if (any(b == 0)) then
-          call quickr_set_error_msg("%% does not support zero divisors")
-          return
-        end if
         out_ = modulo(a, b)
       
         contains
@@ -60,30 +56,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const a__,
         const double* const b__,
@@ -114,7 +86,7 @@
           Rf_error("length(b) must equal length(a),"
                    " but are %0.f and %0.f",
                     (double)b__len_, (double)a__len_);
-        const R_xlen_t out___len_ = quickr_return_length((const double[]){a__len_}, 1);
+        const R_xlen_t out___len_ = a__len_;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
@@ -176,10 +148,6 @@
       & supported")
             return
           end if
-          if (any(b == 0)) then
-            call quickr_set_error_msg("%/% does not support zero divisors")
-            return
-          end if
           btmp1_ = (a / b)
           out_ = (aint(btmp1_) - merge(1.0_c_double, 0.0_c_double, (btmp1_ < aint(btmp1_))))
         end block
@@ -204,30 +172,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const a__,
         const double* const b__,
@@ -258,7 +202,7 @@
           Rf_error("length(b) must equal length(a),"
                    " but are %0.f and %0.f",
                     (double)b__len_, (double)a__len_);
-        const R_xlen_t out___len_ = quickr_return_length((const double[]){a__len_}, 1);
+        const R_xlen_t out___len_ = a__len_;
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
@@ -293,14 +237,11 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(a, b, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(a, b, out_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         integer(c_int), intent(in) :: a
         integer(c_int), intent(in) :: b
@@ -308,23 +249,7 @@
         ! manifest end
       
       
-        if (b == 0) then
-          call quickr_set_error_msg("%/% does not support zero divisors")
-          return
-        end if
         out_ = int(floor(real(a, kind=c_double) / real(b, kind=c_double)), kind=c_int)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -337,8 +262,7 @@
       extern void fn(
         const int* const a__,
         const int* const b__,
-        int* const out___,
-        char* quickr_err_msg);
+        int* const out___);
       
       SEXP fn_(SEXP _args) {
         // a
@@ -369,18 +293,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
         int* out___ = INTEGER(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          a__,
-          b__,
-          out___,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(a__, b__, out___);
         
         UNPROTECT(1);
         return out_;
@@ -399,14 +312,11 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(a, b, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_null_char
+      subroutine fn(a, b, out_) bind(c)
+        use iso_c_binding, only: c_double
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         real(c_double), intent(in) :: a
         real(c_double), intent(in) :: b
@@ -417,25 +327,9 @@
         block
           real(c_double) :: btmp1_
       
-          if (b == 0) then
-            call quickr_set_error_msg("%/% does not support zero divisors")
-            return
-          end if
           btmp1_ = (a / b)
           out_ = (aint(btmp1_) - merge(1.0_c_double, 0.0_c_double, (btmp1_ < aint(btmp1_))))
         end block
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -448,8 +342,7 @@
       extern void fn(
         const double* const a__,
         const double* const b__,
-        double* const out___,
-        char* quickr_err_msg);
+        double* const out___);
       
       SEXP fn_(SEXP _args) {
         // a
@@ -480,18 +373,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          a__,
-          b__,
-          out___,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(a__, b__, out___);
         
         UNPROTECT(1);
         return out_;

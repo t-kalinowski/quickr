@@ -133,11 +133,7 @@ seq_like_parse <- function(name, args, scope) {
     seq = {
       call_expr <- as.call(c(as.symbol("seq"), args))
       seq_call <- match.call(seq.default, call_expr)
-      # With an explicit step, R retains double inputs in the result type.
-      # Only the no-step form may normalize whole-valued double literals.
-      if (is.null(seq_call$by)) {
-        seq_call <- whole_doubles_to_ints(seq_call)
-      }
+      seq_call <- whole_doubles_to_ints(seq_call)
 
       if (!is.null(seq_call$length.out) && !is_missing(seq_call$length.out)) {
         stop("seq(length.out=, along.with=) not implemented yet")
@@ -200,18 +196,8 @@ seq_like_r2f <- function(
   state <- switch(
     kind,
     `:` = {
-      from <- lower_r2f_operand_in_order(
-        info$from,
-        scope,
-        ...,
-        later_args = list(info$to, info$by)
-      )
-      to <- lower_r2f_operand_in_order(
-        info$to,
-        scope,
-        ...,
-        later_args = list(info$by)
-      )
+      from <- r2f(info$from, scope, ...)
+      to <- r2f(info$to, scope, ...)
       list(
         from = from,
         to = to,
@@ -221,22 +207,12 @@ seq_like_r2f <- function(
       )
     },
     seq = {
-      from <- lower_r2f_operand_in_order(
-        info$from,
-        scope,
-        ...,
-        later_args = list(info$to, info$by)
-      )
-      to <- lower_r2f_operand_in_order(
-        info$to,
-        scope,
-        ...,
-        later_args = list(info$by)
-      )
+      from <- r2f(info$from, scope, ...)
+      to <- r2f(info$to, scope, ...)
       by <- if (is.null(info$by)) {
         Fortran(glue("sign(1, {to}-{from})"), Variable("integer"))
       } else {
-        lower_r2f_operand_in_order(info$by, scope, ...)
+        r2f(info$by, scope, ...)
       }
 
       if (
@@ -272,9 +248,6 @@ seq_like_r2f <- function(
       len_expr <- r2size(info$n, scope)
       if (is_scalar_na(len_expr)) {
         len_expr <- NA_integer_
-      }
-      if (is_scalar_integerish(len_expr) && as.integer(len_expr) < 0L) {
-        stop("seq_len() bound must be non-negative", call. = FALSE)
       }
       list(
         from = Fortran("1", Variable("integer")),
@@ -312,19 +285,6 @@ seq_like_r2f <- function(
     context <- "value"
   }
 
-  if (kind == "seq_len") {
-    if (!size_expr_is_known_nonnegative(len_expr)) {
-      hoist <- list(...)$hoist
-      to <- hoist_unless_name(to, hoist)
-      emit_quickr_error_if(
-        glue("{to} < 0"),
-        "seq_len() bound must be non-negative",
-        hoist,
-        scope
-      )
-    }
-  }
-
   check_step_at_runtime <- kind == "seq" &&
     seq_like_step_needs_runtime_check(info)
   if (check_step_at_runtime && context != "[") {
@@ -353,11 +313,7 @@ seq_like_r2f <- function(
   ) {
     len_expr <- call("+", 0L, 1L)
   }
-  dims <- list(len_expr)
-  if (context == "value") {
-    dims <- snapshot_size_dims(dims, scope, list(...)$hoist)
-  }
-  val <- Variable("integer", dims)
+  val <- Variable("integer", list(len_expr))
 
   if (isTRUE(reversed)) {
     last <- glue("{from} + (({to} - {from}) / {by}) * {by}")
@@ -498,41 +454,6 @@ r2f_unwrap_for_iterable <- function(iterable) {
   }
 
   list(iterable = iterable, reversed = reversed)
-}
-
-# Static nonemptiness for definite assignment of the R loop binding. In an
-# empty loop R assigns NULL, which cannot inhabit a compiled scalar variable.
-for_iterable_is_nonempty <- function(iterable, scope) {
-  iterable <- r2f_unwrap_for_iterable(iterable)$iterable
-  if (is.symbol(iterable)) {
-    var <- get0(as.character(iterable), scope)
-    return(
-      inherits(var, Variable) &&
-        all(vapply(var@dims, is_scalar_integerish, logical(1L))) &&
-        all(unlist(var@dims) > 0L)
-    )
-  }
-  if (!is.call(iterable) || !is.symbol(iterable[[1L]])) {
-    return(FALSE)
-  }
-  name <- as.character(iterable[[1L]])
-  if (!name %in% c(":", "seq", "seq_len", "seq_along")) {
-    return(FALSE)
-  }
-  info <- tryCatch(
-    seq_like_parse(name, as.list(iterable)[-1L], scope),
-    error = function(e) NULL
-  )
-  if (is.null(info)) {
-    return(FALSE)
-  }
-  switch(
-    name,
-    `:` = TRUE,
-    seq = TRUE,
-    seq_len = is_scalar_integerish(info$n) && info$n > 0L,
-    seq_along = for_iterable_is_nonempty(info$arg, scope)
-  )
 }
 
 # Check if an iterable is a singleton sequence of 1.

@@ -25,7 +25,6 @@ test_that("cbind binds vectors and matrices with scalar recycling", {
   y <- runif(4)
   s <- 2.5
   expect_bind_equal(cbind_vec, list(x, y, s))
-  expect_error(quick(cbind_vec)(double(), double(), s), "empty inputs")
 
   cbind_mat <- function(A, v) {
     declare(type(A = double(n, m)), type(v = double(n)))
@@ -57,7 +56,6 @@ test_that("rbind binds vectors and matrices with scalar recycling", {
   y <- runif(5)
   s <- -1.25
   expect_bind_equal(rbind_vec, list(x, y, s))
-  expect_error(quick(rbind_vec)(double(), double(), s), "empty inputs")
 
   rbind_mat <- function(A, v) {
     declare(type(A = double(n, m)), type(v = double(m)))
@@ -100,6 +98,25 @@ test_that("cbind/rbind enforce common lengths", {
     "common column count",
     fixed = TRUE
   )
+})
+
+test_that("cbind/rbind evaluate effectful arguments from left to right", {
+  cbind_fn <- function() {
+    cbind(runif(2), runif(2) + 1)
+  }
+  rbind_fn <- function() {
+    rbind(runif(2), runif(2) + 1)
+  }
+
+  set.seed(914)
+  cbind_expected <- cbind_fn()
+  set.seed(914)
+  expect_identical(quick(cbind_fn)(), cbind_expected)
+
+  set.seed(915)
+  rbind_expected <- rbind_fn()
+  set.seed(915)
+  expect_identical(quick(rbind_fn)(), rbind_expected)
 })
 
 test_that("cbind/rbind reject rank > 2 inputs with clear errors", {

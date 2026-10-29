@@ -72,30 +72,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const double* const left__,
@@ -138,7 +114,7 @@
         if (right__len_ != 1)
           Rf_error("length(right) must be 1, not %0.f",
                     (double)right__len_);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
+        const R_xlen_t out__len_ = x__len_;
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         
@@ -499,30 +475,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const a__,
         const double* const b__,
@@ -553,7 +505,7 @@
           Rf_error("length(b) must equal length(a),"
                    " but are %0.f and %0.f",
                     (double)b__len_, (double)a__len_);
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){a__len_}, 1);
+        const R_xlen_t out__len_ = a__len_;
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         
@@ -928,8 +880,7 @@
         ! locals
         integer(c_int) :: n
         integer(c_int) :: i
-        integer(c_int) :: tmp1_
-        logical :: tmp2_ ! logical
+        logical :: tmp1_ ! logical
         ! manifest end
       
       
@@ -940,14 +891,13 @@
         end if
         out = .false.
       
-        !$omp parallel do private(tmp2_) lastprivate(i)
-        do tmp1_ = 1, size(x)
-          i = tmp1_
-          tmp2_ = (x(i) > 0.0_c_double)
-          if (tmp2_) then
-            tmp2_ = (y(i) > 0.0_c_double)
+        !$omp parallel do private(tmp1_)
+        do i = 1, size(x)
+          tmp1_ = (x(i) > 0.0_c_double)
+          if (tmp1_) then
+            tmp1_ = (y(i) > 0.0_c_double)
           end if
-          out(i) = tmp2_
+          out(i) = tmp1_
         end do
         !$omp end parallel do
         if (quickr_err_msg(1) /= c_null_char) return
@@ -974,30 +924,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void fn(
         const double* const x__,
         const double* const y__,
@@ -1025,7 +951,7 @@
         const double* const y__ = REAL(y);
         const R_xlen_t y__len_ = Rf_xlength(y);
         
-        const R_xlen_t out__len_ = quickr_return_length((const double[]){x__len_}, 1);
+        const R_xlen_t out__len_ = x__len_;
         SEXP out = PROTECT(Rf_allocVector(LGLSXP, out__len_));
         int* out__ = LOGICAL(out);
         

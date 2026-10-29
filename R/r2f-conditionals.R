@@ -85,9 +85,6 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
     return(invisible())
   }
   if (branch@value@rank != mask@value@rank) {
-    if (isTRUE(hoist$defer_static_shape_error)) {
-      stop_deferred_branch_error(ifelse_branch_shape_msg)
-    }
     stop(ifelse_branch_shape_msg, call. = FALSE)
   }
   for (axis in seq_len(mask@value@rank)) {
@@ -110,103 +107,52 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
 # --- Handlers ---
 
 r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
-  branch_names <- unlist(lapply(args[2:3], all.names, functions = TRUE))
-  if (any(c("<-", "=") %in% branch_names)) {
-    stop("ifelse() does not support assignment expressions", call. = FALSE)
-  }
-  mask <- lower_r2f_operand_in_order(args[[1L]], scope, ..., hoist = hoist)
+  # Known issue: branch bindings can leak into the shared compiler scope.
+  # Keep assignments and declarations separate; branch scope isolation is deferred.
+  mask <- lower_operands_in_order(
+    args[1L],
+    scope,
+    ...,
+    hoist = hoist
+  )[[1L]]
   mask_code <- trimws(as.character(mask))
-  if (
-    !passes_as_scalar(mask@value) ||
-      is.null(mask@value@name) ||
-      !identical(mask_code, mask@value@name)
-  ) {
-    # Branch hoists introduce nested block scopes whose temporary names can
-    # repeat. Keep the selector in procedure scope so it cannot be shadowed.
-    mask_tmp <- scope_unique_var(
-      scope,
+  # Known limitation: a branch can mutate a named mask or its symbolic
+  # extents through a local closure. Freezing both before branch evaluation
+  # requires broader ifelse() allocation changes and remains deferred.
+  if (is.null(mask@value@name) || !identical(mask_code, mask@value@name)) {
+    # Keep the selector in the parent statement block. Branch captures share
+    # this declaration scope, so their temporary names cannot shadow it.
+    mask_tmp <- hoist$declare_tmp(
       mode = mask@value@mode,
       dims = mask@value@dims,
-      has_dim = mask@value@has_dim,
       logical_as_int = logical_as_int(mask@value) &&
         !isTRUE(mask@logical_booleanized)
     )
-    register_openmp_private(scope, mask_tmp@name)
     hoist$emit(glue("{mask_tmp@name} = {mask}"))
     mask <- Fortran(mask_tmp@name, mask_tmp)
   }
-  result_allocation_dims <- lapply(
-    seq_len(mask@value@rank),
-    function(axis) call("[", call("dim", as.name(mask@value@name)), axis)
-  )
 
+  # Known limitation: static diagnostics in both branches are checked during
+  # lowering, even when R would skip a branch. Deferring these errors is separate
+  # work from scalar &&/|| lowering.
   lower_branch <- function(arg) {
-    sub <- new_hoist(scope)
-    sub$defer_static_shape_error <- TRUE
-    sub$defer_builtin_arity_error <- TRUE
-    sub$defer_static_mode_error <- TRUE
-    sub$defer_static_value_error <- TRUE
-    deferred_error <- NULL
-    branch <- tryCatch(
-      {
-        branch <- r2f(arg, scope, ..., hoist = sub)
-        if (!inherits(branch@value, Variable)) {
-          stop_deferred_branch_error(
-            "ifelse() branches must produce a value"
-          )
-        }
-        if (
-          !passes_as_scalar(mask@value) &&
-            (!r2f_expression_is_pure(arg, scope) ||
-              !ifelse_branch_shape_is_known(branch, mask))
-        ) {
-          # WHERE may evaluate only selected RHS elements. Materialize a branch
-          # when full evaluation is observable or a runtime shape guard needs its
-          # actual extent.
-          branch <- hoist_unless_name(
-            branch,
-            sub,
-            allocate_at_point = TRUE
-          )
-        }
-        if (!passes_as_scalar(mask@value)) {
-          check_ifelse_branch_shape(branch, mask, sub, scope)
-        }
-        branch
-      },
-      quickr_deferred_branch_error = function(error) {
-        deferred_error <<- conditionMessage(error)
-        NULL
-      },
-      error = function(error) {
-        deferred_error <<- conditionMessage(error)
-        NULL
-      }
-    )
-    if (!is.null(deferred_error)) {
-      emit_quickr_error_if(".true.", deferred_error, sub, scope)
-      return(list(value = NULL, hoist = sub))
+    sub <- hoist$capture_block()
+    branch <- r2f(arg, scope, ..., hoist = sub)
+    if (
+      !passes_as_scalar(mask@value) &&
+        (!r2f_expression_is_pure(arg, scope) ||
+          !ifelse_branch_shape_is_known(branch, mask))
+    ) {
+      # WHERE may evaluate only selected RHS elements. Materialize a branch
+      # when full evaluation is observable or a runtime shape guard needs its
+      # actual extent.
+      branch <- hoist_unless_name(branch, sub)
     }
     list(value = branch, hoist = sub)
   }
 
   yes <- lower_branch(args[[2L]])
   no <- lower_branch(args[[3L]])
-  value <- yes$value %||% no$value
-  mode <- if (inherits(value, Fortran)) value@value@mode else "logical"
-  error_placeholder <- atomic2Fortran(switch(
-    mode,
-    logical = FALSE,
-    integer = 0L,
-    double = 0,
-    complex = 0 + 0i
-  ))
-  if (is.null(yes$value)) {
-    yes$value <- error_placeholder
-  }
-  if (is.null(no$value)) {
-    no$value <- error_placeholder
-  }
   tsource <- yes$value
   fsource <- no$value
 
@@ -223,19 +169,20 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     )
   }
 
+  # Checked before casts so guards splice the bare operand text. Keep each
+  # guard with its branch because an unselected branch is not evaluated by R.
+  check_ifelse_branch_shape(tsource, mask, yes$hoist, scope)
+  check_ifelse_branch_shape(fsource, mask, no$hoist, scope)
+
   mask <- booleanize_logical_as_int(mask)
 
-  # Assign both branches into one result, promoting them to a common mode.
+  # Both branches share one promoted result mode and the selector's shape.
+  # Known limitation: constant selectors do not retain the selected branch's
+  # mode, and branch recycling or scalar tests with array branches are deferred.
   promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
   .[tsource, fsource] <- promoted$args
   mode <- promoted$mode
-  result <- scope_unique_var(
-    scope,
-    mode = mode,
-    dims = mask@value@dims,
-    has_dim = mask@value@has_dim
-  )
-  register_openmp_private(scope, result@name)
+  result <- hoist$declare_tmp(mode = mode, dims = mask@value@dims)
 
   if (passes_as_scalar(mask@value)) {
     hoist$emit(glue("if ({mask}) then"))
@@ -244,20 +191,15 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     hoist$emit(indent(no$hoist$render(glue("{result@name} = {fsource}"))))
     hoist$emit("end if")
   } else {
-    allocate_reusable_local_output_at_point(
-      result,
-      scope,
-      hoist,
-      dims = result_allocation_dims
-    )
     selectors <- list(mask, glue(".not. {mask}"))
     branches <- list(tsource, fsource)
     branch_hoists <- list(yes$hoist, no$hoist)
     for (i in seq_along(branches)) {
       selector <- selectors[[i]]
       hoist$emit(glue("if (any({selector})) then"))
-      assignment <- glue(
-        "where ({selector}) {result@name} = {branches[[i]]}"
+      assignment <- c(
+        hoist$allocation_guard_at_point(result),
+        glue("where ({selector}) {result@name} = {branches[[i]]}")
       )
       hoist$emit(indent(branch_hoists[[i]]$render(assignment)))
       hoist$emit("end if")

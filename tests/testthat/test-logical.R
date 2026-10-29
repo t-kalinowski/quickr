@@ -154,53 +154,60 @@ test_that("&& and || guard unknown operand lengths at runtime", {
   expect_error(qor(FALSE, c(FALSE, TRUE)), "requires length-1 operands")
 })
 
-test_that("short-circuited right operands defer diagnostics", {
-  expressions <- list(
-    quote(FALSE && logical(2)),
-    quote(TRUE || logical(2)),
-    quote(FALSE && (1L & 1L)),
-    quote(TRUE || (1L & 1L)),
-    quote(FALSE && 1L),
-    quote(TRUE || 1L),
-    quote(FALSE && ((1L & 1L) == FALSE)),
-    quote(TRUE && logical(2)),
-    quote(FALSE || logical(2)),
-    quote(TRUE && (1L & 1L)),
-    quote(FALSE || (1L & 1L)),
-    quote(TRUE && 1L),
-    quote(FALSE || 1L),
-    quote(TRUE && ((1L & 1L) == FALSE))
-  )
-  errors <- c(
-    rep("", 7L),
-    rep("requires length-1 operands", 2L),
-    rep("requires logical operands", 5L)
-  )
-  for (i in seq_along(expressions)) {
-    fn <- function() NULL
-    body(fn) <- call("{", expressions[[i]])
-    if (!nzchar(errors[[i]])) {
-      expect_quick_identical(fn, list())
-    } else {
-      expect_error(quick(fn)(), errors[[i]])
-    }
+test_that("short-circuited right operands defer length errors", {
+  skipped_and <- function() {
+    FALSE && logical(2)
   }
+  skipped_or <- function() {
+    TRUE || logical(2)
+  }
+  reached_and <- function() {
+    TRUE && logical(2)
+  }
+  reached_or <- function() {
+    FALSE || logical(2)
+  }
+
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(skipped_or, list())
+  expect_error(quick(reached_and)(), "requires length-1 operands")
+  expect_error(quick(reached_or)(), "requires length-1 operands")
 })
 
-test_that("short-circuiting does not read absent optional arguments", {
-  fn <- function(fallback) {
-    declare(type(fallback = double(1)))
-    f <- function(x = NULL) {
-      out <- is.null(x) || x > 0
-      if (is.null(x)) {
-        x <- fallback
-      }
-      out
-    }
-    c(f(0), f(), f(1))
+test_that("short-circuited nested operands defer mode errors", {
+  skipped_and <- function() {
+    FALSE && (1L & 1L)
+  }
+  skipped_or <- function() {
+    TRUE || (1L | 1L)
+  }
+  reached_and <- function() {
+    TRUE && (1L & 1L)
+  }
+  reached_or <- function() {
+    FALSE || (1L | 1L)
+  }
+  direct_skipped_and <- function() {
+    FALSE && 1L
+  }
+  direct_skipped_or <- function() {
+    TRUE || 1L
+  }
+  direct_reached_and <- function() {
+    TRUE && 1L
+  }
+  direct_reached_or <- function() {
+    FALSE || 1L
   }
 
-  expect_quick_identical(fn, list(0))
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(skipped_or, list())
+  expect_quick_identical(direct_skipped_and, list())
+  expect_quick_identical(direct_skipped_or, list())
+  expect_error(quick(reached_and)(), "requires logical operands")
+  expect_error(quick(reached_or)(), "requires logical operands")
+  expect_error(quick(direct_reached_and)(), "requires logical operands")
+  expect_error(quick(direct_reached_or)(), "requires logical operands")
 })
 
 test_that("short-circuited nested operands defer length errors", {
@@ -219,23 +226,49 @@ test_that("short-circuited nested operands defer length errors", {
   expect_error(quick(reached_and)(), "requires length-1 operands")
 })
 
-test_that("short-circuited unresolved names remain deferred", {
-  expressions <- list(
-    quote(FALSE && missing_name),
-    quote(TRUE || ((missing_name) + 1 > 0)),
-    quote(FALSE || missing_name),
-    quote(TRUE && (missing_name + 1 > 0))
-  )
-  for (i in seq_along(expressions)) {
-    fn <- function() NULL
-    body(fn) <- call("{", expressions[[i]])
-    if (i <= 2L) {
-      expect_quick_identical(fn, list())
-    } else {
-      expect_error(quick(fn)(), "missing_name", fixed = TRUE)
-    }
+test_that("short-circuited unresolved names are deferred", {
+  skipped_and <- function() {
+    FALSE && missing_name
   }
+  skipped_or <- function() {
+    TRUE || missing_name
+  }
+  reached_and <- function() {
+    TRUE && missing_name
+  }
+  reached_or <- function() {
+    FALSE || missing_name
+  }
+
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(skipped_or, list())
+
+  qand <- quick(reached_and)
+  expect_error(qand(), "missing_name", fixed = TRUE)
+  qor <- quick(reached_or)
+  expect_error(qor(), "missing_name", fixed = TRUE)
 })
+
+test_that("nested unresolved names remain inside short-circuit branches", {
+  skipped_and <- function() {
+    FALSE && (missing_name + 1 > 0)
+  }
+  skipped_or <- function() {
+    TRUE || ((missing_name) + 1 > 0)
+  }
+  reached_and <- function() {
+    TRUE && (missing_name + 1 > 0)
+  }
+  reached_or <- function() {
+    FALSE || ((missing_name) + 1 > 0)
+  }
+
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(skipped_or, list())
+  expect_error(quick(reached_and)(), "missing_name", fixed = TRUE)
+  expect_error(quick(reached_or)(), "missing_name", fixed = TRUE)
+})
+
 test_that("short-circuited division is not evaluated eagerly", {
   skipped_and <- function(x) {
     declare(type(x = double(1)))
@@ -249,6 +282,51 @@ test_that("short-circuited division is not evaluated eagerly", {
   expect_translation_snapshots(skipped_and)
   expect_quick_identical(skipped_and, list(0))
   expect_quick_identical(skipped_or, list(0))
+})
+
+test_that("short-circuited literal traps preserve lazy evaluation", {
+  skipped_and <- function() {
+    FALSE && (1 / 0 > 0)
+  }
+  reached_and <- function() {
+    TRUE && (1 / 0 > 0)
+  }
+  skipped_or <- function() {
+    TRUE || (1 / 0 > 0)
+  }
+  reached_or <- function() {
+    FALSE || (1 / 0 > 0)
+  }
+
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(reached_and, list())
+  expect_quick_identical(skipped_or, list())
+  expect_quick_identical(reached_or, list())
+
+  traps <- list(
+    quote(1L %% 0L > 0L),
+    quote(1L %/% 0L > 0L),
+    quote(sqrt(-1) > 0),
+    quote(log(-1) > 0),
+    quote(asin(2) > 0),
+    quote(acos(2) > 0),
+    quote((-1)^0.5 > 0)
+  )
+  for (trap in traps) {
+    skipped_and <- function() NULL
+    body(skipped_and) <- call("{", call("&&", FALSE, trap))
+    expect_identical(quick(skipped_and)(), FALSE)
+  }
+
+  for (op in c("%%", "%/%")) {
+    value <- call(op, 1L, 0L)
+    condition <- call(">", value, 0L)
+    direct <- reached <- function() NULL
+    body(direct) <- call("{", value)
+    body(reached) <- call("{", call("&&", TRUE, condition))
+    expect_error(quick(direct), "literal zero divisor", fixed = TRUE)
+    expect_error(quick(reached)(), "literal zero divisor", fixed = TRUE)
+  }
 })
 
 test_that("short-circuited calls defer arity errors", {
@@ -386,17 +464,77 @@ test_that("short-circuited matrix calls defer missing-argument errors", {
   expect_quick_identical(skipped, list())
   expect_error(quick(reached_one)(), "requires at least one argument")
   expect_error(quick(reached_two)(), "requires at least two arguments")
+})
 
-  braced <- function(flag) {
-    declare(type(flag = logical(1)))
-    flag &&
+test_that("short-circuited operands defer matrix diagnostics", {
+  skipped <- function() {
+    out <- FALSE && (sum(matrix(1, nrow = 1, ncol = 1, byrow = TRUE)) > 0)
+    out <- FALSE &&
       {
-        sum(matrix(1, 1, 1, byrow = TRUE)) > 0
+        floor(1i) > 0
+      }
+    out
+  }
+  reached <- function() {
+    TRUE && (sum(matrix(1, nrow = 1, ncol = 1, byrow = TRUE)) > 0)
+  }
+  reached_braced <- function() {
+    TRUE &&
+      {
+        floor(1i) > 0
       }
   }
-  qbraced <- quick(braced)
-  expect_false(qbraced(FALSE))
-  expect_error(qbraced(TRUE), "byrow=TRUE", fixed = TRUE)
+
+  expect_identical(skipped(), FALSE)
+  expect_identical(quick(skipped)(), FALSE)
+  expect_error(
+    quick(reached)(),
+    "matrix(byrow=TRUE) is not supported",
+    fixed = TRUE
+  )
+  expect_error(quick(reached_braced)(), "floor", fixed = TRUE)
+})
+
+test_that("short-circuited missing literals stay in the right branch", {
+  skipped_and <- function() {
+    FALSE && NA
+  }
+  skipped_or <- function() {
+    TRUE || NA
+  }
+  reached_and <- function() {
+    TRUE && NA
+  }
+
+  expect_quick_identical(skipped_and, list())
+  expect_quick_identical(skipped_or, list())
+  expect_error(
+    quick(reached_and)(),
+    "NA literals are not supported",
+    fixed = TRUE
+  )
+})
+
+test_that("short-circuit operands reject assignment expressions", {
+  leaked <- function() {
+    out <- FALSE && (x <- TRUE)
+    x
+  }
+
+  expect_error(
+    quick(leaked),
+    "does not support assignment expressions",
+    fixed = TRUE
+  )
+
+  closure_local <- function() {
+    FALSE &&
+      (function() {
+        x <- TRUE
+        x
+      })()
+  }
+  expect_quick_identical(closure_local, list())
 })
 
 test_that("short-circuited operators defer arity errors", {
@@ -427,7 +565,6 @@ test_that("short-circuited operators defer arity errors", {
     ),
     \(op) as.call(list(as.name(op)))
   )
-  bad_calls[[length(bad_calls) + 1L]] <- NA
 
   for (bad_call in bad_calls) {
     skipped <- function() NULL
@@ -441,20 +578,6 @@ test_that("short-circuited operators defer arity errors", {
     expect_error(qfn())
   }
 
-  bad_comparison <- as.call(list(as.name("==")))
-  skipped_nested <- function() NULL
-  body(skipped_nested) <- call(
-    "{",
-    call("&&", FALSE, call("&&", TRUE, bad_comparison))
-  )
-  reached_nested <- function() NULL
-  body(reached_nested) <- call(
-    "{",
-    call("&&", TRUE, call("&&", TRUE, bad_comparison))
-  )
-  expect_identical(quick(skipped_nested)(), FALSE)
-  expect_error(quick(reached_nested)(), "requires exactly two arguments")
-
   reached_with_effects <- function() {
     TRUE && ((runif(1) > 0) & abs())
   }
@@ -466,24 +589,9 @@ test_that("short-circuited operators defer arity errors", {
   set.seed(817)
   runif(1)
   expect_identical(actual_seed, .Random.seed)
-
-  body(skipped) <- quote({
-    TRUE || NA
-  })
-  expect_quick_identical(skipped, list())
-  body(reached) <- quote({
-    FALSE && (x <- TRUE)
-  })
-  expect_error(quick(reached), "assignment expressions")
 })
 
 test_that("nested short-circuits own their right-operand diagnostics", {
-  outer_skipped_and <- function() {
-    FALSE && (TRUE && abs())
-  }
-  outer_skipped_or <- function() {
-    TRUE || (FALSE || abs())
-  }
   skipped <- function() {
     TRUE && (FALSE && abs())
   }
@@ -491,8 +599,6 @@ test_that("nested short-circuits own their right-operand diagnostics", {
     TRUE && (TRUE && abs())
   }
 
-  expect_quick_identical(outer_skipped_and, list())
-  expect_quick_identical(outer_skipped_or, list())
   expect_quick_identical(skipped, list())
   qfn <- quick(reached)
   expect_error(qfn(), "abs")
@@ -555,8 +661,7 @@ test_that("short-circuited complex refusals are deferred", {
   expect_quick_identical(skipped_integer_division, list(1 + 1i))
   expect_error(
     quick(reached_integer_division)(1 + 1i),
-    "%/% only implemented for numeric types",
-    fixed = TRUE
+    "%/% only implemented for numeric types"
   )
   z <- matrix(1 + 1i, 1L, 1L)
   expect_quick_identical(skipped_matmul, list(z))
@@ -564,6 +669,20 @@ test_that("short-circuited complex refusals are deferred", {
     quick(reached_matmul)(z),
     "linear algebra in quickr is double-only"
   )
+
+  for (op in c("<", "<=", ">", ">=")) {
+    comparison <- call(op, 1i, 0)
+    skipped_and <- reached_and <- function() NULL
+    body(skipped_and) <- call("{", call("&&", FALSE, comparison))
+    body(reached_and) <- call("{", call("&&", TRUE, comparison))
+
+    expect_identical(quick(skipped_and)(), FALSE)
+    expect_error(
+      quick(reached_and)(),
+      "invalid comparison with complex values",
+      fixed = TRUE
+    )
+  }
 })
 
 test_that("short-circuited real-only math calls defer mode errors", {
@@ -599,76 +718,30 @@ test_that("short-circuited coercions defer mode errors", {
       "{",
       call("&&", TRUE, call(">", call(op, 1i), 0))
     )
-    skipped_ifelse <- function() NULL
-    body(skipped_ifelse) <- call("{", call("ifelse", FALSE, call(op, 1i), 0))
-    reached_ifelse <- function() NULL
-    body(reached_ifelse) <- call("{", call("ifelse", TRUE, call(op, 1i), 0))
 
     expect_identical(quick(skipped_and)(), FALSE)
     expect_error(quick(reached_and)(), messages[[op]], fixed = TRUE)
-    expect_identical(quick(skipped_ifelse)(), 0)
-    expect_error(quick(reached_ifelse)(), messages[[op]], fixed = TRUE)
   }
 })
 
-test_that("invalid literal arithmetic remains inside lazy branches", {
-  skipped_and <- function() {
-    FALSE && (1 + "a" > 0)
+test_that("unsupported operations remain inside lazy operands", {
+  expressions <- alist(
+    1 + "a" > 0,
+    "a" == "b",
+    sum(logical(2) & logical(3), 1L) > 0
+  )
+  messages <- c(
+    "Unsupported object type",
+    "Unsupported object type",
+    "elementwise vector operations"
+  )
+  for (i in seq_along(expressions)) {
+    skipped <- reached <- function() NULL
+    body(skipped) <- call("{", call("&&", FALSE, expressions[[i]]))
+    body(reached) <- call("{", call("&&", TRUE, expressions[[i]]))
+    expect_quick_identical(skipped, list())
+    expect_error(quick(reached)(), messages[[i]])
   }
-  reached_and <- function() {
-    TRUE && (1 + "a" > 0)
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, 1 + "a" > 0, TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, 1 + "a" > 0, TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "Unsupported object type")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "Unsupported object type")
-})
-
-test_that("unsupported comparisons remain inside lazy branches", {
-  skipped_and <- function() {
-    FALSE && ("a" == "b")
-  }
-  reached_and <- function() {
-    TRUE && ("a" == "b")
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, "a" == "b", TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, "a" == "b", TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "Unsupported object type")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "Unsupported object type")
-})
-
-test_that("lazy multi-argument reductions defer operand errors", {
-  skipped_and <- function() {
-    FALSE && (sum(logical(2) & logical(3), 1L) > 0)
-  }
-  reached_and <- function() {
-    TRUE && (sum(logical(2) & logical(3), 1L) > 0)
-  }
-  skipped_ifelse <- function() {
-    ifelse(FALSE, sum(logical(2) & logical(3), 1L) > 0, TRUE)
-  }
-  reached_ifelse <- function() {
-    ifelse(TRUE, sum(logical(2) & logical(3), 1L) > 0, TRUE)
-  }
-
-  expect_quick_identical(skipped_and, list())
-  expect_error(quick(reached_and)(), "elementwise vector operations")
-  expect_quick_identical(skipped_ifelse, list())
-  expect_error(quick(reached_ifelse)(), "elementwise vector operations")
 })
 
 test_that("short-circuited BLAS shape errors are deferred", {

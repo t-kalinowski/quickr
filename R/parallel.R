@@ -54,67 +54,6 @@ openmp_private_vars <- function(scope) {
   scope_get(scope, "openmp_private_vars", character())
 }
 
-# Source bindings, excluding closure definitions and generated temporaries.
-openmp_body_bindings <- function(expr, loops_only = FALSE) {
-  if (!is.call(expr) || is_function_call(expr)) {
-    return(character())
-  }
-  binding <- if (is_call(expr, "for")) as.character(expr[[2L]]) else character()
-  if (
-    !loops_only &&
-      (is_call(expr, "<-") || is_call(expr, "=")) &&
-      is.symbol(expr[[2L]]) &&
-      !is_function_call(expr[[3L]])
-  ) {
-    binding <- as.character(expr[[2L]])
-  }
-  unique(c(
-    binding,
-    unlist(lapply(as.list(expr)[-1L], openmp_body_bindings, loops_only))
-  ))
-}
-
-openmp_private_bindings <- function(body, iterator, bound) {
-  unique(c(
-    iterator,
-    openmp_body_bindings(body, loops_only = TRUE),
-    setdiff(openmp_body_bindings(body), bound)
-  ))
-}
-
-openmp_lastprivate_bindings <- function(body, iterator, scope, bindings) {
-  # Analyze one iteration with no incoming body bindings. Reuse the normal
-  # control-flow analysis, including its conservative treatment of break/next.
-  iteration <- as.function(list(call(
-    "for",
-    as.name(iterator),
-    quote(1:1),
-    body
-  )))
-  assigned <- check_definite_assignment(
-    iteration,
-    scope,
-    capture_reads = TRUE,
-    return_assigned = TRUE
-  )
-  intersect(bindings, assigned)
-}
-
-openmp_scope_uses_rng <- function(scope) {
-  if (!inherits(scope, "quickr_scope")) {
-    return(FALSE)
-  }
-  isTRUE(scope_get(scope, "openmp_uses_rng", FALSE))
-}
-
-mark_openmp_scope_uses_rng <- function(scope) {
-  stopifnot(inherits(scope, "quickr_scope"))
-  if (scope_in_openmp(scope)) {
-    scope_set(scope, "openmp_uses_rng", TRUE)
-  }
-  invisible(scope)
-}
-
 register_openmp_private <- function(scope, name) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(name))
   if (!scope_in_openmp(scope)) {
@@ -134,13 +73,11 @@ enter_openmp_scope <- function(scope) {
   }
   previous <- list(
     depth = scope_get(scope, "openmp_depth"),
-    private_vars = scope_get(scope, "openmp_private_vars"),
-    uses_rng = scope_get(scope, "openmp_uses_rng")
+    private_vars = scope_get(scope, "openmp_private_vars")
   )
   depth <- scope_openmp_depth(scope)
   scope_set(scope, "openmp_depth", depth + 1L)
   scope_set(scope, "openmp_private_vars", character())
-  scope_set(scope, "openmp_uses_rng", FALSE)
   previous
 }
 
@@ -155,7 +92,6 @@ exit_openmp_scope <- function(scope, previous) {
     scope_set(scope, "openmp_depth", as.integer(previous_depth))
   }
   scope_set(scope, "openmp_private_vars", previous$private_vars)
-  scope_set(scope, "openmp_uses_rng", previous$uses_rng)
   invisible(TRUE)
 }
 
@@ -250,18 +186,17 @@ openmp_parallel_do <- function(private = NULL) {
 
 openmp_parallel_end <- function() "!$omp end parallel do"
 
-openmp_directives <- function(parallel, private = NULL, lastprivate = NULL) {
+openmp_directives <- function(parallel, private = NULL) {
   if (is.null(parallel)) {
     return(list(prefix = NULL, suffix = NULL))
   }
   if (!identical(parallel$backend, "omp")) {
     stop("unsupported parallel backend: ", parallel$backend, call. = FALSE)
   }
-  prefix <- openmp_parallel_do(private = setdiff(private, lastprivate))
-  if (length(lastprivate)) {
-    prefix <- glue("{prefix} lastprivate({str_flatten_commas(lastprivate)})")
-  }
-  list(prefix = prefix, suffix = openmp_parallel_end())
+  list(
+    prefix = openmp_parallel_do(private = private),
+    suffix = openmp_parallel_end()
+  )
 }
 
 openmp_fflags <- function() {

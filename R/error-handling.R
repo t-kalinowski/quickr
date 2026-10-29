@@ -105,7 +105,7 @@ quickr_error_fortran_lines <- function(message = NULL, scope = NULL) {
   msg_literal <- fortran_string_literal(msg)
   lines <- glue("call {quickr_error_setter_name()}({msg_literal})")
   if (isTRUE(scope_in_openmp(scope))) {
-    lines <- c(lines, "!$omp cancel do", "cycle")
+    lines <- c(lines, "!$omp cancel do")
   } else {
     lines <- c(lines, "return")
   }
@@ -113,9 +113,8 @@ quickr_error_fortran_lines <- function(message = NULL, scope = NULL) {
 }
 
 # Emit a runtime guard: if `condition` holds, record a quickr error and
-# bail out of the subroutine (or skip the rest of the OpenMP iteration while
-# requesting cancellation). Statement-level machinery shared by any handler
-# that needs a runtime check.
+# bail out of the subroutine (or cancel the OpenMP loop). Statement-level
+# machinery shared by any handler that needs a runtime check.
 emit_quickr_error_if <- function(
   condition,
   message,
@@ -155,21 +154,8 @@ quickr_error_return_if_set <- function(
     return(str_flatten_lines(
       glue("if ({quickr_error_msg_name()}(1) /= c_null_char) then"),
       "  !$omp cancel do",
-      "  cycle",
       "end if"
     ))
   }
   glue("if ({quickr_error_msg_name()}(1) /= c_null_char) return")
-}
-
-quickr_error_serial_loop_checks <- function(scope, parallel = NULL) {
-  if (
-    !scope_in_openmp(scope) || !is.null(parallel) || !scope_uses_errors(scope)
-  ) {
-    return(list(before = character(), after = ""))
-  }
-  list(
-    before = glue("if ({quickr_error_msg_name()}(1) /= c_null_char) exit"),
-    after = quickr_error_return_if_set(scope)
-  )
 }

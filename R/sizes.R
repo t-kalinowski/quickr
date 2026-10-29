@@ -158,9 +158,6 @@ r2size <- function(r, scope) {
     if (axis > var@rank) {
       stop("insufficient rank of variable in ", deparse1(expr))
     }
-    if (!size_entry_available(var@dims[[axis]], scope)) {
-      return(call("[", call("dim", var_expr), axis))
-    }
     sanitize_dim(var@dims[[axis]])
   }
 
@@ -168,13 +165,11 @@ r2size <- function(r, scope) {
     switch(
       integer = r,
       double = {
-        invalid <- !is.finite(r) ||
-          !is_wholenumber(r) ||
-          abs(r) > .Machine$integer.max
-        if (invalid) {
-          stop("size must be an integer in R's supported range, found: ", r)
+        if (is_wholenumber(r)) {
+          as.integer(r)
+        } else {
+          stop("size must be an integer, found: ", r)
         }
-        as.integer(r)
       },
       symbol = {
         if (is_size_name(r)) {
@@ -185,28 +180,20 @@ r2size <- function(r, scope) {
           stop("could not resolve size: ", as.character(r))
         }
         # !identical(): @mode can be NULL (deferred-mode binding)
-        valid_mode <- isTRUE(var@mode %in% c("integer", "double"))
-        if (!valid_mode || !passes_as_scalar(var)) {
+        if (!identical(var@mode, "integer") || !passes_as_scalar(var)) {
           warning("size is not an integer:", as.character(r))
         }
-        if (var@is_arg && !var@modified && !var@size_tracked) {
+        if (var@is_arg && !var@modified) {
           return(scope_fortran_symbol(r, scope))
         }
-        if (size_binding_is_dynamic(r, var, scope)) {
-          return(runtime_size(scope_fortran_symbol(r, scope)))
-        }
-        if (var@size_tracked) {
-          if (length(var@size_value)) {
-            value <- var@size_value[[1L]]
-            return(if (is.atomic(value)) r2size(value, scope) else value)
-          }
-          return(runtime_size(scope_fortran_symbol(r, scope)))
-        }
+        # TODO: add specific unit tests here
         if (identical(var@r, r)) {
           return(scope_fortran_symbol(r, scope))
         }
-        # Untracked generated bindings may still carry a size expression in
-        # @r. Source assignments use the point-in-time facts above instead.
+        # make a best effort to use the r expression last assigned to the
+        # symbol, or fail gracefully and return NA.
+        # closure-locals with unspecified shape are declared allocatable
+        # input and/or output args with unspecified shape signal an error.
         r2size(var@r, scope)
       },
       language = {
@@ -227,21 +214,10 @@ r2size <- function(r, scope) {
 
         switch(
           op,
-          quickr_runtime_size = r,
-          `(` = r2size(r[[2L]], scope),
           length = {
             var <- get0(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
               stop("could not resolve size: ", deparse1(r))
-            }
-            if (
-              any(vapply(
-                var@dims,
-                function(dim) !size_entry_available(dim, scope),
-                logical(1L)
-              ))
-            ) {
-              return(r)
             }
             if (var@rank == 1) {
               return(sanitize_dim(var@dims[[1L]]))
@@ -281,9 +257,7 @@ r2dims <- function(r, scope) {
           if (!inherits(var, Variable)) {
             stop("could not resolve dims: ", deparse1(r))
           }
-          return(lapply(seq_len(var@rank), function(axis) {
-            r2size(call("[", r, axis), scope)
-          }))
+          return(var@dims)
         },
         c = {
           args <- lapply(r[-1], r2dims, scope)
@@ -294,25 +268,6 @@ r2dims <- function(r, scope) {
       )
   }
   lapply(r, r2size, scope)
-}
-
-size_expr_is_known_nonnegative <- function(x) {
-  if (is_scalar_integerish(x)) {
-    return(as.integer(x) >= 0L)
-  }
-  # Source symbols cannot end in `_`; this spelling is reserved for extents
-  # synthesized after check_all_var_names_valid() accepts the source closure.
-  if (is_size_name(x)) {
-    return(TRUE)
-  }
-  if (!is.call(x) || !identical(x[[1L]], quote(`*`))) {
-    return(FALSE)
-  }
-  all(vapply(
-    as.list(x)[-1L],
-    size_expr_is_known_nonnegative,
-    logical(1L)
-  ))
 }
 
 get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {

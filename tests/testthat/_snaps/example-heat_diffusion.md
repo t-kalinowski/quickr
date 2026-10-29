@@ -56,14 +56,11 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -76,35 +73,21 @@
       
         ! locals
         integer(c_int) :: step
-        integer(c_int) :: tmp1_
         ! manifest end
       
       
-        if (nx < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
-        if (ny < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
         temp = 0.0_c_double
       temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
       & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
-        if (steps < 0) then
-          call quickr_set_error_msg("seq_len() bound must be non-negative")
-          return
-        end if
-        do tmp1_ = 1, steps
-          step = tmp1_
+        do step = 1, steps
           block
             real(c_double), allocatable :: btmp1_(:, :)
       
             allocate(btmp1_(nx, ny))
             call apply_boundary_conditions(temp, btmp1_)
-            if (quickr_err_msg(1) /= c_null_char) return
+      
             temp = btmp1_
           end block
           block
@@ -112,7 +95,7 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-            if (quickr_err_msg(1) /= c_null_char) return
+      
             temp = btmp1_
           end block
         end do
@@ -145,15 +128,11 @@
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp_new(nx, ny)
             integer(c_int) :: i
-            integer(c_int) :: ctmp1_
             integer(c_int) :: j
-            integer(c_int) :: ctmp2_
       
             temp_new = temp
-            do ctmp1_ = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
-              i = ctmp1_
-              do ctmp2_ = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
-                j = ctmp2_
+            do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+              do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
       temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
           & / (real(dx, kind=c_double) ** (2.0_c_double))) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j -&
           & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
@@ -161,16 +140,6 @@
             end do
             res = temp_new
           end subroutine
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -180,30 +149,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void diffuse_heat(
         const int* const nx__,
         const int* const ny__,
@@ -212,8 +157,7 @@
         const double* const dt__,
         const double* const k__,
         const int* const steps__,
-        double* const temp__,
-        char* quickr_err_msg);
+        double* const temp__);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -302,7 +246,7 @@
                     (double)steps__len_);
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
-        const R_xlen_t temp__len_ = quickr_return_length((const double[]){_as_int_nx, _as_int_ny}, 2);
+        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
@@ -313,10 +257,6 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
         diffuse_heat(
           nx__,
           ny__,
@@ -325,11 +265,7 @@
           dt__,
           k__,
           steps__,
-          temp__,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+          temp__);
         
         UNPROTECT(2);
         return temp;
@@ -387,14 +323,11 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -407,37 +340,22 @@
       
         ! locals
         integer(c_int) :: step
-        integer(c_int) :: tmp1_
         ! manifest end
       
       
-        if (nx < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
-        if (ny < 0) then
-          call quickr_set_error_msg("matrix() dimensions must be non-negative")
-          return
-        end if
         temp = 0.0_c_double
       temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
       & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
       
       
-        if (steps < 0) then
-          call quickr_set_error_msg("seq_len() bound must be non-negative")
-          return
-        end if
-        do tmp1_ = 1, steps
-          step = tmp1_
+        do step = 1, steps
           call apply_boundary_conditions()
-          if (quickr_err_msg(1) /= c_null_char) return
           block
             real(c_double), allocatable :: btmp1_(:, :)
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-            if (quickr_err_msg(1) /= c_null_char) return
+      
             temp = btmp1_
           end block
         end do
@@ -466,15 +384,11 @@
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp_new(nx, ny)
             integer(c_int) :: i
-            integer(c_int) :: ctmp1_
             integer(c_int) :: j
-            integer(c_int) :: ctmp2_
       
             temp_new = temp
-            do ctmp1_ = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
-              i = ctmp1_
-              do ctmp2_ = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
-                j = ctmp2_
+            do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+              do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
       temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
           & / (real(dx, kind=c_double) ** (2.0_c_double))) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j -&
           & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
@@ -482,16 +396,6 @@
             end do
             res = temp_new
           end subroutine
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -501,30 +405,6 @@
       #include <Rinternals.h>
       
       
-      #ifndef QUICKR_RETURN_LENGTH_DEFINED
-      #define QUICKR_RETURN_LENGTH_DEFINED
-      static R_xlen_t quickr_return_length(const double *dims, int rank) {
-        int empty = 0;
-        for (int i = 0; i < rank; ++i) {
-          if (!R_FINITE(dims[i]))
-            Rf_error("return dimensions must be finite");
-          if (dims[i] < 0)
-            Rf_error("return dimensions must be non-negative");
-          if (dims[i] > (rank > 1 ? 2147483647.0 : (double)R_XLEN_T_MAX))
-            Rf_error("return dimensions exceed the supported range");
-          if ((R_xlen_t)dims[i] == 0) empty = 1;
-        }
-        if (empty) return 0;
-        R_xlen_t length = 1;
-        for (int i = 0; i < rank; ++i) {
-          R_xlen_t extent = (R_xlen_t)dims[i];
-          if (extent > R_XLEN_T_MAX / length)
-            Rf_error("return length exceeds R's vector limit");
-          length *= extent;
-        }
-        return length;
-      }
-      #endif
       extern void diffuse_heat(
         const int* const nx__,
         const int* const ny__,
@@ -533,8 +413,7 @@
         const double* const dt__,
         const double* const k__,
         const int* const steps__,
-        double* const temp__,
-        char* quickr_err_msg);
+        double* const temp__);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -623,7 +502,7 @@
                     (double)steps__len_);
         const int _as_int_nx = Rf_asInteger(nx);
         const int _as_int_ny = Rf_asInteger(ny);
-        const R_xlen_t temp__len_ = quickr_return_length((const double[]){_as_int_nx, _as_int_ny}, 2);
+        const R_xlen_t temp__len_ = (_as_int_nx) * (_as_int_ny);
         SEXP temp = PROTECT(Rf_allocVector(REALSXP, temp__len_));
         double* temp__ = REAL(temp);
         {
@@ -634,10 +513,6 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
         diffuse_heat(
           nx__,
           ny__,
@@ -646,11 +521,7 @@
           dt__,
           k__,
           steps__,
-          temp__,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+          temp__);
         
         UNPROTECT(2);
         return temp;

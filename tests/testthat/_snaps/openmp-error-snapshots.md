@@ -35,18 +35,15 @@
       
         ! locals
         integer(c_int) :: i
-        integer(c_int) :: tmp1_
         ! manifest end
       
       
       
-        !$omp parallel do lastprivate(i)
-        do tmp1_ = 1, 1_c_int
-          i = tmp1_
+        !$omp parallel do
+        do i = 1, 1_c_int
           if ((x < 0.0_c_double)) then
             call quickr_set_error_msg("x must be nonnegative")
             !$omp cancel do
-            cycle
           end if
         end do
         !$omp end parallel do
@@ -150,30 +147,24 @@
       
         ! locals
         integer(c_int) :: i
-        integer(c_int) :: tmp1_
         integer(c_int) :: j
-        integer(c_int) :: tmp2_
         ! manifest end
       
       
       
-        !$omp parallel do private(tmp2_) lastprivate(i, j)
-        do tmp1_ = 1, 1_c_int
-          i = tmp1_
+        !$omp parallel do
+        do i = 1, 1_c_int
       
-          !$omp parallel do lastprivate(j)
-          do tmp2_ = 1, 1_c_int
-            j = tmp2_
+          !$omp parallel do
+          do j = 1, 1_c_int
             if ((x < 0.0_c_double)) then
               call quickr_set_error_msg("x must be nonnegative")
               !$omp cancel do
-              cycle
             end if
           end do
           !$omp end parallel do
           if (quickr_err_msg(1) /= c_null_char) then
             !$omp cancel do
-            cycle
           end if
         end do
         !$omp end parallel do

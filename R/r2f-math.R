@@ -11,15 +11,20 @@ register_unary_intrinsic <- function(
   mode_fun,
   expr_fun
 ) {
-  handler <- function(args, scope, ...) {
+  handler <- function(args, scope, ..., hoist = NULL) {
     stopifnot(length(args) == 1L)
-    arg <- r2f(args[[1L]], scope, ...)
-    val <- Variable(
-      mode = mode_fun(arg),
-      dims = arg@value@dims,
-      has_dim = arg@value@has_dim
-    )
-    Fortran(expr_fun(arg, last(list(...)$calls)), val)
+    arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
+    intrinsic <- last(list(...)$calls)
+    if (
+      intrinsic %in%
+        c("asin", "acos", "sqrt", "exp", "log") &&
+        isTRUE(hoist$defer_static_mode_error)
+    ) {
+      # Keep constant domain errors and overflow inside the selected branch.
+      arg <- hoist_unless_name(arg, hoist, hoist_literals = TRUE)
+    }
+    val <- Variable(mode = mode_fun(arg), dims = arg@value@dims)
+    Fortran(expr_fun(arg, intrinsic), val)
   }
   register_r2f_handler(name, handler)
   invisible(handler)
@@ -60,7 +65,7 @@ r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
   arg <- hoist_unless_name(arg, hoist)
-  out_val <- Variable("double", arg@value@dims, has_dim = arg@value@has_dim)
+  out_val <- Variable("double", arg@value@dims)
 
   # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in
   # the real domain; real_floor_expr() shares the spelling with `%/%`.
@@ -81,7 +86,7 @@ r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
   arg <- hoist_unless_name(arg, hoist)
-  out_val <- Variable("double", arg@value@dims, has_dim = arg@value@has_dim)
+  out_val <- Variable("double", arg@value@dims)
 
   # As with floor(): avoid integer overflow by implementing in real arithmetic.
   aint <- glue("aint({arg})")
@@ -99,10 +104,7 @@ r2f_handlers[["trunc"]] <- function(args, scope, ..., hoist = NULL) {
   # - For double input we can use Fortran AINT(), which returns a real.
   # - For integer/logical inputs, a cast-to-double is sufficient.
   if (arg@value@mode == "double") {
-    return(Fortran(
-      glue("aint({arg})"),
-      Variable("double", arg@value@dims, has_dim = arg@value@has_dim)
-    ))
+    return(Fortran(glue("aint({arg})"), Variable("double", arg@value@dims)))
   }
   if (arg@value@mode %in% c("integer", "logical")) {
     return(maybe_cast_double(arg))
@@ -113,9 +115,12 @@ r2f_handlers[["trunc"]] <- function(args, scope, ..., hoist = NULL) {
   )
 }
 
-r2f_handlers[["log10"]] <- function(args, scope, ...) {
+r2f_handlers[["log10"]] <- function(args, scope, ..., hoist = NULL) {
   stopifnot(length(args) == 1L)
-  arg <- r2f(args[[1]], scope, ...)
+  arg <- r2f(args[[1]], scope, ..., hoist = hoist)
+  if (isTRUE(hoist$defer_static_mode_error)) {
+    arg <- hoist_unless_name(arg, hoist, hoist_literals = TRUE)
+  }
   f <- if (arg@value@mode == "complex") {
     glue("(log({arg}) / log(10.0_c_double))")
   } else {
@@ -123,11 +128,7 @@ r2f_handlers[["log10"]] <- function(args, scope, ...) {
   }
   Fortran(
     f,
-    Variable(
-      mode = arg@value@mode,
-      dims = arg@value@dims,
-      has_dim = arg@value@has_dim
-    )
+    Variable(mode = arg@value@mode, dims = arg@value@dims)
   )
 }
 
@@ -139,14 +140,7 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
   # a numeric argument, so a logical operand participates as integer.
   arg <- cast_to_mode(arg, arith_join_mode(arg), "abs()")
   out_mode <- if (arg@value@mode == "complex") "double" else arg@value@mode
-  Fortran(
-    glue("abs({arg})"),
-    Variable(
-      mode = out_mode,
-      dims = arg@value@dims,
-      has_dim = arg@value@has_dim
-    )
-  )
+  Fortran(glue("abs({arg})"), Variable(mode = out_mode, dims = arg@value@dims))
 }
 
 
