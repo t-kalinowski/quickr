@@ -13,6 +13,7 @@ test_that("CRAN smoke budget stays small", {
 
 test_that("non-smoke test files skip on CRAN", {
   always_run_files <- c(
+    "test-assignment-shape.R",
     "test-bind.R",
     "test-blas-guards.R",
     "test-block-scopes.R",
@@ -21,6 +22,7 @@ test_that("non-smoke test files skip on CRAN", {
     "test-conformability-grid.R",
     "test-declare-type.R",
     "test-errors.R",
+    "test-flatten-vector.R",
     "test-hoist-unless-name.R",
     "test-ifelse.R",
     "test-lazy-branches.R",
@@ -28,6 +30,7 @@ test_that("non-smoke test files skip on CRAN", {
     "test-lazy-mode-conversions.R",
     "test-logical.R",
     "test-loops.R",
+    "test-maintainability-regressions.R",
     "test-matrix-inference.R",
     "test-matrix-lapack.R",
     "test-matrix-mul.R",

@@ -235,7 +235,7 @@ test_that("print.quickr_ordered_env outputs bindings", {
 
 test_that("check_assignment_compatible handles NULL value", {
   target <- quickr:::Variable("double", list(1L))
-  expect_silent(quickr:::check_assignment_compatible(target, NULL))
+  expect_silent(quickr:::check_assignment_compatible("x", target, NULL))
 })
 
 test_that("r2size() warns, not crashes, on a deferred-mode Variable", {

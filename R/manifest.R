@@ -85,6 +85,9 @@ var_storage_bytes <- function(var) {
   )
 }
 
+# Dynamic constructor locals and their aliases are allocated in the prologue.
+# Finite/range validation and allocation after such checks are deferred. Moving
+# allocation into a loop must also handle already-allocated locals on re-entry.
 subroutine_local_allocatable <- function(
   var,
   scope,
@@ -98,21 +101,7 @@ subroutine_local_allocatable <- function(
   # For declarations like `type(a = double(NA, NA))`, substitute_declared_sizes()
   # rewrites NA axes to `a__dim_*` symbols. Those sizes are not available for
   # explicit allocation, so treat these as implicitly-sized locals.
-  self_size_names <- vapply(
-    seq_along(var@dims),
-    function(i) get_size_name(var, axis = as.integer(i)),
-    character(1)
-  )
-  if (
-    any(vapply(
-      seq_along(var@dims),
-      function(i) {
-        d <- var@dims[[i]]
-        is.symbol(d) && identical(as.character(d), self_size_names[[i]])
-      },
-      logical(1)
-    ))
-  ) {
+  if (has_self_size_dims(var)) {
     return(FALSE)
   }
 
@@ -395,19 +384,7 @@ r2f.scope <- function(scope, include_errors = FALSE) {
 
     # In subroutines, locals declared with unspecified dims (NA -> `a__dim_*`)
     # are emitted as deferred-shape allocatables and rely on implicit allocation.
-    if (
-      is.null(intent) &&
-        !is.null(dims) &&
-        any(vapply(
-          seq_along(var@dims),
-          function(i) {
-            d <- var@dims[[i]]
-            is.symbol(d) &&
-              identical(as.character(d), get_size_name(var, axis = i))
-          },
-          logical(1)
-        ))
-    ) {
+    if (is.null(intent) && !is.null(dims) && has_self_size_dims(var)) {
       dims <- sprintf("(%s)", str_flatten_commas(rep(":", var@rank)))
     }
 
@@ -525,7 +502,8 @@ dims2f_eval_base_env[["("]] <- baseenv()[["("]]
 dims2f_eval_base_env[["+"]] <- function(e1, e2) glue("({e1} + {e2})")
 dims2f_eval_base_env[["-"]] <- function(e1, e2) glue("({e1} - {e2})")
 dims2f_eval_base_env[["*"]] <- function(e1, e2) glue("({e1} * {e2})")
-dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("real({e1}) / real({e2})")
+# DBLE preserves double precision without needing c_double in declarations.
+dims2f_eval_base_env[["/"]] <- function(e1, e2) glue("dble({e1}) / dble({e2})")
 # dividing integers truncates towards 0
 dims2f_eval_base_env[["%/%"]] <- function(e1, e2) glue("int({e1}) / int({e2})")
 dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
@@ -533,6 +511,11 @@ dims2f_eval_base_env[["%%"]] <- function(e1, e2) {
 }
 dims2f_eval_base_env[["^"]] <- function(e1, e2) glue("({e1})**({e2})")
 dims2f_eval_base_env[["abs"]] <- function(x) glue("abs({x})")
+# Fortran INT() truncates toward zero, like as.integer() in R.
+dims2f_eval_base_env[["as.integer"]] <- function(x) glue("int({x})")
+dims2f_eval_base_env[["quickr_as_integer"]] <- dims2f_eval_base_env[[
+  "as.integer"
+]]
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
   safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
   glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")

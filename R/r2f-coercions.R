@@ -1,5 +1,5 @@
 # r2f-coercions.R
-# Handlers for type coercions: as.double, as.integer
+# Handlers for type coercions: as.double, as.integer, as.vector
 
 # --- Handlers ---
 
@@ -20,24 +20,7 @@ r2f_handlers[["as.double"]] <- function(
   x <- maybe_cast_double(x)
 
   # R drops dimensions for as.double(<array>): the result is a vector.
-  if (!passes_as_scalar(x@value) && x@value@rank > 1L) {
-    len_expr <- value_length_expr(x@value)
-    len_str <- if (is_scalar_na(len_expr)) {
-      glue("size({x})")
-    } else {
-      # dims2f() returns "" for a scalar "1", but we need a literal length.
-      out <- dims2f(list(len_expr), scope)
-      if (!nzchar(out)) "1" else out
-    }
-
-    out_val <- Variable(
-      "double",
-      list(if (is_scalar_na(len_expr)) NA else len_expr)
-    )
-    return(Fortran(glue("reshape({x}, [{len_str}])"), out_val))
-  }
-
-  x
+  flatten_to_vector(x, scope, hoist)
 }
 
 r2f_handlers[["as.integer"]] <- function(
@@ -61,13 +44,13 @@ r2f_handlers[["as.integer"]] <- function(
     double = Fortran(glue("int({arg}, kind=c_int)"), out_val),
     logical = {
       # External logicals are integer-backed (0/1/NA) under bind(c); if the
-      # expression preserves that storage (e.g. rev(m)), return it directly.
+      # expression preserves that storage (e.g. rev(m)), reuse it directly.
       if (logical_as_int(arg@value)) {
-        src <- arg@value@name %||% as.character(arg)
-        return(Fortran(src, out_val))
+        Fortran(arg@value@name %||% as.character(arg), out_val)
+      } else {
+        arg <- booleanize_logical_as_int(arg)
+        Fortran(glue("merge(1_c_int, 0_c_int, {arg})"), out_val)
       }
-      arg <- booleanize_logical_as_int(arg)
-      Fortran(glue("merge(1_c_int, 0_c_int, {arg})"), out_val)
     },
     stop_static_mode_error(
       "as.integer() only implemented for logical, integer, and double",
@@ -76,20 +59,50 @@ r2f_handlers[["as.integer"]] <- function(
   )
 
   # R drops dimensions for as.integer(<array>): the result is a vector.
-  if (!passes_as_scalar(out@value) && out@value@rank > 1L) {
-    len_expr <- value_length_expr(out@value)
-    len_str <- if (is_scalar_na(len_expr)) {
-      glue("size({out})")
-    } else {
-      out_len <- dims2f(list(len_expr), scope)
-      if (!nzchar(out_len)) "1" else out_len
-    }
-    out_val <- Variable(
-      "integer",
-      list(if (is_scalar_na(len_expr)) NA else len_expr)
-    )
-    return(Fortran(glue("reshape({out}, [{len_str}])"), out_val))
+  flatten_to_vector(out, scope, hoist)
+}
+
+r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ..., hoist = NULL) {
+  x_arg <- args$x %||% if (length(args) >= 1L) args[[1L]] else NULL
+  if (is.null(x_arg) || is_missing(x_arg)) {
+    stop("as.vector() expects `x`", call. = FALSE)
   }
 
-  out
+  # `mode` selects the coercion; "any" (the default) preserves the type
+  # and only drops dimensions. Numeric modes delegate to the dedicated
+  # coercion handlers so the cast spellings stay in one place.
+  mode_arg <- args$mode %||% if (length(args) >= 2L) args[[2L]] else NULL
+  mode <- if (is.null(mode_arg) || is_missing(mode_arg)) {
+    "any"
+  } else if (is.character(mode_arg) && length(mode_arg) == 1L) {
+    mode_arg
+  } else {
+    stop("as.vector() `mode` must be a string constant", call. = FALSE)
+  }
+
+  if (mode %in% c("double", "numeric", "integer")) {
+    # as.vector() uses built-in coercions regardless of local bindings.
+    coercion <- if (mode == "integer") quote(as.integer) else quote(as.double)
+    handler <- get_r2f_handler(coercion)
+    return(handler(list(x_arg), scope, ..., hoist = hoist))
+  }
+  if (!mode %in% c("any", "logical", "complex")) {
+    stop(
+      "as.vector() does not support mode = ",
+      encodeString(mode, quote = "\""),
+      call. = FALSE
+    )
+  }
+
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
+  if (mode != "any" && !identical(x@value@mode, mode)) {
+    stop(
+      "as.vector(x, mode = ",
+      encodeString(mode, quote = "\""),
+      ") requires an operand already of that mode; casting is only ",
+      "supported for numeric modes",
+      call. = FALSE
+    )
+  }
+  flatten_to_vector(x, scope, hoist)
 }

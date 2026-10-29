@@ -30,6 +30,31 @@ create_mask_hoist <- function() {
   environment()
 }
 
+# Lower one reduction argument under a fresh mask hoister. Nested
+# reductions (e.g. sum(x * as.double(any(x[m] > 1)))) can thread an
+# existing hoist_mask through `...`; each reduction context installs
+# exactly one mask hoister, so the inherited one is dropped rather than
+# forwarded -- forwarding both would hand the `[` handler two hoist_mask
+# arguments. A conflicting second mask within the same context is a
+# clean compile error.
+# Used by: r2f-reductions.R (max/min/sum/prod and any/all)
+lower_masked_reduction_arg <- function(arg, scope, mask_hoist, dots) {
+  x <- r2f(
+    arg,
+    scope,
+    calls = dots$calls,
+    hoist = dots$hoist,
+    hoist_mask = mask_hoist$try_set
+  )
+  if (mask_hoist$has_conflict()) {
+    stop(
+      "reduction expressions only support a single logical mask",
+      call. = FALSE
+    )
+  }
+  x
+}
+
 # Convert a linear 1D index to multi-dimensional subscripts.
 # Used by: r2f-reductions.R, r2f-subscript.R, r2f-control-flow.R
 linear_subscripts_from_1d <- function(base_name, rank, idx) {

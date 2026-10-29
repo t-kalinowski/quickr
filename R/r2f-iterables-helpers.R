@@ -19,6 +19,49 @@ r2f_iterable_context <- function(calls) {
   }
 }
 
+# Flatten a rank>1 value to a rank-1 vector, matching R's column-major
+# drop-dims semantics for as.double()/as.integer()/as.vector() and
+# matrix arguments to c(). Scalars and rank-1 values pass through
+# unchanged; singleton arrays become scalar expressions. The canonical
+# `reshape(source, [len])` spelling lives here
+# so every flatten site shares it; the output length is
+# value_length_expr(x@value) (NA -> a runtime size() query). The output
+# mode is x's own mode -- callers cast before flattening if they want a
+# different one.
+# Used by: r2f-coercions.R, r2f-constructors.R
+flatten_to_vector <- function(x, scope, hoist) {
+  stopifnot(inherits(x, Fortran))
+  if (passes_as_scalar(x@value) || x@value@rank <= 1L) {
+    return(x)
+  }
+  x <- booleanize_logical_as_int(x)
+  if (all(map_lgl(x@value@dims, dim_is_one))) {
+    x <- hoist_unless_name(x, hoist)
+    indices <- str_flatten_commas(rep("1", x@value@rank))
+    return(Fortran(
+      glue("{x}({indices})"),
+      Variable(x@value@mode, list(1L))
+    ))
+  }
+  len_expr <- value_length_expr(x@value)
+  # Deferred-shape locals have self-size placeholders, not size dummies.
+  if (!dim_guard_spellable(len_expr, scope)) {
+    len_expr <- NA_integer_
+  }
+  len_str <- if (is_scalar_na(len_expr)) {
+    glue("size({x})")
+  } else {
+    # dims2f() returns "" for a scalar "1", but we need a literal length.
+    out <- dims2f(list(len_expr), scope)
+    if (!nzchar(out)) "1" else out
+  }
+  out_val <- Variable(
+    x@value@mode,
+    list(if (is_scalar_na(len_expr)) NA else len_expr)
+  )
+  Fortran(glue("reshape({x}, [{len_str}])"), out_val)
+}
+
 # Compute the length expression for a Variable value.
 # Used by: r2f-sequences.R, r2f-control-flow.R
 value_length_expr <- function(value) {

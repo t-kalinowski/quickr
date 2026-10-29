@@ -29,8 +29,7 @@ booleanize_logical_as_int <- function(x) {
 # The only place cast spellings live; errors on casts it cannot spell
 # (complex/character operands, or any narrowing) so an unsupported mode is
 # a clean diagnostic instead of invalid generated Fortran.
-# Used by: r2f-arithmetic.R, r2f-logical.R, r2f-constructors.R,
-#          r2f-reductions.R, r2f-matrix.R
+# Used by: r2f-arithmetic.R, r2f-math.R, r2f-reductions.R, r2f-subscript.R
 cast_to_mode <- function(x, mode, context = "operand") {
   stopifnot(inherits(x, Fortran))
   if (
@@ -89,7 +88,7 @@ maybe_cast_double <- function(x) {
 # each one whose mode differs. For contexts where Fortran requires uniform
 # argument types: array constructors (c()), min/max, merge, modulo.
 # Returns list(args = <cast operands>, mode = <join>).
-# Used by: r2f-arithmetic.R, r2f-constructors.R, r2f-reductions.R
+# Used by: r2f-conditionals.R, r2f-constructors.R
 promote_operands <- function(args, context = "operator") {
   mode <- reduce_promoted_mode(args)
   list(
@@ -169,7 +168,7 @@ match_scalar_matrix_fill <- function(e, scope) {
   ) {
     return(NULL)
   }
-  args
+  matrix_call_args(args)
 }
 
 # Used by: r2f-arithmetic.R, r2f-logical.R
@@ -211,7 +210,7 @@ lower_elementwise_operands <- function(args, scope, ..., hoist) {
 }
 
 # Check if a dimension expression equals 1.
-# Used by: r2f-arithmetic.R, r2f-logical.R
+# Used by: r2f-matrix.R, is_one_by_one()
 dim_is_one <- function(x) {
   is_wholenumber(x) && identical(as.integer(x), 1L)
 }
@@ -219,13 +218,13 @@ dim_is_one <- function(x) {
 # Check if a dimension expression is statically known and greater than 1.
 # Symbolic dimensions and zero are FALSE: neither is a supported scalarized
 # vector length.
-# Used by: maybe_reshape_vector_matrix()
+# Used by: conform_elementwise_operands()
 dim_known_greater_than_one <- function(x) {
   is_wholenumber(x) && as.integer(x) > 1L
 }
 
 # Check if a Fortran value is a 1x1 matrix.
-# Used by: r2f-arithmetic.R, r2f-logical.R
+# Used by: conform_elementwise_operands()
 is_one_by_one <- function(x) {
   stopifnot(inherits(x, Fortran))
   x@value@rank == 2L &&
@@ -304,7 +303,7 @@ elementwise_matrix_msg <-
 # NULL). size() is an inquiry, so applying it to operand expression text
 # does not evaluate the operand.
 # Used by: guard_conformable_dims()
-guard_dim_f <- function(dim, operand, axis = NULL, f = NULL) {
+dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
   if (!is.null(f)) {
     return(f)
   }
@@ -328,7 +327,7 @@ guard_dim_f <- function(dim, operand, axis = NULL, f = NULL) {
 # `hoist` is always live: r2f() opens one per statement before dispatching
 # to a handler, and every caller forwards the one it received.
 # emit_quickr_error_if() asserts it.
-# Used by: maybe_reshape_vector_matrix(), r2f-conditionals.R, r2f-matrix*.R
+# Used by: conform_elementwise_operands(), r2f-conditionals.R, r2f-matrix*.R
 guard_conformable_dims <- function(
   left_dim,
   right_dim,
@@ -349,18 +348,18 @@ guard_conformable_dims <- function(
     is.function(checker),
     is_bool(defer_static_error)
   )
-  conform <- checker(left_dim, right_dim)
-  if (!conform$ok) {
+  verdict <- checker(left_dim, right_dim)
+  if (!verdict$ok) {
     if (defer_static_error) {
       stop_deferred_branch_error(message)
     }
     stop(message, call. = FALSE)
   }
-  if (conform$unknown) {
-    left_guard <- guard_dim_f(left_dim, left, left_axis, left_f)
-    right_guard <- guard_dim_f(right_dim, right, right_axis, right_f)
+  if (verdict$unknown) {
+    left_guard <- dimension_guard_expr(left_dim, left, left_axis, left_f)
+    right_guard <- dimension_guard_expr(right_dim, right, right_axis, right_f)
     condition <- glue("{left_guard} /= {right_guard}")
-    if (isTRUE(conform$reject_zero)) {
+    if (isTRUE(verdict$reject_zero)) {
       condition <- glue(
         "{left_guard} == 0 .or. {condition}"
       )
@@ -376,7 +375,7 @@ guard_conformable_dims <- function(
 }
 
 # Reshape a vector to match a matrix's dimensions.
-# Used by: r2f-arithmetic.R, r2f-logical.R
+# Used by: r2f-constructors.R, conform_elementwise_operands()
 reshape_vector_for_matrix <- function(vec, rows, cols) {
   stopifnot(inherits(vec, Fortran))
   out_val <- Variable(vec@value@mode, list(rows, cols))
@@ -403,7 +402,7 @@ real_floor_expr <- function(x) {
 }
 
 # Convert a 1x1 matrix to a scalar.
-# Used by: r2f-arithmetic.R, r2f-logical.R
+# Used by: r2f-matrix.R, conform_elementwise_operands()
 scalarize_matrix <- function(mat) {
   stopifnot(inherits(mat, Fortran))
   out_val <- Variable(mat@value@mode)
@@ -429,7 +428,7 @@ scalarize_matrix <- function(mat) {
 # so strict callers pass FALSE and the 1x1 always takes the vector-matrix
 # path.
 # Used by: r2f-arithmetic.R, r2f-logical.R
-maybe_reshape_vector_matrix <- function(
+conform_elementwise_operands <- function(
   left,
   right,
   hoist,
@@ -617,13 +616,223 @@ maybe_reshape_vector_matrix <- function(
 mode_lattice <- c("logical", "integer", "double", "complex")
 
 # Rank of a mode on the lattice (NA for modes outside it, e.g. character).
-# Used by: reduce_promoted_mode(), scope.R (check_reassignment_narrowing)
+# Used by: reduce_promoted_mode(), check_reassignment_narrowing()
 mode_rank <- function(mode) {
   match(mode, mode_lattice)
 }
 
+# A dim expression can be emitted directly only if every
+# self-size symbol it references (`foo__len_`, `foo__dim_1_`) belongs
+# to an external variable -- those arrive as size dummies; a local's
+# self-sizes are phantoms backing implicit allocation and do not exist
+# in the generated Fortran.
+# Used by: check_assignment_compatible(), flatten_to_vector(),
+#          replacement_value_before_indices()
+dim_guard_spellable <- function(dim, scope) {
+  if (!is.language(dim)) {
+    return(TRUE)
+  }
+  if (is.null(scope)) {
+    return(FALSE)
+  }
+  matches <- regmatches(
+    syms <- all.vars(dim),
+    regexec("^(.*)__(dim_[0-9]+|len)_$", syms)
+  )
+  all(vapply(
+    matches,
+    function(match) {
+      if (!length(match)) {
+        return(TRUE) # not a self-size symbol
+      }
+      var <- get0(match[[2L]], scope)
+      inherits(var, Variable) && var@is_external
+    },
+    logical(1)
+  ))
+}
+
+# Reassignment cannot re-declare a Fortran variable to a new shape the
+# way R rebinds a symbol, so rank and every extent must stay
+# compatible. Scalar/array reassignments are refused. A deferred-shape
+# local (declared with NA dims) reallocates extents on
+# same-rank whole-array assignment, matching R, so it is exempt. Per
+# axis, the conformability policy applies: a statically known mismatch
+# is a compile error, dims that cannot be compared statically get a
+# statement-level runtime guard through `hoist` (spelled from the dim
+# expressions, when spellable), and provably equal dims need nothing.
+# Callers with no statement context (no hoist) get the static checks
+# only.
+# Used by: r2f-assign.R, scope.R
+check_assignment_compatible <- function(
+  name,
+  target,
+  value,
+  hoist = NULL,
+  scope = NULL
+) {
+  if (
+    is.null(value) ||
+      !inherits(target, Variable) ||
+      !inherits(value, Variable)
+  ) {
+    return(invisible())
+  }
+  target_scalar <- passes_as_scalar(target)
+  value_scalar <- passes_as_scalar(value)
+  # Two length-1 values conform whatever their ranks (a declared `double(1)`
+  # is rank 1; a literal is rank 0).
+  if (target_scalar && value_scalar) {
+    return(invisible())
+  }
+  deferred_local <- !target@is_external && has_self_size_dims(target)
+  if (target_scalar || value_scalar) {
+    # A deferred-shape local can genuinely take a new array shape.
+    if (deferred_local && !value_scalar) {
+      return(invisible())
+    }
+    # Otherwise one side is length 1 and the other is a real array. R
+    # rebinds the symbol to the new shape; Fortran cannot, and would
+    # silently broadcast a scalar across the array (or drop all but the
+    # first element of an array into a scalar).
+    stop(
+      "cannot reassign `",
+      name,
+      "`: replacement is ",
+      if (value_scalar) "a scalar" else "an array",
+      " but `",
+      name,
+      "` is ",
+      if (target_scalar) "a scalar" else "an array",
+      "; R would rebind `",
+      name,
+      "` to the new shape",
+      call. = FALSE
+    )
+  }
+  if (target@rank != value@rank) {
+    stop(
+      "cannot reassign `",
+      name,
+      "`: replacement rank (",
+      value@rank,
+      ") differs from the declared rank (",
+      target@rank,
+      "); R would rebind `",
+      name,
+      "` to the new shape",
+      call. = FALSE
+    )
+  }
+  if (deferred_local) {
+    # deferred-shape local: implicit (re)allocation matches R's rebind
+    return(invisible())
+  }
+  emitted <- character()
+  for (axis in seq_len(target@rank)) {
+    t_dim <- target@dims[[axis]]
+    v_dim <- value@dims[[axis]]
+    if (is_scalar_na(t_dim) || is_scalar_na(v_dim)) {
+      # Unknown extents need guards against actual stored arrays; deferred.
+      next
+    }
+    if (is_wholenumber(t_dim) && is_wholenumber(v_dim)) {
+      if (!identical(as.integer(t_dim), as.integer(v_dim))) {
+        stop(
+          "cannot reassign `",
+          name,
+          "`: dimension ",
+          axis,
+          " would change from ",
+          as.integer(t_dim),
+          " to ",
+          as.integer(v_dim),
+          "; R would rebind `",
+          name,
+          "` to the new shape",
+          call. = FALSE
+        )
+      }
+      next
+    }
+    if (
+      identical(
+        fortranize_expr_symbols(t_dim),
+        fortranize_expr_symbols(v_dim)
+      )
+    ) {
+      next
+    }
+    if (
+      is.null(hoist) ||
+        !dim_guard_spellable(t_dim, scope) ||
+        !dim_guard_spellable(v_dim, scope)
+    ) {
+      # Local self-size expressions are not available here. Tracking their
+      # runtime extents and guarding context-free assignments is deferred.
+      next
+    }
+    target_dim <- dims2f(list(t_dim), scope)
+    value_dim <- dims2f(list(v_dim), scope)
+    if (!nzchar(target_dim)) {
+      target_dim <- "1"
+    }
+    if (!nzchar(value_dim)) {
+      value_dim <- "1"
+    }
+    condition <- glue("({target_dim}) /= ({value_dim})")
+    # Different axes can spell the same guard (e.g. a square dest vs a
+    # square result, m/=k on both axes); emit each condition once.
+    if (condition %in% emitted) {
+      next
+    }
+    emitted <- c(emitted, condition)
+    emit_quickr_error_if(
+      condition,
+      sprintf("reassignment must preserve the shape of `%s`", name),
+      hoist,
+      scope
+    )
+  }
+  invisible()
+}
+
+# Reassignment cannot re-type a Fortran variable the way R promotes an R
+# binding, so a value whose mode sits above the variable's on the lattice
+# would be silently truncated by the assignment. Refuse at compile time
+# instead.
+# Used by: r2f-assign.R
+check_reassignment_narrowing <- function(name, target, value) {
+  if (
+    !inherits(target, Variable) ||
+      !inherits(value, Variable) ||
+      is.null(target@mode) ||
+      is.null(value@mode)
+  ) {
+    return()
+  }
+  target_rank <- mode_rank(target@mode)
+  value_rank <- mode_rank(value@mode)
+  if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
+    return()
+  }
+  stop(
+    "cannot reassign `",
+    name,
+    "`: assignment would narrow ",
+    value@mode,
+    " to ",
+    target@mode,
+    "; R would promote `",
+    name,
+    "` to ",
+    value@mode,
+    call. = FALSE
+  )
+}
+
 # Determine the promoted mode from a list of Fortran values.
-# Used by: r2f-arithmetic.R, r2f-constructors.R
+# Used by: r2f-arithmetic.R, r2f-matrix.R
 reduce_promoted_mode <- function(...) {
   getmode <- function(d) {
     if (inherits(d, Fortran)) {
@@ -647,8 +856,8 @@ reduce_promoted_mode <- function(...) {
 }
 
 # Create a Variable with conforming dimensions from multiple inputs.
-# Used by: r2f-arithmetic.R, r2f-logical.R, r2f-constructors.R, r2f-conditionals.R
-conform <- function(..., mode = NULL) {
+# Used by: r2f-arithmetic.R, r2f-logical.R
+infer_result_variable <- function(..., mode = NULL) {
   vars <- drop_nulls(list(...))
   # Report the promoted (lattice-join) mode: the emitted expression already
   # promotes (Fortran's rules match R for numeric mixes), and `<-` copies
