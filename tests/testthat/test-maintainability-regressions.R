@@ -36,3 +36,19 @@ test_that("reassignment shape guards preserve singleton axes", {
     "reassignment must preserve the shape"
   )
 })
+
+test_that("diagonal sizes preserve division before integer coercion", {
+  fn <- function(n) {
+    declare(type(n = integer(1)))
+    diag(nrow = as.integer(n / 2L * 2L))
+  }
+  expect_quick_identical(fn, 3L, 5L)
+})
+
+test_that("binding sizes preserve division before integer coercion", {
+  fn <- function(n, x) {
+    declare(type(n = integer(1)), type(x = double(as.integer(n / 2L * 2L))))
+    cbind(x, 0, deparse.level = 0)
+  }
+  expect_quick_identical(fn, list(3L, as.double(1:3)))
+})

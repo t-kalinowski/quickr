@@ -474,10 +474,10 @@ ensure_blas_operand_name <- function(x, hoist) {
   tmp@name
 }
 
-# Wrap an expression as a BLAS int literal.
+# Render size arithmetic before coercing to a BLAS integer.
 blas_int <- function(x) {
   x_str <- if (is.language(x)) {
-    gsub("([0-9]+)L\\b", "\\1", deparse1(fortranize_size_calls(x)))
+    dims2f(list(x), scope = NULL)
   } else if (is_wholenumber(x)) {
     as.character(as.integer(x))
   } else {

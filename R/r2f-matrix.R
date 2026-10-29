@@ -339,7 +339,7 @@ bind_dim_string <- function(dim) {
   } else if (is.numeric(dim)) {
     as.character(dim)
   } else {
-    gsub("([0-9]+)L\\b", "\\1", deparse1(fortranize_size_calls(dim)))
+    dims2f(list(dim), scope = NULL)
   }
 }
 
