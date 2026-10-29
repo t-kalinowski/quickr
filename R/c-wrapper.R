@@ -408,29 +408,31 @@ return_var_c_defs <- function(var, scope, c_hoist = NULL) {
 
 c_bridge_hoist <- function() {
   hoist <- new.env(parent = emptyenv())
-  hoist$as_int <- new.env(parent = emptyenv())
-  hoist$as_int_tmp <- new.env(parent = emptyenv())
+  hoist$as_scalar <- new.env(parent = emptyenv())
+  hoist$as_scalar_tmp <- new.env(parent = emptyenv())
   hoist$used_tmp <- new.env(parent = emptyenv())
   hoist$pending <- character()
   hoist
 }
 
-c_bridge_hoist_as_int <- function(hoist, sexp_name, expr) {
+c_bridge_hoist_as_scalar <- function(hoist, sexp_name, expr, c_type) {
   stopifnot(is.environment(hoist), is_string(sexp_name), is_string(expr))
 
-  existing <- get0(sexp_name, envir = hoist$as_int, inherits = FALSE)
+  key <- paste(c_type, sexp_name)
+  existing <- get0(key, envir = hoist$as_scalar, inherits = FALSE)
   if (is_string(existing)) {
     return(existing)
   }
 
-  tmp <- c_bridge_hoist_tmp_name(hoist, sexp_name)
-  assign(sexp_name, tmp, envir = hoist$as_int)
-  hoist$pending <- c(hoist$pending, glue("const int {tmp} = {expr};"))
+  tmp <- c_bridge_hoist_tmp_name(hoist, sexp_name, c_type)
+  assign(key, tmp, envir = hoist$as_scalar)
+  hoist$pending <- c(hoist$pending, glue("const {c_type} {tmp} = {expr};"))
   tmp
 }
 
-c_bridge_hoist_tmp_name <- function(hoist, sexp_name) {
-  existing <- get0(sexp_name, envir = hoist$as_int_tmp, inherits = FALSE)
+c_bridge_hoist_tmp_name <- function(hoist, sexp_name, c_type) {
+  key <- paste(c_type, sexp_name)
+  existing <- get0(key, envir = hoist$as_scalar_tmp, inherits = FALSE)
   if (is_string(existing)) {
     return(existing)
   }
@@ -440,7 +442,7 @@ c_bridge_hoist_tmp_name <- function(hoist, sexp_name) {
     safe <- paste0("x_", safe)
   }
 
-  tmp_base <- paste0("_as_int_", safe)
+  tmp_base <- paste0("_as_", c_type, "_", safe)
   tmp <- tmp_base
   i <- 1L
   while (isTRUE(get0(tmp, envir = hoist$used_tmp, inherits = FALSE))) {
@@ -448,7 +450,7 @@ c_bridge_hoist_tmp_name <- function(hoist, sexp_name) {
     tmp <- paste0(tmp_base, "_", i)
   }
   assign(tmp, TRUE, envir = hoist$used_tmp)
-  assign(sexp_name, tmp, envir = hoist$as_int_tmp)
+  assign(key, tmp, envir = hoist$as_scalar_tmp)
   tmp
 }
 
@@ -482,11 +484,14 @@ c_bridge_hoist_seq_checks <- function(hoist, from, to, by) {
 
 as_c_name <- function(var, c_hoist = NULL) {
   stopifnot(inherits(var, Variable))
-  expr <- glue("Rf_asInteger({var@name})")
+  # Preserve operand values until the enclosing size expression is coerced.
+  c_type <- if (identical(var@mode, "double")) "double" else "int"
+  coercion <- if (identical(c_type, "double")) "Rf_asReal" else "Rf_asInteger"
+  expr <- glue("{coercion}({var@name})")
   if (is.null(c_hoist)) {
     return(expr)
   }
-  c_bridge_hoist_as_int(c_hoist, var@name, expr)
+  c_bridge_hoist_as_scalar(c_hoist, var@name, expr, c_type)
 }
 
 dims2c_length_expr <- function(arg, scope) {

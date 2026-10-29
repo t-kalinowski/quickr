@@ -97,3 +97,19 @@ test_that("size coercions reject local as.integer functions", {
   }
   expect_quick_identical(identity, 2.9)
 })
+
+test_that("size arithmetic preserves double operands until integer coercion", {
+  fn <- function(x, values) {
+    declare(type(x = double(1)), type(values = double(as.integer(x))))
+    numeric(as.integer(10L - x))
+  }
+  expect_quick_identical(fn, list(2.9, c(1, 2)))
+
+  multiplied <- function(x, values) {
+    declare(type(x = double(1)), type(values = double(as.integer(2L * x))))
+    numeric(as.integer(2L * x))
+  }
+  # The input shape check catches early truncation before an undersized
+  # result could be allocated and written by the generated function.
+  expect_quick_identical(multiplied, list(2.9, as.double(1:5)))
+})
