@@ -738,6 +738,29 @@ test_that("scalar matrix broadcasting preserves operand order and dimensions", {
   expect_quick_identical(logical_data, list(matrix(as.double(1:4), 2, 2), TRUE))
 })
 
+test_that("scalar matrix fills capture named data before enclosing operands", {
+  numeric_fill <- function(x, s) {
+    declare(type(x = double(2, 2)), type(s = double(1)))
+    bump <- function() {
+      s <<- s + 1
+      0
+    }
+    (x + matrix(s, 2, 2)) + bump()
+  }
+  x <- matrix(as.double(1:4), 2, 2)
+  expect_quick_identical(numeric_fill, list(x, 1))
+
+  logical_fill <- function(x, flag) {
+    declare(type(x = double(2, 2)), type(flag = logical(1)))
+    flip <- function() {
+      flag <<- !flag
+      0
+    }
+    (matrix(flag, 2, 2) + x) + flip()
+  }
+  expect_quick_identical(logical_fill, list(x, FALSE), list(x, TRUE))
+})
+
 test_that("scalar matrix broadcasting leaves other expressions to matrix()", {
   shadowed <- function(x) {
     declare(type(x = double(2, 2)))
