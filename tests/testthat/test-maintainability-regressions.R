@@ -113,3 +113,44 @@ test_that("size arithmetic preserves double operands until integer coercion", {
   # result could be allocated and written by the generated function.
   expect_quick_identical(multiplied, list(2.9, as.double(1:5)))
 })
+
+test_that("replacement values precede subscript effects", {
+  local <- function() {
+    x <- c(0, 0, 0)
+    x[as.integer(runif(1L, 1, 4))] <- runif(1L)
+    x
+  }
+  host <- function() {
+    x <- c(0, 0, 0)
+    replace <- function() {
+      x[as.integer(runif(1L, 1, 4))] <<- runif(1L)
+      NULL
+    }
+    replace()
+    x
+  }
+  for (fn in list(local, host)) {
+    compiled <- quick(fn)
+    expect_identical(set_seed_and_call(compiled), set_seed_and_call(fn))
+  }
+
+  binding <- function() {
+    x <- c(0, 0, 0)
+    value <- 2
+    index <- function() {
+      value <<- 3
+      1L
+    }
+    x[index()] <- value
+    x
+  }
+  expect_quick_identical(binding, list())
+
+  deferred <- function(x) {
+    declare(type(x = double(3)), type(value = double(NA)))
+    value <- x
+    x[rev(seq_along(x))] <- value
+    x
+  }
+  expect_quick_identical(deferred, c(2, 3, 4))
+})
