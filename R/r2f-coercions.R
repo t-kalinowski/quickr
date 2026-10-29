@@ -20,7 +20,7 @@ r2f_handlers[["as.double"]] <- function(
   x <- maybe_cast_double(x)
 
   # R drops dimensions for as.double(<array>): the result is a vector.
-  flatten_to_vector(x, scope)
+  flatten_to_vector(x, scope, hoist)
 }
 
 r2f_handlers[["as.integer"]] <- function(
@@ -59,10 +59,10 @@ r2f_handlers[["as.integer"]] <- function(
   )
 
   # R drops dimensions for as.integer(<array>): the result is a vector.
-  flatten_to_vector(out, scope)
+  flatten_to_vector(out, scope, hoist)
 }
 
-r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ...) {
+r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   x_arg <- args$x %||% if (length(args) >= 1L) args[[1L]] else NULL
   if (is.null(x_arg) || is_missing(x_arg)) {
     stop("as.vector() expects `x`", call. = FALSE)
@@ -80,11 +80,11 @@ r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ...) {
     stop("as.vector() `mode` must be a string constant", call. = FALSE)
   }
 
-  if (mode %in% c("double", "numeric")) {
-    return(r2f(as.call(list(quote(as.double), x_arg)), scope, ...))
-  }
-  if (mode == "integer") {
-    return(r2f(as.call(list(quote(as.integer), x_arg)), scope, ...))
+  if (mode %in% c("double", "numeric", "integer")) {
+    # as.vector() uses built-in coercions regardless of local bindings.
+    coercion <- if (mode == "integer") quote(as.integer) else quote(as.double)
+    handler <- get_r2f_handler(coercion)
+    return(handler(list(x_arg), scope, ..., hoist = hoist))
   }
   if (!mode %in% c("any", "logical", "complex")) {
     stop(
@@ -94,7 +94,7 @@ r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ...) {
     )
   }
 
-  x <- r2f(x_arg, scope, ...)
+  x <- r2f(x_arg, scope, ..., hoist = hoist)
   if (mode != "any" && !identical(x@value@mode, mode)) {
     stop(
       "as.vector(x, mode = ",
@@ -104,5 +104,5 @@ r2f_handlers[["as.vector"]] <- function(args, scope = NULL, ...) {
       call. = FALSE
     )
   }
-  flatten_to_vector(x, scope)
+  flatten_to_vector(x, scope, hoist)
 }

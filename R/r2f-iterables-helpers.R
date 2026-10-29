@@ -22,18 +22,27 @@ r2f_iterable_context <- function(calls) {
 # Flatten a rank>1 value to a rank-1 vector, matching R's column-major
 # drop-dims semantics for as.double()/as.integer()/as.vector() and
 # matrix arguments to c(). Scalars and rank-1 values pass through
-# unchanged. The canonical `reshape(source, [len])` spelling lives here
+# unchanged; singleton arrays become scalar expressions. The canonical
+# `reshape(source, [len])` spelling lives here
 # so every flatten site shares it; the output length is
 # value_length_expr(x@value) (NA -> a runtime size() query). The output
 # mode is x's own mode -- callers cast before flattening if they want a
 # different one.
 # Used by: r2f-coercions.R, r2f-constructors.R
-flatten_to_vector <- function(x, scope) {
+flatten_to_vector <- function(x, scope, hoist) {
   stopifnot(inherits(x, Fortran))
   if (passes_as_scalar(x@value) || x@value@rank <= 1L) {
     return(x)
   }
   x <- booleanize_logical_as_int(x)
+  if (all(map_lgl(x@value@dims, dim_is_one))) {
+    x <- hoist_unless_name(x, hoist)
+    indices <- str_flatten_commas(rep("1", x@value@rank))
+    return(Fortran(
+      glue("{x}({indices})"),
+      Variable(x@value@mode, list(1L))
+    ))
+  }
   len_expr <- value_length_expr(x@value)
   len_str <- if (is_scalar_na(len_expr)) {
     glue("size({x})")

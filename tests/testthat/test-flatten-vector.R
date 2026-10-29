@@ -100,3 +100,40 @@ test_that("flattened logical matrix expressions support logical consumers", {
   expect_quick_identical(concatenate, c(TRUE, FALSE))
   expect_quick_identical(reduce, c(TRUE, FALSE), c(FALSE, FALSE))
 })
+
+test_that("flattened singleton matrices broadcast as scalars", {
+  fn <- function(x) {
+    declare(type(x = double(1, 1)))
+    as.vector(x) + c(1, 2, 3)
+  }
+  expect_quick_identical(fn, list(matrix(2, 1, 1)))
+})
+
+test_that("flattened singleton expressions and arrays broadcast as scalars", {
+  fn <- function(x) {
+    declare(type(x = double(1, 1, 1)))
+    as.integer(x + 1) + c(1L, 2L, 3L)
+  }
+  expect_quick_identical(fn, list(array(2.5, c(1, 1, 1))))
+
+  logical_fn <- function(x) {
+    declare(type(x = logical(1, 1)))
+    as.vector(x) & c(TRUE, FALSE, TRUE)
+  }
+  expect_quick_identical(logical_fn, list(matrix(TRUE, 1, 1)))
+})
+
+test_that("as.vector numeric coercions ignore local coercion bindings", {
+  for (mode in c("integer", "double", "numeric")) {
+    fn <- eval(substitute(
+      function(x) {
+        declare(type(x = double(2)))
+        as.integer <- function(y) y + 100
+        as.double <- function(y) y + 100
+        as.vector(x, mode = MODE)
+      },
+      list(MODE = mode)
+    ))
+    expect_quick_identical(fn, c(1.5, 2.5))
+  }
+})
