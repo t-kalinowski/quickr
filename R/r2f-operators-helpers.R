@@ -187,6 +187,16 @@ lower_elementwise_operands <- function(args, scope, ..., hoist) {
       fill_args <- fills[[fill_index]]
       other <- r2f(args[[3L - fill_index]], scope, ..., hoist = hoist)
       fill <- r2f(fill_args$data, scope, ..., hoist = hoist)
+      if (is.symbol(fill_args$data)) {
+        # matrix() captures its data now, even when an enclosing operator
+        # later mutates the binding. Preserve that value without an array.
+        fill <- materialize_via_hoist(
+          fill,
+          fill@value@mode,
+          fill@value@dims,
+          hoist
+        )
+      }
       dims <- fill_args[c("nrow", "ncol")]
       dims_f <- lapply(dims, r2f, scope, ..., hoist = hoist)
       for (axis in 1:2) {
