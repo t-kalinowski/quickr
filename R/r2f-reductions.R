@@ -9,10 +9,8 @@
 # when later arguments mutate captures or fail during lowering.
 # --- Helpers ---
 
-# A c(TRUE)-style literal lowers to a rank-1 Fortran array constructor
-# ("[ ... ]") even when its value passes as a scalar; any()/all() must
-# wrap such values to reduce them back to a scalar expression.
-# Used by: any/all handler
+# Singleton array constructors ("[ ... ]") still need array intrinsics,
+# even when their value metadata passes as a scalar.
 renders_as_array_constructor <- function(f) {
   startsWith(trimws(as.character(f)), "[")
 }
@@ -378,15 +376,20 @@ register_r2f_handler(
 
 
 r2f_handlers[["which.max"]] <- r2f_handlers[["which.min"]] <-
-  function(args, scope = NULL, ...) {
+  function(args, scope = NULL, hoist = NULL, ...) {
     stopifnot(length(args) == 1)
     call_name <- last(list(...)$calls)
-    x <- r2f(args[[1L]], scope, ...)
+    x <- r2f(args[[1L]], scope, hoist = hoist, ...)
     stopifnot(
       "Values passed to which.max()/which.min() must be 1d arrays" = x@value@rank ==
         1
     )
     valout <- Variable(mode = "integer") # integer scalar
+
+    if (passes_as_scalar(x@value) && !renders_as_array_constructor(x)) {
+      hoist_unless_name(x, hoist)
+      return(Fortran("1_c_int", valout))
+    }
 
     if (x@value@mode == "logical") {
       # R semantics:

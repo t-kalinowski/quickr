@@ -165,3 +165,26 @@ test_that("clamp on a 1d array works with nested scalar min/max", {
   expect_identical(clamp(x, lo, hi), pmin(pmax(x, lo), hi))
   expect_quick_identical(clamp, list(x, lo, hi))
 })
+
+test_that("length and extrema indices accept singleton concatenations", {
+  for (op in c("length", "which.max", "which.min")) {
+    for (value in list(2L, TRUE)) {
+      fn <- as.function(list(call(
+        "{",
+        as.call(list(as.symbol(op), call("c", value)))
+      )))
+      expect_quick_identical(fn, list())
+    }
+  }
+})
+
+test_that("singleton consumers evaluate their operands", {
+  fn <- function() {
+    n <- length(c(runif(1L)))
+    hi <- which.max(c(runif(1L)))
+    lo <- which.min(c(runif(1L)))
+    c(n, hi, lo, runif(1L))
+  }
+  compiled <- quick(fn)
+  expect_identical(set_seed_and_call(compiled), set_seed_and_call(fn))
+})
