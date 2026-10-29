@@ -188,3 +188,30 @@ test_that("singleton consumers evaluate their operands", {
   compiled <- quick(fn)
   expect_identical(set_seed_and_call(compiled), set_seed_and_call(fn))
 })
+
+test_that("transpose accepts singleton concatenations", {
+  fn <- function() {
+    t(c(2))
+  }
+  expect_quick_identical(fn, list())
+
+  logical_fn <- function(x) {
+    declare(type(x = logical(1)))
+    t(c(x))
+  }
+  expect_quick_identical(logical_fn, TRUE, FALSE)
+})
+
+test_that("logical subsets accept singleton concatenation sources", {
+  fn <- function(mask) {
+    declare(type(mask = logical(1)))
+    length(c(2)[c(mask)])
+  }
+  expect_quick_identical(fn, TRUE, FALSE)
+
+  logical_fn <- function(x, mask) {
+    declare(type(x = logical(1)), type(mask = logical(1)))
+    length(c(x)[c(mask)])
+  }
+  expect_quick_identical(logical_fn, list(TRUE, TRUE), list(FALSE, FALSE))
+})

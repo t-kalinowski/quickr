@@ -190,9 +190,11 @@ r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
     val <- Variable(x@value@mode, list(x@value@dims[[2]], x@value@dims[[1]]))
     return(Fortran(glue("transpose({x})"), val))
   } else if (x@value@rank == 1) {
+    # Lowering compound vector-length expressions here remains deferred.
     len <- x@value@dims[[1]]
     val <- Variable(x@value@mode, list(1L, len))
-    return(Fortran(glue("reshape({x}, [1, int({len})])"), val))
+    source <- if (passes_as_scalar(x@value)) glue("[{x}]") else x
+    return(Fortran(glue("reshape({source}, [1, int({len})])"), val))
   } else if (x@value@rank == 0) {
     return(x)
   } else {

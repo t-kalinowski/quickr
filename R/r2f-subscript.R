@@ -119,8 +119,9 @@ r2f_handlers[["["]] <- function(
     if (hoist_mask(mask)) {
       return(var)
     }
+    source <- if (passes_as_scalar(var@value)) glue("[{var}]") else var
     return(Fortran(
-      glue("pack({var}, {mask})"),
+      glue("pack({source}, {mask})"),
       Variable(var@value@mode, dims = NA)
     ))
   }
