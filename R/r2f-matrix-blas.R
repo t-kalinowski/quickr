@@ -1038,6 +1038,9 @@ lapack_solve_qr <- function(
     hoist$emit(glue("{B_work@name}(1:{m_f}, 1:{nrhs_f}) = {B_input_name}"))
   }
 
+  # Known limitation: a statically single-column qr.solve() makes these
+  # length-one work arrays scalar. Preserving array storage for these
+  # workspaces is deferred.
   qraux <- hoist$declare_tmp_at_point(mode = "double", dims = list(n))
   jpvt <- hoist$declare_tmp_at_point(mode = "integer", dims = list(n))
   work <- hoist$declare_tmp_at_point(mode = "double", dims = list(n, 2L))

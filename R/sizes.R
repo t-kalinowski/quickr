@@ -240,6 +240,9 @@ r2size <- function(r, scope) {
             }
             # An explicit coercion is exactly what the "not an integer"
             # warning asks for, so don't also warn about the operand.
+            # Compound operands still follow the existing size-expression
+            # rules: e.g. as.integer(x + 0.5) rejects the fractional literal.
+            # General real-valued size-expression parsing is deferred.
             inner <- withCallingHandlers(
               r2size(r[[2L]], scope),
               warning = function(w) {
