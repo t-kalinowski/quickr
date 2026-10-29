@@ -82,3 +82,21 @@ test_that("as.integer() drops dimensions for an int-backed logical matrix", {
     list(matrix(c(TRUE, FALSE, TRUE, FALSE, TRUE, TRUE), 2, 3))
   )
 })
+
+test_that("flattened logical matrix expressions support logical consumers", {
+  coerce <- function(x) {
+    declare(type(x = logical(2)))
+    as.integer(as.vector(diag(x, 2L, 2L)))
+  }
+  concatenate <- function(x) {
+    declare(type(x = logical(2)))
+    c(diag(x, 2L, 2L), TRUE)
+  }
+  reduce <- function(x) {
+    declare(type(x = logical(2)))
+    any(as.vector(diag(x, 2L, 2L)))
+  }
+  expect_quick_identical(coerce, c(TRUE, FALSE))
+  expect_quick_identical(concatenate, c(TRUE, FALSE))
+  expect_quick_identical(reduce, c(TRUE, FALSE), c(FALSE, FALSE))
+})

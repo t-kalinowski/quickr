@@ -33,6 +33,7 @@ flatten_to_vector <- function(x, scope) {
   if (passes_as_scalar(x@value) || x@value@rank <= 1L) {
     return(x)
   }
+  x <- booleanize_logical_as_int(x)
   len_expr <- value_length_expr(x@value)
   len_str <- if (is_scalar_na(len_expr)) {
     glue("size({x})")
