@@ -15,84 +15,27 @@ knitr::opts_chunk$set(
 )
 ```
 
-quickr compiles a subset of R. This vignette documents the semantics of
-that subset: what type a result has, when shapes are checked, and every
-place where a compiled function deliberately behaves differently from R.
-Most deliberate boundaries take the form of an error where R would return
-a value. The known value, type, and evaluation differences are documented
-separately below.
+quickr compiles a subset of R to Fortran. This vignette describes result
+types, operand shape checks, and differences to account for when writing
+compiled functions. It covers the supported numerical operations rather than
+all of R's behavior.
 
-## The contract
+## What to expect
 
-> Except for the documented non-error differences below,
-> `quick(f)(x)` either returns exactly what `f(x)` returns — same values,
-> same `typeof()`, same shape — or raises an error. Never a third thing.
-> The unchecked `NA` inputs, NaN-derived logical results, and out-of-bounds
-> runtime subscripts documented below are outside this contract.
+For supported inputs, quickr aims to preserve R's values, types, and shapes.
+It rejects many unsupported operations at compile time. When an operand
+shape is only known at run time, supported conformability checks run in the
+compiled function. Error messages need not match R's.
 
-When quickr cannot reproduce R's behavior, it refuses. It prefers to
-refuse at compile time, when `quick()` is called; when the decision
-depends on values only known at run time (for example, sizes declared as
-`NA` or as symbolic constraints like `double(n)`), the compiled function
-performs a cheap runtime check and raises an error on mismatch. The text
-of these error messages differs from R's.
+Compilation is not a general proof that a function behaves like R. The
+restrictions and known differences below still apply. In particular, callers
+must supply valid subscripts and dimensions, avoid missing values and integer
+overflow, and initialize local variables before they are read. quickr does
+not perform general definite-assignment or memory-safety analysis.
 
-The rest of this vignette is that contract in detail: first result
-*types*, then operand *shapes*, then the list of deliberate divergences.
-
-Local variables must be initialized before use on every control-flow path,
-including when they are returned. A binding created only in one arm of an
-`if` or inside a possibly empty loop is rejected if it is read afterward.
-Initialize it before the conditional or loop, or assign it in both arms of
-the `if`. This check is conservative: beyond statically nonempty iterables
-and supported nonempty sequences without `break` or `next`, it does
-not prove that a loop executes or that separate conditions imply one another.
-For the loop variable itself, initialization before the loop is insufficient:
-R resets it to `NULL` when the iterable is empty. quickr rejects reads of that
-binding after a possibly empty loop, including reads through local closures.
-Use a separate result variable assigned in the body when an empty loop should
-preserve an initial value. Nonempty loops retain the last value assigned to the
-loop variable, including assignments made in the body.
-Inside a `declare(parallel())` region, newly introduced body locals and nested
-loop bindings are private to each thread. Their final values are preserved after
-the region only when quickr can prove they are assigned on every iteration path.
-Initialization before the parallel region is insufficient; a later read of a possibly skipped binding is
-rejected. Initialize it within each iteration or assign it again after the
-region before reading it. The same conservative `break`/`next` checks apply.
-
-A local closure reads enclosing variables through Fortran host association,
-so the same requirement applies wherever the closure is reached: every
-enclosing variable it reads must already be initialized at that point.
-This includes reads reached through other local closures. Nested functions
-have their own bindings: their arguments and local assignments do not
-initialize variables in an enclosing function.
-Reads before a closure's first local assignment can use an initialized
-enclosing binding, including `x <- x * 2`. After a local assignment has been
-visited in any branch, later reads require that local to be initialized on
-every path. quickr refuses conditional fallback between a local and an
-enclosing binding. Braces around statements do not create a separate scope.
-Default argument expressions are included in the capture checks. At a direct
-closure call, an explicitly supplied argument replaces its default and does
-not require that default's captures. Checks through other closure references
-remain conservative and include all defaults. Defaults that refer to other
-formals use their matched arguments, including chained defaults, rather than
-same-named bindings in the caller. Recursive default dependencies and defaults
-that depend on bindings assigned in the callee body are rejected.
-Calls are also refused if a caller's binding shadows a required lexical
-capture, in either the body or an omitted default; use distinct names in
-those scopes. Explicit arguments continue to resolve in the caller's scope.
-Arguments and defaults must be pure expressions whose dependencies are not
-superassigned by the callee or other closures it references. This check is
-conservative about control flow and nested definitions: quickr does not
-implement R's lazy promise-forcing order.
-Local closure definitions must occur outside conditionals and loops in
-their enclosing function. They select a procedure at compile time; quickr
-rejects runtime selection or rebinding of a closure. Define the closure
-before the control flow, and put any conditional behavior in its body.
-A local function name may be bound only once in its lexical scope, even in
-straight-line code. It cannot also be used for a variable, argument, or loop
-index in that scope. Use distinct names for distinct functions. Nested
-functions have separate scopes and may use the same local names.
+```{r}
+library(quickr)
+```
 
 ## Types
 
@@ -127,8 +70,8 @@ highest type among them — except where the table says otherwise:
 | single-argument `min()`, `max()`, and `sum()` | type of `x`; logical counts as integer |
 | `abs()` | type of `x`, except complex input returns double; logical counts as integer |
 | `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
-| `%*%`, `crossprod()`, `solve()`, and other linear algebra | always double, as in R; complex operands are a compile error (see [complex values](#complex)) |
-| `t(x)`, `diag(x)` | same type as `x`; the identity forms `diag(n)` are double, as in R (see [scalar `t()`](#scalar-transpose)) |
+| BLAS/LAPACK operations such as `%*%`, `crossprod()`, and `solve()` | double for supported real inputs; complex operands are a compile error (see [complex values](#complex)) |
+| `t(x)`, `diag(x)` | same type as `x`; supported identity forms such as `diag(3L)` are double (see [length-one `diag()`](#length-one-diag) and [scalar `t()`](#scalar-transpose)) |
 | `cbind()` / `rbind()` | join of all argument types |
 
 For example, mixing integer and double promotes:
@@ -156,10 +99,9 @@ typeof(r)
 #> [1] "integer"
 ```
 
-**A note on `^`:** the result is always double, as in R. When the
-exponent has integer type, quickr computes the power with an integer
-exponent. This is exact and well-defined for negative bases:
-`(-2) ^ 3L` is exactly `-8`. A whole-valued *double* exponent remains a
+**A note on `^`:** the result is double for real operands, as in R. When the
+exponent has integer type, quickr uses an integer exponent, which supports
+negative bases: `(-2) ^ 3L` is `-8`. A whole-valued *double* exponent remains a
 real exponent; see [real exponents](#real-exponents) below.
 
 ### Reassignment cannot narrow a type
@@ -189,53 +131,20 @@ the existing type. For example, `x <- 1L` with a double `x` leaves `x`
 double in quickr and makes it integer in R. The same distinction applies
 to whole-variable superassignment (`x <<- 1L`).
 
-A `for` binding must have exactly the iterable's element type if that variable
-already exists. Both directions of type change are compile errors: even an
-integer element assigned to a double variable would retain the wrong result
-type. Use a fresh loop variable, or initialize it with the iterable's type.
-This applies to both value iteration and sequence iteration. `seq()` with an
-explicit `by` supports integer bounds and steps only; double inputs are refused
-even when they are whole-valued, because R can return a double sequence.
-
 ## Shapes
 
-Every operation that combines two or more values checks that their
-shapes are compatible. A shape question has one of three answers, and
-each answer has a fixed consequence:
+Elementwise arithmetic and comparisons, and the linear-algebra operations
+below, check operand conformability. Known incompatible dimensions produce
+compile-time errors. Symbolic dimensions that cannot be proven equal are
+checked at run time. These checks do not cover every assignment or
+constructor: keep a binding's shape stable, and use valid, nonnegative
+constructor sizes. Do not rely on mismatched section replacements being
+rejected before a write.
 
-- **Provably compatible** at compile time — allowed, no check emitted.
-- **Provably incompatible** at compile time — compile error.
-- **Unknown** at compile time (sizes declared `NA`, or symbolic sizes
-  that cannot be proven equal) — the compiled function checks at run
-  time and raises an error on mismatch.
-
-There is no case where a mismatch is silently accepted.
-
-A variable keeps its shape for the duration of a call. Whole-variable
-assignment (`x <- value` or `x <<- value`) requires the same length and
-dimensions as the existing binding. Known mismatches are compile errors;
-dynamic extents are checked at runtime. For example,
-`x <- integer(2L); x <- integer(3L)` is refused. To fill an existing vector
-with a scalar, use subassignment such as `x[] <- 0L`.
-Locals declared with unspecified extents acquire their shape on first
-assignment and must preserve it afterward.
-
-Constructor dimensions use the value at the constructor's execution point.
-For example, `n <- 2L; n <- 3L; matrix(1, n + 1L, 1L)` creates a `4x1`
-matrix. Copying a size into another variable preserves the copied value:
-later assignments to the original variable do not change that copy.
-
-Returned arrays are allocated before the function body runs. Their dimensions
-must therefore be constants or expressions that can be determined from the
-inputs before executing the body. Arithmetic on unchanged input sizes is
-supported; a runtime-dependent choice such as
-`n <- 2L; if (flag) n <- 3L; matrix(1, n, 1L)` is refused when the matrix
-is returned. The compile-time error reports that the output size could not be
-verified before the function body runs and identifies the output expression
-and dimension. This analysis is conservative about loops, closure mutations,
-and copies of mutable inputs. Local arrays may use body-dependent dimensions;
-for example, the conditional matrix above can be constructed locally and
-reduced with `sum()` to return a scalar.
+Returned arrays are allocated before the generated function body runs.
+Use dimensions determined by unchanged inputs or constants. Body-dependent
+sizes and mutation of variables used in size expressions are not generally
+tracked safely.
 
 For elementwise operations (arithmetic, comparisons, `&`, `|`),
 "compatible" means:
@@ -243,23 +152,23 @@ For elementwise operations (arithmetic, comparisons, `&`, `|`),
 | Operands | Behavior |
 |---|---|
 | scalar with a nonempty array | allowed; the scalar is broadcast |
-| identical shapes | allowed |
+| identical nonempty shapes | allowed |
 | vector with matrix, `length(vec) == nrow(mat)` | allowed; the vector is recycled column-wise, exactly as in R |
-| a `1x1` matrix in *arithmetic* with a vector of statically known length other than 1 | recycled; the result is a plain vector without dims, exactly as in R (which warns that this recycling is deprecated) |
+| a `1x1` matrix in *arithmetic* with a vector of statically known length greater than 1 | recycled; the result is a plain vector without dims, exactly as in R (which warns that this recycling is deprecated) |
 | a `1x1` matrix in comparisons and `&` / `|` | treated as a one-row matrix; mismatched shapes are rejected, and R errors here too |
 | anything else — unequal lengths, even when one divides the other | **error**: R-style recycling is not supported |
 
 A `1x1` matrix meeting a vector whose length is only known at run time
-is the one place where R's *result shape* depends on a runtime value: R
+is a case where R's *result shape* depends on a runtime value: R
 keeps the `1x1` dims when the vector has length 1 and drops them for
-any other length. A compiled function's result shape cannot depend on a
-value, so quickr treats the `1x1` as a one-row matrix there instead:
+any other length. Whether the result has dimensions must be fixed at compile
+time, so quickr treats the `1x1` as a one-row matrix there instead:
 the compiled function checks that the vector has length 1 and returns a
 `1x1` matrix — matching R exactly — and errors on a longer vector,
 where R would perform the deprecated recycling.
 
-The last row is the important one. In R, `1:6 + c(10, 20)` recycles the
-shorter vector. quickr never does this:
+In R, `1:6 + c(10, 20)` recycles the shorter vector. quickr rejects
+this form of recycling:
 
 ```{r}
 quick(function(x, y) {
@@ -285,9 +194,7 @@ f(c(1, 2, 3), c(1, 2))
 #>   operand; R-style recycling is not supported
 ```
 
-The two recycling forms that quickr *does* support — scalars, and a
-vector spanning the rows of a matrix — are exactly the ones with an
-exact, non-partial interpretation:
+Scalars and vectors spanning the rows of a matrix can be recycled:
 
 ```{r}
 f <- quick(function(x, m) {
@@ -333,9 +240,9 @@ would be equal.
 
 ## Differences from R
 
-This section lists quickr's error divergences and known non-error
-differences. If you find another case where a compiled function silently
-returns something different from R, that is a bug — please report it.
+This section describes supported restrictions and known differences. It is
+not an exhaustive list of implementation defects. Please report unexpected
+results from supported numerical code.
 
 ### Integer and logical `prod()` results retain their type {#prod}
 
@@ -369,9 +276,10 @@ calculation can exceed the integer range.
 
 ### Zero divisors in `%%` and `%/%`
 
-R returns `NA` or `NaN` with a warning for a zero divisor. Fortran's
-remainder and division operations do not define it, so quickr refuses a
-literal zero divisor at compile time and checks computed divisors at run time.
+R can return `NA`, `NaN`, or an infinity for a zero divisor, depending on
+the operation and operand types. quickr rejects literal zero
+divisors in `%%` and `%/%`, but does not check computed divisors. Ensure
+these divisors are nonzero before calling compiled code.
 
 ### Floating `%/%` can differ at quotient boundaries
 
@@ -383,9 +291,10 @@ returns `4` in R and `5` in quickr.
 ### Empty `min()` and `max()` inputs are rejected
 
 R returns `Inf` from `min()` and `-Inf` from `max()` when the input is empty.
-quickr does not support those identity values, so it rejects `min()` and
-`max()` calls when every input is empty. Empty operands in a multi-argument
-call are ignored when at least one other operand contributes a value.
+quickr rejects ordinary array reductions when every input is empty. Empty
+operands in a multi-argument call are ignored when another operand
+contributes a value. Scalar logical selections are not covered by these
+empty-input checks; avoid reductions over such selections.
 
 Empty `which.min()` and `which.max()` inputs also differ. R returns
 `integer(0)`; quickr returns the scalar index produced by Fortran's
@@ -413,9 +322,9 @@ Comparisons involving `NaN` do not implement R's logical `NA` result.
 For example, for a declared double scalar `x = NaN`, R evaluates `x == x`
 to `NA`, while compiled code evaluates it to `FALSE`. Equality and ordering
 comparisons involving `NaN`, and logical results derived from them, are
-outside the exact-result contract, even when the result is returned without
-branching. This applies both to input `NaN` values and to those produced by
-arithmetic inside the compiled function.
+unsupported, even when the result is returned without branching. This applies
+both to input `NaN` values and to those produced by arithmetic inside the
+compiled function.
 
 ### No partial recycling
 
@@ -430,26 +339,8 @@ longer vector, where R would recycle with a deprecation warning.
 
 Non-fill `array(data, dim)` calls also refuse to recycle `data` when it is shorter than `prod(dim)`.
 
-Section replacement (`x[...] <- value` or `x[...] <<- value`) accepts a
-replacement of length one, including when its length is only known at
-runtime. Other replacements must match the selected section's rank and
-extents; quickr refuses implicit reshaping and recycling. Known mismatches
-are compile-time errors, and dynamic shapes are checked before the write.
-An empty selection performs no write. The replacement is evaluated before
-the indices, as in R.
-
-One-dimensional `array()` results retain their `dim` attribute, including
-arrays of length zero or one. Copies, local closure calls, and elemental
-arithmetic preserve this distinction; `c()`, `as.double()`, and
-`as.integer()` remove dimensions as in R. Whole-variable reassignment must
-preserve the array-versus-vector distinction as well as its extents.
-
-Subsetting a one-dimensional array with `drop = TRUE`, `rev()`, and `drop()`
-remove its dimension when the result has length one. When that length is
-only known at runtime, quickr retains the array shape and raises an error
-for length one. Use `drop = FALSE` for subsetting that must retain the
-dimension, or convert to a vector with `c()` before the operation. Empty
-indexing (`x[]`) preserves the array's dimensions for every length.
+One-dimensional arrays are not consistently distinguished from vectors.
+Do not rely on preserving their `dim` attribute through compiled operations.
 
 `matrix(data, nrow, ncol)` requires both dimensions and refuses
 `byrow = TRUE`; R can infer an omitted dimension and supports row-wise filling.
@@ -493,19 +384,17 @@ assigning `1L` to a double `x` leaves `x` double. This is a non-error
 difference for whole-variable assignment, since R changes `x` to integer.
 Subassignment retains the higher type in both R and quickr.
 
-### `sapply()` requires nonempty input
+### Empty `sapply()` results
 
-R returns `list()` when `sapply()` receives an empty iterable. quickr's
-compiled output has a fixed atomic type, so known-empty inputs are refused
-at compile time and dynamic lengths are checked at runtime. This applies
-whether the output variable already exists or is inferred from the callback,
-including `simplify = "array"`. Nonempty inputs use the usual simplification.
+R returns `list()` for an empty `sapply()` input. quickr's compiled output
+has a fixed atomic type, so it cannot reproduce that result. Use nonempty
+inputs; an empty input is not consistently rejected.
 
 ### Complex values are elementwise-only {#complex}
 
 Elementwise arithmetic and equality comparisons handle complex values
 natively, including mixed integer, double, and complex operands:
-`complex + double` promotes to complex, as in R. Everything else refuses:
+`complex + double` promotes to complex, as in R. Restrictions include:
 
 - **Logical-complex pairs.** `+`, `-`, `*`, `==`, and `!=` do not promote
   a logical operand to complex, so those pairs are compile errors where R
@@ -515,10 +404,10 @@ natively, including mixed integer, double, and complex operands:
   `y` is a compile error where R returns a complex vector.
 - **Coercion.** `as.double()` refuses complex input instead of discarding
   the imaginary parts with a warning as R does.
-- **Linear algebra.** `%*%`, `crossprod()`, `solve()`, `chol()`, and the
-  rest of the linear-algebra surface refuse complex operands at compile
-  time; quickr's lowerings are double-only, where R computes complex
-  results.
+- **Linear algebra.** `%*%`, `crossprod()`, `solve()`, and `chol()` refuse
+  complex operands at compile time; these lowerings are double-only.
+  R supports complex operands for
+  `%*%`, `crossprod()`, and `solve()`, but not for every linear-algebra routine.
 
 (`t(x)` and `diag(x)` are mode-preserving and keep working on complex
 values; order comparisons and `%%` on complex values are errors in R
@@ -532,11 +421,9 @@ result that R rejects as computationally singular.
 
 ### `runif()` bound differences
 
-quickr requires a statically scalar `n` in `runif(n)`. R also accepts a
-vector and uses its length when that length exceeds one; quickr rejects
-non-scalar and unknown-length counts at compile time. Use an explicit
-scalar count, such as `length(x)`, when the number of draws is a vector's
-length.
+Use a nonnegative scalar count and scalar bounds with `runif()`. R also
+accepts a vector count and recycled vector bounds; these forms are not
+supported reliably by quickr and are not consistently rejected.
 
 R returns `NaN` values with a warning when `runif()` is called with
 `min > max`. quickr applies its uniform scaling formula without checking
@@ -547,43 +434,44 @@ When `min` and `max` are equal, R returns the bound without consuming an RNG
 value. quickr still draws and scales a uniform value, so the result is equal
 but the subsequent RNG state differs.
 
-quickr also requires scalar `min` and `max` bounds. R recycles vector bounds
-elementwise across the draws; quickr rejects a non-scalar bound at compile
-time rather than reshaping the result. Draw with scalar bounds and scale the
-result explicitly when the bounds vary per element.
-
-`runif()` is supported only in serial generated code. A loop or `sapply()`
-marked by `declare(parallel())` rejects it to avoid sharing R's RNG across
-threads.
+Keep RNG calls out of parallel regions. Direct `runif()` calls in parallel
+loops are rejected, but calls through nested local closures are not generally
+tracked for this purpose.
 
 ### Return allocation and observable effects
 
-C validates return dimensions and allocates all returned arrays before the
-generated Fortran body runs. Operation-specific checks, such as matrix
-conformability, execute in Fortran before the native operation. An allocation
-error can therefore occur before an operation reports an invalid shape.
-quickr does not impose a memory budget or promise to avoid large allocations
-for computations that will later fail; R's allocator handles allocation failure.
+C allocates returned arrays before the generated Fortran body runs.
+Operation-specific checks, such as matrix conformability, execute in Fortran
+before the native operation. An allocation error can therefore occur before
+an operation reports an invalid shape. quickr does not impose a memory budget.
 
-Functions with runtime return dimensions and preceding RNG or output effects
-are supported. On successful calls, those effects execute in the generated
-body. On failing calls, return-size validation or allocation can prevent
-prints or random draws that R would have performed before encountering the
-error. quickr does not promise the same first error or the same partial effects
-as R on failing calls.
+Dimension arithmetic is not generally protected from overflow. Use sizes
+whose intermediate expressions and final array lengths are representable.
+On failing calls, compilation or allocation can also prevent prints or random
+draws that R would have performed. quickr does not promise the same first
+error or the same partial effects as R.
 
 ### Scalar transpose {#scalar-transpose}
 
-R's `t(x)` gives a scalar input `1x1` matrix dimensions. quickr returns the
-scalar without dimensions. Vector and matrix transposes retain their
-documented shapes.
+R's `t(1)` returns a `1x1` matrix. quickr returns the literal scalar without
+dimensions. Transposing an argument declared as a length-one vector, such as
+`double(1)`, can instead fail during native compilation. These scalar cases
+are separate from the supported vector and matrix transpose forms.
+
+### Length-one `diag()` arguments {#length-one-diag}
+
+Literal identity forms such as `diag(3L)` produce a double identity matrix.
+An argument declared as a length-one vector instead follows the diagonal-value
+form: `diag(n)` for `n = 3L` declared as `integer(1)` currently returns an
+integer `1x1` matrix containing `3`, where R returns a `3x3` identity matrix.
+Use an explicit identity form such as `diag(nrow = n)` when the size is an
+argument.
 
 ### Subscript bounds are only partially checked
 
-R validates every subscript: `x[0]` drops elements, negative subscripts
-exclude, and out-of-range reads pad with `NA`. None of those have a
-Fortran equivalent, and per-element bounds checks inside hot loops would
-defeat the purpose of compiling, so quickr's contract is:
+R validates subscripts: `x[0]` drops elements, negative subscripts exclude,
+and out-of-range reads pad with `NA`. quickr's checks cover only part of
+that behavior:
 
 - Subscripts that are provably out of range at compile time (literal
   values, ranges provably outside a known extent) are compile errors.
@@ -594,32 +482,29 @@ defeat the purpose of compiling, so quickr's contract is:
   matching Fortran's own contract: reading or writing out of bounds is
   undefined behavior, as in C. It will not return `NA`-padded results
   the way R does.
-- A non-scalar logical mask must match the indexed extent, including masks on individual
-  axes such as `m[mask, ]` and `m[, mask]`. quickr refuses both shorter non-scalar masks
-  that R recycles and longer masks. Known mismatches are compile errors;
-  dynamic extents are checked before indexing, including inside reductions.
-  A mask known at compile time to have length one, such as `logical(1)` or
-  `c(FALSE)`, broadcasts over the indexed extent. A true length-one mask on
-  an empty extent is rejected because R would select an out-of-range value.
-- Literal `TRUE` subscripts select the full axis, but reject an empty indexed
-  axis instead of padding with `NA` or growing a vector. Other scalar logical
-  expressions, including literal `FALSE`, are compile errors in reads and
-  writes. Declared logical vectors follow the mask rules above.
+- Logical masks must have the shape required by the indexed array. Mask
+  extents and scalar logical subscripts are not generally validated; do not
+  rely on R's logical recycling or extension behavior.
 
-If you need R's bounds behavior, validate indices before the loop.
+Validate dynamic indices and mask shapes before entering compiled code.
 
-### Diagnostic output
+### Parallel loops require independent iterations
 
-`cat()` supports one unnamed string literal ending in a newline, for example
-`cat("working\n")`. Multiple arguments, strings without a final newline, and
-options such as `sep` or `file` are rejected.
+`declare(parallel())` requests OpenMP execution. Each iteration must be
+independent: it must not update shared state that another iteration reads or
+writes. For example, `x <- x + 1L` on an enclosing binding is not a supported
+parallel reduction. It can race or have different binding behavior from R.
+Automatic detection of these writes and explicit reduction semantics remain
+separate work. Use serial execution for dependent iterations, and do not rely
+on the final values of private loop locals after a parallel region.
 
-`print()` supports one logical, integer, or double value, including expressions
-such as `print(x + 1)`. Expressions are evaluated once before printing.
-Formatting uses R's native diagnostic printers: logicals print as `0` and `1`,
-and arrays print as flat sequences rather than using R's matrix layout.
-Additional formatting arguments and complex values are rejected. These output
-calls are supported as statements; their R return values are not supported.
+### Local variables and closures
+
+Initialize local variables on every path before reading them. Local closures
+use generated procedures and host association; general R environment lookup,
+runtime rebinding of function names, and mutation-sensitive argument/default
+evaluation are not fully implemented. Prefer distinct local names, simple
+captures, and arguments that do not depend on state changed by the callee.
 
 ### `ifelse()` {#ifelse}
 
@@ -662,7 +547,8 @@ to already be logical and errors otherwise.
 length 1 (a compile error when the length is known, or a runtime error
 when it is not), and they short-circuit — the right operand is evaluated only
 when the left side does not decide the answer, so a guarded access like
-`i <= n && x[i] > 0` never evaluates `x[i]` out of range. Use `&` and `|`
+`i >= 1L && i <= n && x[i] > 0` avoids reading outside a vector of length
+`n`. Use `&` and `|`
 for vectors; assignment expressions in `&&` and `||` are not supported.
 
 ### Local closures accept only pure argument expressions
@@ -676,6 +562,5 @@ behave differently.
 
 ### Deprecation warnings are not reproduced
 
-Where R accepts an operation but warns — recycling a `1x1` matrix in
-arithmetic is the one such case in the supported subset — quickr
-performs the operation without a warning.
+The supported recycling of a `1x1` matrix in arithmetic does not reproduce
+R's deprecation warning.

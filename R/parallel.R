@@ -54,6 +54,10 @@ openmp_private_vars <- function(scope) {
   scope_get(scope, "openmp_private_vars", character())
 }
 
+# Parallel iterations must be independent. Whole-binding writes to enclosing
+# state are not analyzed as reductions: shared writes can race, while private
+# copies do not reproduce serial updates. Detecting these cases and providing
+# reduction semantics are deferred; callers must use serial loops for them.
 register_openmp_private <- function(scope, name) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(name))
   if (!scope_in_openmp(scope)) {
