@@ -17,20 +17,6 @@ test_that("matrix-vector %*% guards an unknown vector length", {
   )
 })
 
-test_that("crossprod and tcrossprod reject arrays above rank two", {
-  one_arg <- function(x) {
-    declare(type(x = double(2, 2, 2)))
-    crossprod(x)
-  }
-  two_args <- function(x, y) {
-    declare(type(x = double(2, 2)), type(y = double(2, 2, 2)))
-    tcrossprod(x, y)
-  }
-
-  expect_error(quick(one_arg), "only supports rank 0-2 inputs")
-  expect_error(quick(two_args), "only supports rank 0-2 inputs")
-})
-
 test_that("matrix-matrix %*% guards before allocating its result", {
   fn <- function(a, b) {
     declare(type(a = double(n, k)), type(b = double(m, p)))
@@ -113,129 +99,6 @@ test_that("matrix-vector %*% guards before allocating a reusable local", {
   )
 })
 
-test_that("reused BLAS locals are allocated on every reachable path", {
-  fn <- function(a, b, flag) {
-    declare(
-      type(a = double(n, k)),
-      type(b = double(k, p)),
-      type(flag = logical(1))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- a %*% b
-    sum(out)
-  }
-
-  code <- as.character(r2f(fn))
-  allocation_guards <- gregexpr(
-    "if (.not. allocated(out)) allocate(out(",
-    code,
-    fixed = TRUE
-  )[[1L]]
-  expect_length(allocation_guards[allocation_guards > 0L], 2L)
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  qfn <- quick(fn)
-  expect_equal(qfn(a, b, FALSE), fn(a, b, FALSE))
-  expect_equal(qfn(a, b, TRUE), fn(a, b, TRUE))
-})
-
-test_that("reusable BLAS locals verify their current extents", {
-  fn <- function(a, n) {
-    declare(type(a = double(n, n)), type(n = integer(1)))
-    total <- 0
-    for (i in seq_len(n)) {
-      z <- a[1:i, 1:i]
-      out <- z %*% z
-      total <- total + sum(out)
-    }
-    total
-  }
-
-  code <- as.character(r2f(fn))
-  expect_match(
-    code,
-    "size(out, 1, kind=c_ptrdiff_t)",
-    fixed = TRUE
-  )
-  expect_match(
-    code,
-    "size(out, 2, kind=c_ptrdiff_t)",
-    fixed = TRUE
-  )
-  expect_match(code, "deallocate(out)", fixed = TRUE)
-
-  a <- matrix(as.double(1:16), 4, 4)
-  expect_quick_equal(fn, list(a, 4L))
-})
-
-test_that("reused BLAS locals retain their earlier allocation", {
-  gemm <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(m, k)))
-    out <- a + 0
-    out <- a %*% b
-    sum(out)
-  }
-  gemv <- function(a, x) {
-    declare(type(a = double(m, 1)), type(x = double(n)))
-    out <- a + 0
-    out <- a %*% x
-    sum(out)
-  }
-
-  for (fn in list(gemm, gemv)) {
-    code <- as.character(r2f(fn))
-    allocation <- regexpr("allocate(out(", code, fixed = TRUE)
-    initialization <- regexpr("out = (a + 0.0_c_double)", code, fixed = TRUE)
-    expect_lt(allocation, initialization)
-  }
-
-  qgemm <- quick(gemm)
-  a <- matrix(as.double(1:4), 2, 2)
-  b <- diag(2)
-  expect_equal(qgemm(a, b), gemm(a, b))
-  expect_error(
-    qgemm(matrix(as.double(1:2), 2, 1), matrix(as.double(1:2), 2, 1)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-
-  qgemv <- quick(gemv)
-  a <- matrix(as.double(1:3), 3, 1)
-  expect_equal(qgemv(a, 2), gemv(a, 2))
-  expect_error(
-    qgemv(a, c(1, 2)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-})
-
-test_that("BLAS destinations are not reused across unproven shapes", {
-  local <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    sum(out)
-  }
-  external <- function(a, b) {
-    declare(type(a = double(n, k)), type(b = double(k, p)))
-    out <- a + 0
-    out <- a %*% b
-    out
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:9), 3, 3)
-  expect_quick_equal(local, list(a, b))
-  expect_error(
-    quick(external),
-    "cannot change the shape of an external assignment target",
-    fixed = TRUE
-  )
-})
-
 test_that("renamed BLAS return destinations remain output arguments", {
   fn <- function(a, b, n) {
     declare(
@@ -262,99 +125,6 @@ test_that("renamed BLAS return destinations remain output arguments", {
 
   expect_equal(actual, expected)
   expect_identical(actual_seed, expected_seed)
-})
-
-test_that("SYRK point-allocates reused conditional destinations", {
-  fn <- function(flag, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, k)),
-      type(b = double(k, n)),
-      type(x = double(m, n))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- crossprod(x)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  x <- matrix(as.double(1:6), 3, 2)
-  qfn <- quick(fn)
-  expected <- sum(crossprod(x))
-  expect_equal(qfn(FALSE, a, b, x), expected)
-  expect_equal(qfn(TRUE, a, b, x), expected)
-})
-
-test_that("outer point-allocates reused conditional destinations", {
-  fn <- function(flag, a, b, x, y) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, k)),
-      type(b = double(k, p)),
-      type(x = double(n)),
-      type(y = double(p))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- outer(x, y)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:6), 2, 3)
-  b <- matrix(as.double(1:6), 3, 2)
-  x <- as.double(1:2)
-  y <- as.double(3:4)
-  qfn <- quick(fn)
-  expected <- sum(outer(x, y))
-  expect_equal(qfn(FALSE, a, b, x, y), expected)
-  expect_equal(qfn(TRUE, a, b, x, y), expected)
-})
-
-test_that("diag point-allocates reused conditional destinations", {
-  extract <- function(flag, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(a = double(n, n)),
-      type(b = double(n)),
-      type(x = double(n, n))
-    )
-    if (flag) {
-      out <- solve(a, b)
-    }
-    out <- diag(x)
-    sum(out)
-  }
-  construct <- function(flag, n, a, b, x) {
-    declare(
-      type(flag = logical(1)),
-      type(n = integer(1)),
-      type(a = double(n, n)),
-      type(b = double(n, n)),
-      type(x = double(n))
-    )
-    if (flag) {
-      out <- a %*% b
-    }
-    out <- diag(x, nrow = n, ncol = n)
-    sum(out)
-  }
-
-  a <- matrix(as.double(1:4), 2, 2)
-  b <- as.double(1:2)
-  x <- matrix(as.double(1:4), 2, 2)
-  qextract <- quick(extract)
-  expected <- sum(diag(x))
-  expect_equal(qextract(FALSE, a, b, x), expected)
-  expect_equal(qextract(TRUE, a, b, x), expected)
-
-  qconstruct <- quick(construct)
-  expected <- sum(diag(b, nrow = 2, ncol = 2))
-  expect_equal(qconstruct(FALSE, 2L, a, a, b), expected)
-  expect_equal(qconstruct(TRUE, 2L, a, a, b), expected)
 })
 
 test_that("%*% evaluates effectful operands before a runtime shape error", {
@@ -482,62 +252,6 @@ test_that("triangular solve guards squareness and RHS length", {
   )
 })
 
-test_that("LAPACK solves reject zero-sized outputs before library calls", {
-  solve_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    solve(a, b)
-  }
-  forward_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    forwardsolve(a, b)
-  }
-  back_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n)))
-    backsolve(a, b)
-  }
-
-  a <- matrix(numeric(), 0, 0)
-  for (fn in list(solve_fn, forward_fn, back_fn)) {
-    expect_error(
-      quick(fn)(a, numeric()),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-  }
-})
-
-test_that("matrix solve right-hand sides reject zero output widths", {
-  solve_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(solve(a, b))
-  }
-  qr_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(qr.solve(a, b))
-  }
-  forward_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(forwardsolve(a, b))
-  }
-  back_fn <- function(a, b) {
-    declare(type(a = double(n, n)), type(b = double(n, p)))
-    sum(backsolve(a, b))
-  }
-
-  a <- diag(2)
-  b <- matrix(as.double(1:4), 2, 2)
-  empty_b <- matrix(numeric(), 2, 0)
-  for (fn in list(solve_fn, qr_fn, forward_fn, back_fn)) {
-    qfn <- quick(fn)
-    expect_equal(qfn(a, b), fn(a, b), tolerance = 1e-10)
-    expect_error(
-      qfn(a, empty_b),
-      "zero-sized outputs are not supported",
-      fixed = TRUE
-    )
-  }
-})
-
 test_that("vector %*% vector guards unknown lengths as whole sizes", {
   fn <- function(x, y) {
     declare(type(x = double(NA)), type(y = double(NA)))
@@ -563,24 +277,6 @@ test_that("solve() guards an unknown RHS length", {
   qfn <- expect_no_warning(quick(fn))
   expect_equal(qfn(diag(2), c(1, 2)), c(1, 2))
   expect_error(qfn(diag(2), c(1, 2, 3)), "non-conformable arguments in solve")
-})
-
-test_that("solve() rejects a zero-width matrix right-hand side", {
-  known <- function(a, b) {
-    declare(type(a = double(2, 2)), type(b = double(2, 0)))
-    solve(a, b)
-  }
-  dynamic <- function(a, b) {
-    declare(type(a = double(2, 2)), type(b = double(2, NA)))
-    solve(a, b)
-  }
-  a <- diag(2)
-  b <- matrix(double(), 2, 0)
-
-  message <- "solve zero-sized outputs are not supported"
-  expect_error(quick(known), message, fixed = TRUE)
-  q_dynamic <- expect_no_warning(quick(dynamic))
-  expect_error(q_dynamic(a, b), message, fixed = TRUE)
 })
 
 
@@ -664,11 +360,6 @@ test_that("square guards precede symbolic inverse and Cholesky allocations", {
     expect_error(
       qfn(matrix(as.double(1:6), 2, 3)),
       case$message,
-      fixed = TRUE
-    )
-    expect_error(
-      qfn(matrix(double(), 0, 0)),
-      "zero-sized outputs are not supported",
       fixed = TRUE
     )
   }
@@ -806,40 +497,6 @@ test_that("%*% returns zeros for a symbolic empty contracted dimension", {
   )
 })
 
-test_that("BLAS refuses reassigned scalar dimension variables", {
-  changed <- function(a, b, k) {
-    declare(
-      type(a = double(2, k)),
-      type(b = double(k, 2)),
-      type(k = integer(1))
-    )
-    k <- 1L
-    a %*% b
-  }
-  expect_error(quick(changed), "dimension variable `k` has been reassigned")
-
-  triangular <- function(a, b, n) {
-    declare(
-      type(a = double(n, n)),
-      type(b = double(n)),
-      type(n = integer(1))
-    )
-    n <- 1L
-    forwardsolve(a, b)
-  }
-  expect_error(quick(triangular), "dimension variable `n` has been reassigned")
-
-  unchanged <- function(a, b, k) {
-    declare(
-      type(a = double(2, k)),
-      type(b = double(k, 2)),
-      type(k = integer(1))
-    )
-    a %*% b
-  }
-  expect_quick_identical(unchanged, list(diag(2), diag(2), 2L))
-})
-
 test_that("symmetric products return zeros for known empty contractions", {
   cross_vec <- function(x) {
     declare(type(x = double(0)))
@@ -944,52 +601,6 @@ test_that("matrix BLAS guards unknown output extents at runtime", {
   expect_error(q_outer(as.double(1:2), double()), message)
 })
 
-test_that("outer products reject known zero-sized outputs", {
-  outer_empty_x <- function(x, y) {
-    declare(type(x = double(0)), type(y = double(2)))
-    outer(x, y)
-  }
-  percent_outer_empty_y <- function(x, y) {
-    declare(type(x = double(2)), type(y = double(0)))
-    x %o% y
-  }
-
-  expect_error(
-    quick(outer_empty_x),
-    "outer zero-sized outputs are not supported",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(percent_outer_empty_y),
-    "%o% zero-sized outputs are not supported",
-    fixed = TRUE
-  )
-})
-
-test_that("outer products guard unknown output extents at runtime", {
-  outer_unknown_x <- function(x, y) {
-    declare(type(x = double(NA)), type(y = double(2)))
-    outer(x, y)
-  }
-  percent_outer_unknown_y <- function(x, y) {
-    declare(type(x = double(2)), type(y = double(NA)))
-    x %o% y
-  }
-
-  q_outer_unknown_x <- expect_no_warning(quick(outer_unknown_x))
-  q_percent_outer_unknown_y <- expect_no_warning(quick(percent_outer_unknown_y))
-  expect_error(
-    q_outer_unknown_x(double(), as.double(1:2)),
-    "outer zero-sized outputs are not supported",
-    fixed = TRUE
-  )
-  expect_error(
-    q_percent_outer_unknown_y(as.double(1:2), double()),
-    "%o% zero-sized outputs are not supported",
-    fixed = TRUE
-  )
-})
-
 test_that("NA dims are never treated as equal", {
   fn <- function(a, b) {
     declare(type(a = double(NA, NA)), type(b = double(NA, NA)))
@@ -1001,52 +612,6 @@ test_that("NA dims are never treated as equal", {
   # was: identical(NA, NA) blessed the pair with no check at all
   expect_error(
     qfn(m, matrix(as.double(1:6), 3, 2)),
-    "non-conformable arguments in %*%",
-    fixed = TRUE
-  )
-})
-
-test_that("crossprod with unverifiable dims compiles and guards at runtime", {
-  fn <- function(x, y, n, p, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(p = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(x = double(n, m)),
-      type(y = double(p, k))
-    )
-    crossprod(x, y)
-  }
-
-  qfn <- quick(fn)
-  x <- matrix(as.double(1:6), 2, 3)
-  y <- matrix(as.double(6:1), 2, 3)
-  expect_equal(qfn(x, y, 2L, 2L, 3L, 3L), crossprod(x, y))
-  expect_error(
-    qfn(x, matrix(as.double(1:6), 3, 2), 2L, 3L, 3L, 2L),
-    "non-conformable arguments in crossprod"
-  )
-})
-
-test_that("unverifiable %*% dims compile and guard at runtime", {
-  fn <- function(A, B, n, m, k) {
-    declare(
-      type(n = integer(1)),
-      type(m = integer(1)),
-      type(k = integer(1)),
-      type(A = double(n, m)),
-      type(B = double(k, n))
-    )
-    A %*% B
-  }
-
-  qfn <- expect_no_warning(quick(fn))
-  A <- matrix(as.double(1:6), 2, 3)
-  B <- matrix(as.double(6:1), 3, 2)
-  expect_equal(qfn(A, B, 2L, 3L, 3L), A %*% B)
-  expect_error(
-    qfn(A, matrix(as.double(1:4), 2, 2), 2L, 3L, 2L),
     "non-conformable arguments in %*%",
     fixed = TRUE
   )

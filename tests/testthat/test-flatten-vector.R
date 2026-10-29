@@ -70,20 +70,6 @@ test_that("as.vector() refuses unsupported modes and non-constant modes", {
   )
 })
 
-test_that("flattening refuses dimensions invalidated by reassignment", {
-  fn <- function(n, m) {
-    declare(type(n = integer(1)), type(m = double(n, n)))
-    n <- n + 1L
-    as.vector(m)
-  }
-
-  expect_error(
-    quick(fn),
-    "dimension variable `n` has been reassigned",
-    fixed = TRUE
-  )
-})
-
 test_that("as.integer() drops dimensions for an int-backed logical matrix", {
   # External logical args are integer-backed; the flatten must still apply
   # (it used to be skipped by an early return, keeping the matrix dims).

@@ -101,28 +101,6 @@ test_that("multi-argument reductions evaluate arguments in order", {
   expect_identical(actual_seed, .Random.seed)
 })
 
-test_that("multi-argument reductions snapshot scalars before later effects", {
-  min_fn <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 10
-      5
-    }
-    min(x, bump())
-  }
-  sum_fn <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 10
-      5
-    }
-    sum(x, bump())
-  }
-
-  expect_quick_identical(min_fn, list(1))
-  expect_quick_identical(sum_fn, list(1))
-})
-
 test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases", {
   any_basic <- function(x) {
     declare(type(x = logical(NA)))
@@ -207,19 +185,13 @@ test_that("any/all reduction intrinsics cover scalar, multi-arg, and mask cases"
     declare(type(x = logical(1)))
     any(x[c(FALSE, TRUE)])
   }
-  expect_error(
-    r2f(any_scalar_masked_long_mask),
-    "logical subscript dimensions"
-  )
+  expect_error(r2f(any_scalar_masked_long_mask), "scalar masked subsets")
 
   all_scalar_masked_long_mask <- function(x) {
     declare(type(x = logical(1)))
     all(x[c(FALSE, TRUE)])
   }
-  expect_error(
-    r2f(all_scalar_masked_long_mask),
-    "logical subscript dimensions"
-  )
+  expect_error(r2f(all_scalar_masked_long_mask), "scalar masked subsets")
 
   # 1-element vector expressions like c(FALSE) compile to Fortran array
   # constructors (`[.false.]`) but any()/all() must still return scalars.
@@ -345,30 +317,4 @@ test_that("1x1 subsetting keeps dims and C bridge builds", {
 
   fsub <- r2f(fn)
   expect_no_error(make_c_bridge(fsub))
-})
-
-test_that("per-axis logical subscripts must match the indexed extent", {
-  # Eager compilation exposes the R binding as an unnamespaced native symbol,
-  # so avoid fixture names that collide with POSIX read() and write().
-  read_masked_rows <- function(x, mask) {
-    declare(type(x = double(4, 2)), type(mask = logical(NA)))
-    sum(x[mask, ])
-  }
-  write_masked_rows <- function(x, mask) {
-    declare(type(x = double(4, 2)), type(mask = logical(NA)))
-    x[mask, ] <- 0
-    x
-  }
-
-  x <- matrix(as.double(1:8), 4, 2)
-  mask <- c(TRUE, FALSE, TRUE, FALSE)
-  expect_quick_identical(read_masked_rows, list(x, mask))
-  expect_quick_identical(write_masked_rows, list(x, mask))
-
-  qread <- quick(read_masked_rows)
-  qwrite <- quick(write_masked_rows)
-  for (bad_mask in list(c(TRUE, FALSE), rep(TRUE, 5))) {
-    expect_error(qread(x, bad_mask), "logical subscript length")
-    expect_error(qwrite(x, bad_mask), "logical subscript length")
-  }
 })

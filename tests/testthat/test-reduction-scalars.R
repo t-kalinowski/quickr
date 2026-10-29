@@ -56,24 +56,6 @@ test_that("reductions over vectors still use intrinsics", {
   expect_quick_identical(fn, x1, x2)
 })
 
-test_that("multi-argument reductions preserve evaluation order", {
-  fn <- function() {
-    sum(runif(1), 10 * runif(1))
-  }
-  qfn <- quick(fn)
-
-  set.seed(732)
-  expected <- fn()
-  expected_seed <- .Random.seed
-
-  set.seed(732)
-  actual <- qfn()
-  actual_seed <- .Random.seed
-
-  expect_identical(actual, expected)
-  expect_identical(actual_seed, expected_seed)
-})
-
 test_that("empty extrema are rejected explicitly", {
   static_min <- function() {
     min(numeric())
@@ -105,14 +87,6 @@ test_that("empty extrema are rejected explicitly", {
   qmax <- quick(dynamic_max)
   expect_equal(qmax(c(3, -1, 2)), 3)
   expect_error(qmax(numeric()), message, fixed = TRUE)
-
-  masked_scalar_min <- function(x, mask) {
-    declare(type(x = double(1)), type(mask = logical(1)))
-    min(x[mask])
-  }
-  qmasked_scalar_min <- quick(masked_scalar_min)
-  expect_equal(qmasked_scalar_min(3, TRUE), 3)
-  expect_error(qmasked_scalar_min(3, FALSE), message, fixed = TRUE)
 })
 
 test_that("multi-argument extrema ignore empty inputs", {

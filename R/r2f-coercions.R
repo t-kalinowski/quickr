@@ -41,22 +41,7 @@ r2f_handlers[["as.integer"]] <- function(
   out <- switch(
     arg@value@mode,
     integer = arg,
-    double = {
-      arg <- hoist_unless_name(arg, hoist)
-      unsafe <- glue(
-        "(({arg} /= {arg}) .or. ({arg} <= -2147483648.0_c_double) .or. ({arg} >= 2147483648.0_c_double))"
-      )
-      if (!passes_as_scalar(arg@value)) {
-        unsafe <- glue("any({unsafe})")
-      }
-      emit_quickr_error_if(
-        unsafe,
-        "as.integer() input must be representable as an R integer",
-        hoist,
-        scope
-      )
-      Fortran(glue("int({arg}, kind=c_int)"), out_val)
-    },
+    double = Fortran(glue("int({arg}, kind=c_int)"), out_val),
     logical = {
       # External logicals are integer-backed (0/1/NA) under bind(c); if the
       # expression preserves that storage (e.g. rev(m)), reuse it directly.

@@ -1,22 +1,13 @@
 # Matrix-specific r2f handlers and wiring
 
-lower_transposed_operand_in_order <- function(
-  arg,
-  scope,
-  ...,
-  hoist,
-  later_args = list()
-) {
-  captured_hoist <- capture_hoist(hoist)
-  info <- unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist)
-  info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
-  info$value <- snapshot_operand_before_later_effects(
-    info$value,
-    arg,
-    later_args,
-    scope,
+lower_transposed_operand_in_order <- function(arg, scope, ..., hoist) {
+  captured_hoist <- capture_inheriting_deferred_errors(hoist)
+  info <- preserve_captured_errors(
+    unwrap_transpose_arg(arg, scope, ..., hoist = captured_hoist),
+    captured_hoist,
     hoist
   )
+  info$value <- finish_captured_operand(info$value, captured_hoist, hoist)
   info
 }
 
@@ -29,8 +20,7 @@ register_r2f_handler(
       args[[1L]],
       scope,
       ...,
-      hoist = hoist,
-      later_args = list(args[[2L]])
+      hoist = hoist
     )
     right_info <- lower_transposed_operand_in_order(
       args[[2L]],
@@ -228,24 +218,8 @@ register_r2f_handler(
       stop("drop() only supports rank 0-2 inputs", call. = FALSE)
     }
 
-    row_dim <- r2size(x@value@dims[[1L]], scope)
-    col_dim <- r2size(x@value@dims[[2L]], scope)
-    dims <- list(row_dim, col_dim)
-    unknown_axes <- which(!vapply(dims, is_wholenumber, logical(1L)))
-    if (length(unknown_axes)) {
-      x <- hoist_unless_name(x, hoist)
-      conditions <- vapply(
-        unknown_axes,
-        function(axis) glue("size({x}, {axis}) == 1"),
-        character(1L)
-      )
-      emit_quickr_error_if(
-        paste(conditions, collapse = " .or. "),
-        "drop() requires singleton dimensions to be known at compile time",
-        hoist,
-        scope
-      )
-    }
+    row_dim <- x@value@dims[[1L]]
+    col_dim <- x@value@dims[[2L]]
     row_is_one <- dim_is_one(row_dim)
     col_is_one <- dim_is_one(col_dim)
 
@@ -533,14 +507,8 @@ register_r2f_handler(
     if (!identical(fun, "*")) {
       stop("outer() only supports FUN = \"*\"")
     }
-    values <- lower_operands_in_order(
-      list(x_arg, y_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    x <- values[[1L]]
-    y <- values[[2L]]
+    x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
+    y <- lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist)
     outer_mul(
       x,
       y,
@@ -559,9 +527,8 @@ register_r2f_handler(
   "%o%",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
     stopifnot(length(args) == 2L)
-    values <- lower_operands_in_order(args, scope, ..., hoist = hoist)
-    x <- values[[1L]]
-    y <- values[[2L]]
+    x <- lower_r2f_operand_in_order(args[[1L]], scope, ..., hoist = hoist)
+    y <- lower_r2f_operand_in_order(args[[2L]], scope, ..., hoist = hoist)
     outer_mul(
       x,
       y,
@@ -594,8 +561,8 @@ register_r2f_handler(
       b_arg <- NULL
     }
 
+    A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
     if (is.null(b_arg)) {
-      A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
       return(lapack_inverse(
         A,
         scope = scope,
@@ -605,14 +572,7 @@ register_r2f_handler(
       ))
     }
 
-    values <- lower_operands_in_order(
-      list(a_arg, b_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    B <- lower_r2f_operand_in_order(b_arg, scope, ..., hoist = hoist)
     lapack_solve(
       A = A,
       B = B,
@@ -639,25 +599,15 @@ register_r2f_handler(
       stop("qr.solve() expects `b`", call. = FALSE)
     }
 
+    A <- lower_r2f_operand_in_order(a_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(b_arg, scope, ..., hoist = hoist)
+
     tol_arg <- args$tol %||% if (length(args) >= 3L) args[[3L]] else NULL
-    ordered_args <- list(a_arg, b_arg)
-    has_tol <- !is.null(tol_arg) && !is_missing(tol_arg)
-    if (has_tol) {
-      ordered_args[[3L]] <- tol_arg
-    }
-    values <- lower_operands_in_order(
-      ordered_args,
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
     tol <- if (is.null(tol_arg) || is_missing(tol_arg)) {
       r2f(1e-7, scope, ..., hoist = hoist)
     } else {
-      tol <- cast_linalg_double(
-        values[[3L]],
+      tol <- blas_double_operand(
+        lower_r2f_operand_in_order(tol_arg, scope, ..., hoist = hoist),
         "qr.solve",
         hoist
       )
@@ -732,20 +682,6 @@ register_r2f_handler(
   dest_infer = infer_dest_chol2inv
 )
 
-guard_diag_identity_double <- function(x, hoist, scope) {
-  stopifnot(inherits(x, Fortran))
-  unsafe <- glue(
-    "(({x} /= {x}) .or. ({x} <= -2147483648.0_c_double) .or. ({x} >= 2147483648.0_c_double))"
-  )
-  emit_quickr_error_if(
-    unsafe,
-    "diag() identity size must be representable as an R integer",
-    hoist,
-    scope
-  )
-  invisible()
-}
-
 register_r2f_handler(
   "diag",
   function(args, scope, ..., hoist = NULL, dest = NULL) {
@@ -802,22 +738,35 @@ register_r2f_handler(
       "diag() only supports scalar, vector, or matrix inputs"
     )
 
-    # R's identity form is `length(x) == 1L` with no nrow/ncol -- it does
+    # R's identity form is `length(x) == 1L` and a single argument; it does
     # not require a rank-0 value, so a declared `integer(1)` argument or a
     # length-1 vector takes it too (R: diag(c(3)) is the 3x3 identity).
     # The size comes from x's *value*, and the result is always double.
-    if (!has_nrow && !has_ncol && passes_as_scalar(x@value)) {
-      if (identical(x@value@mode, "double")) {
-        guard_diag_identity_double(x, hoist, scope)
-      }
+    if (margs$identity && passes_as_scalar(x@value)) {
       # R sizes the identity with as.integer(x), so a double or logical `x`
       # is fine and truncates toward zero. Coerce in the size expression
       # rather than requiring an integer, so diag(n) works whatever the
       # caller declared. An integer `x` needs no wrapper.
+      size_arg <- x_arg
+      repeat {
+        size_arg <- unwrap_parens(size_arg)
+        if (
+          !is_call(size_arg, quote(c)) ||
+            length(size_arg) != 2L ||
+            inherits(get0("c", scope), LocalClosure)
+        ) {
+          break
+        }
+        size_arg <- size_arg[[2L]]
+      }
       size_arg <- if (identical(x@value@mode, "integer")) {
-        x_arg
+        size_arg
       } else if (x@value@mode %in% c("double", "logical")) {
-        call("as.integer", x_arg)
+        if (is.atomic(size_arg)) {
+          as.integer(size_arg)
+        } else {
+          call("as.integer", size_arg)
+        }
       } else {
         stop(
           "diag(x) with a length-1 `x` builds an identity matrix of size ",
@@ -827,25 +776,6 @@ register_r2f_handler(
         )
       }
       nrow <- r2size(size_arg, scope)
-      if (is_scalar_na(nrow)) {
-        size_names <- unique(all.names(size_arg, functions = FALSE))
-        modified_names <- size_names[vapply(
-          size_names,
-          \(name) {
-            var <- get0(name, scope, inherits = TRUE)
-            inherits(var, Variable) && isTRUE(var@modified)
-          },
-          logical(1L)
-        )]
-        if (length(modified_names)) {
-          stop(
-            "diag() identity size cannot depend on reassigned variable `",
-            modified_names[[1L]],
-            "`",
-            call. = FALSE
-          )
-        }
-      }
       ncol <- nrow
       x_val <- Fortran("1.0_c_double", Variable("double"))
       return(diag_matrix(
@@ -857,21 +787,6 @@ register_r2f_handler(
         dest = dest,
         context = "diag"
       ))
-    }
-
-    if (
-      !has_nrow &&
-        !has_ncol &&
-        x_rank == 1L &&
-        !is_wholenumber(x@value@dims[[1L]])
-    ) {
-      x <- hoist_unless_name(x, hoist)
-      emit_quickr_error_if(
-        glue("size({x}, kind=c_ptrdiff_t) == 1_c_ptrdiff_t"),
-        "diag(x) with runtime length 1 is not supported",
-        hoist,
-        scope
-      )
     }
 
     nrow <- if (has_nrow) r2size(nrow_arg, scope) else NULL
@@ -924,14 +839,8 @@ register_r2f_handler(
 
     l_arg <- args$l %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    values <- lower_operands_in_order(
-      list(l_arg, x_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    A <- lower_r2f_operand_in_order(l_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,
@@ -963,14 +872,8 @@ register_r2f_handler(
 
     r_arg <- args$r %||% args[[1L]]
     x_arg <- args$x %||% args[[2L]]
-    values <- lower_operands_in_order(
-      list(r_arg, x_arg),
-      scope,
-      ...,
-      hoist = hoist
-    )
-    A <- values[[1L]]
-    B <- values[[2L]]
+    A <- lower_r2f_operand_in_order(r_arg, scope, ..., hoist = hoist)
+    B <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
 
     triangular_solve(
       A = A,
@@ -1005,15 +908,8 @@ crossprod_like <- function(
   opA <- trans
   opB <- if (identical(trans, "T")) "N" else "T"
 
-  x <- lower_r2f_operand_in_order(
-    x_arg,
-    scope,
-    ...,
-    hoist = hoist,
-    later_args = if (is.null(y_arg)) list() else list(y_arg)
-  )
-  x <- cast_linalg_double(x, context, hoist)
-  assert_rank_leq2(x, paste0(context, " only supports rank 0-2 inputs"))
+  x <- lower_r2f_operand_in_order(x_arg, scope, ..., hoist = hoist)
+  x <- blas_double_operand(x, context, hoist)
 
   if (is.null(y_arg)) {
     return(syrk(
@@ -1026,12 +922,11 @@ crossprod_like <- function(
     ))
   }
 
-  y <- cast_linalg_double(
+  y <- blas_double_operand(
     lower_r2f_operand_in_order(y_arg, scope, ..., hoist = hoist),
     context,
     hoist
   )
-  assert_rank_leq2(y, paste0(context, " only supports rank 0-2 inputs"))
 
   x <- hoist_unless_name(x, hoist)
   y <- hoist_unless_name(y, hoist)

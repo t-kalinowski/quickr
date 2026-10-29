@@ -19,7 +19,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -49,14 +49,6 @@
           integer(c_int) :: btmp9_
           integer(c_int) :: btmp10_
       
-          if (size(a, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
-            return
-          end if
-          if (size(a, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("qr.solve coefficient matrices with zero extents are not supported")
-            return
-          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, 1))
@@ -74,7 +66,7 @@
             call quickr_set_error_msg("rank deficient matrix in qr.solve")
             return
           end if
-          allocate(btmp8_(int((min(real(a__dim_1_, kind=c_double), real(a__dim_2_, kind=c_double))), kind=c_ptrdiff_t), 1))
+          allocate(btmp8_(min(a__dim_1_, a__dim_2_), 1))
           btmp8_ = 0.0_c_double
           call dqrcf(btmp1_, int(a__dim_1_, kind=c_int), btmp6_, btmp3_, btmp2_, int(1, kind=c_int), btmp8_, btmp9_)
           if (btmp9_ /= 0_c_int) then
@@ -189,7 +181,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, b__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -221,18 +213,6 @@
           integer(c_int) :: btmp10_
           integer(c_int) :: btmp11_
       
-          if (size(a, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
-            return
-          end if
-          if (size(b, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("qr.solve zero-sized outputs are not supported")
-            return
-          end if
-          if (size(a, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("qr.solve coefficient matrices with zero extents are not supported")
-            return
-          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, b__dim_2_))
@@ -250,14 +230,12 @@
             call quickr_set_error_msg("rank deficient matrix in qr.solve")
             return
           end if
-          allocate(btmp8_(int((min(real(a__dim_1_, kind=c_double), real(a__dim_2_, kind=c_double))), kind=c_ptrdiff_t), b__dim_2_))
+          allocate(btmp8_(min(a__dim_1_, a__dim_2_), b__dim_2_))
           btmp8_ = 0.0_c_double
-          if (int(b__dim_2_, kind=c_int) > 0_c_int) then
-            call dqrcf(btmp1_, int(a__dim_1_, kind=c_int), btmp6_, btmp3_, btmp2_, int(b__dim_2_, kind=c_int), btmp8_, btmp9_)
-            if (btmp9_ /= 0_c_int) then
-              call quickr_set_error_msg("exact singularity in 'qr.coef'")
-              return
-            end if
+          call dqrcf(btmp1_, int(a__dim_1_, kind=c_int), btmp6_, btmp3_, btmp2_, int(b__dim_2_, kind=c_int), btmp8_, btmp9_)
+          if (btmp9_ /= 0_c_int) then
+            call quickr_set_error_msg("exact singularity in 'qr.coef'")
+            return
           end if
           out_ = 0.0_c_double
           do btmp11_ = 1_c_int, int(b__dim_2_, kind=c_int)
@@ -333,7 +311,7 @@
           Rf_error("dim(b)[1] must equal dim(a)[1],"
                    " but are %0.f and %0.f",
                     (double)b__dim_1_, (double)a__dim_1_);
-        const R_xlen_t out___len_ = ((R_xlen_t)(a__dim_2_)) * ((R_xlen_t)(b__dim_2_));
+        const R_xlen_t out___len_ = (a__dim_2_) * (b__dim_2_);
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         {

@@ -225,7 +225,13 @@ test_that("matrix multiplication rejects incompatible destinations", {
     x
   }
 
-  expect_error(quick(dest_mismatch), "incompatible rank for %\\*%")
+  # The destination's declared rank no longer matches the result; the
+  # reassignment shape check rejects it (routing through a temp first).
+  expect_error(
+    quick(dest_mismatch),
+    "replacement rank (2) differs",
+    fixed = TRUE
+  )
 })
 
 test_that("BLAS matrix ops coerce integer and logical inputs to double", {
@@ -515,26 +521,29 @@ test_that("crossprod rejects incompatible destination dimensions", {
 
   expect_error(
     quick(crossprod_bad_dest),
-    "assignment target has incompatible dimensions"
+    "dimension 1 would change from 2 to 3",
+    fixed = TRUE
   )
 })
 
-test_that("BLAS output rejects unproven external destination shapes", {
+test_that("BLAS output routes through a temp when the dest shape is unproven", {
   # A pre-declared destination whose symbolic dims are not *proven* equal
   # to the BLAS result shape must not be written directly (that passed the
   # wrong leading dimensions to dsyrk and could corrupt or overflow the
-  # output). An external (m, m) destination cannot be safely reallocated,
-  # so translation rejects it instead of passing it to dsyrk.
+  # output). crossprod(x) here is 3x3; the (m, m) dest gets a runtime
+  # shape guard instead of a silent direct write.
   fn <- function(x, m) {
     declare(type(x = double(n, 3)), type(m = integer(1)))
     out <- matrix(0, m, m)
     out <- crossprod(x)
     out
   }
+  qfn := quick(fn)
+  x <- matrix(as.double(1:6), nrow = 2L)
+  expect_equal(qfn(x, 3L), crossprod(x))
   expect_error(
-    quick(fn),
-    "cannot change the shape of an external assignment target",
-    fixed = TRUE
+    qfn(x, 4L),
+    "reassignment must preserve the shape of `out`"
   )
 })
 
@@ -739,18 +748,6 @@ test_that("forwardsolve and backsolve match R", {
     backsolve(L, b, upper.tri = FALSE)
   }
 
-  back_alias_coefficient <- function(A) {
-    declare(type(A = double(4, 4)))
-    A <- backsolve(A, A, transpose = TRUE)
-    A
-  }
-
-  forward_alias_coefficient <- function(A) {
-    declare(type(A = double(4, 4)))
-    A <- forwardsolve(A, A, transpose = TRUE)
-    A
-  }
-
   set.seed(11)
   base <- matrix(rnorm(16), nrow = 4)
   L <- base
@@ -770,6 +767,4 @@ test_that("forwardsolve and backsolve match R", {
   expect_quick_equal(forward_upper, list(U = U, b = b_vec))
   expect_quick_equal(forward_transpose, list(L = L, b = b_vec))
   expect_quick_equal(back_lower, list(L = L, b = b_vec))
-  expect_quick_equal(back_alias_coefficient, list(A = U))
-  expect_quick_equal(forward_alias_coefficient, list(A = L))
 })

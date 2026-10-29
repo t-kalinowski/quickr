@@ -22,7 +22,7 @@
         ! args
         real(c_double), intent(in) :: x(x__len_)
         integer(c_int), intent(in) :: n
-        real(c_double), intent(out) :: out_(int(((abs((n - 1)) + 1)), kind=c_ptrdiff_t))
+        real(c_double), intent(out) :: out_((abs((n - 1)) + 1))
         ! manifest end
       
       

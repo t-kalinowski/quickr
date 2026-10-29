@@ -116,7 +116,7 @@
       cat(fsub)
     Output
       subroutine fn(n, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -131,14 +131,10 @@
         real(c_double), allocatable :: out(:)
         ! manifest end
       
-      allocate(out(int((((aint((real(n, kind=c_double) / real(2, kind=c_double))) - merge(1.0_c_double, 0.0_c_double, ((real(n,&
-      & kind=c_double) / real(2, kind=c_double)) < aint((real(n, kind=c_double) / real(2, kind=c_double)))))) + modulo(real(n,&
-      & kind=c_double), real(2, kind=c_double)))), kind=c_ptrdiff_t)))
+        allocate(out((int(n) / int(2) + mod(int(n), int(2)))))
       
       
-      if (int((((aint((real(n, kind=c_double) / real(2, kind=c_double))) - merge(1.0_c_double, 0.0_c_double, ((real(n, kind=c_double) /&
-      & real(2, kind=c_double)) < aint((real(n, kind=c_double) / real(2, kind=c_double)))))) + modulo(real(n, kind=c_double), real(2,&
-      & kind=c_double)))), kind=c_ptrdiff_t) < 0) then
+        if ((int(n) / int(2) + mod(int(n), int(2))) < 0) then
           call quickr_set_error_msg("invalid 'length' argument")
           return
         end if
@@ -215,7 +211,7 @@
       cat(fsub)
     Output
       subroutine fn(n, out_) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
@@ -227,8 +223,7 @@
         real(c_double), allocatable :: out(:, :)
         ! manifest end
       
-      allocate(out((n + 1), int((((aint((real(n, kind=c_double) / real(2, kind=c_double))) - merge(1.0_c_double, 0.0_c_double, ((real(n,&
-      & kind=c_double) / real(2, kind=c_double)) < aint((real(n, kind=c_double) / real(2, kind=c_double)))))) + 1)), kind=c_ptrdiff_t)))
+        allocate(out((n + 1), (int(n) / int(2) + 1)))
       
       
         out = 1.0_c_double

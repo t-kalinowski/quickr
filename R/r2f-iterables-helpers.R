@@ -33,30 +33,6 @@ flatten_to_vector <- function(x, scope) {
   if (passes_as_scalar(x@value) || x@value@rank <= 1L) {
     return(x)
   }
-  dim_names <- unique(unlist(lapply(x@value@dims, function(dim) {
-    if (is.symbol(dim)) {
-      return(as.character(dim))
-    }
-    if (is.call(dim)) {
-      return(all.names(dim, functions = FALSE))
-    }
-    character()
-  })))
-  for (name in dim_names) {
-    var <- get0(name, scope, inherits = TRUE)
-    if (
-      inherits(var, Variable) &&
-        passes_as_scalar(var) &&
-        isTRUE(var@modified)
-    ) {
-      stop(
-        "flattening: dimension variable `",
-        name,
-        "` has been reassigned and no longer describes the array extent",
-        call. = FALSE
-      )
-    }
-  }
   len_expr <- value_length_expr(x@value)
   len_str <- if (is_scalar_na(len_expr)) {
     glue("size({x})")
@@ -302,9 +278,6 @@ seq_like_r2f <- function(
       if (is_scalar_na(len_expr)) {
         len_expr <- NA_integer_
       }
-      if (is_scalar_integerish(len_expr) && as.integer(len_expr) < 0L) {
-        stop("seq_len() bound must be non-negative", call. = FALSE)
-      }
       list(
         from = Fortran("1", Variable("integer")),
         to = n,
@@ -339,19 +312,6 @@ seq_like_r2f <- function(
   context <- context %||% r2f_iterable_context(list(...)$calls)
   if (is.null(context)) {
     context <- "value"
-  }
-
-  if (kind == "seq_len" && context == "for") {
-    if (!size_expr_is_known_nonnegative(len_expr)) {
-      hoist <- list(...)$hoist
-      to <- hoist_unless_name(to, hoist)
-      emit_quickr_error_if(
-        glue("{to} < 0"),
-        "seq_len() bound must be non-negative",
-        hoist,
-        scope
-      )
-    }
   }
 
   check_step_at_runtime <- kind == "seq" &&
@@ -421,16 +381,11 @@ seq_like_r2f <- function(
       glue("{start}:{end}:{step}")
     }
   } else {
-    i <- scope_unique_implied_do_var(
-      scope,
-      integer_kind = "c_ptrdiff_t"
-    )
+    i <- scope_unique_var(scope, "integer")
     fr <- if (omit_step) {
-      glue("[ (int({i}, kind=c_int), {i} = {start}, {end}) ]")
+      glue("[ ({i}, {i} = {start}, {end}) ]")
     } else {
-      glue(
-        "[ (int({i}, kind=c_int), {i} = {start}, {end}, {step}) ]"
-      )
+      glue("[ ({i}, {i} = {start}, {end}, {step}) ]")
     }
   }
 

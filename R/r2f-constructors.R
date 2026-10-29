@@ -128,119 +128,6 @@ known_dims_product <- function(dims) {
   prod(vals)
 }
 
-validate_static_constructor_dims <- function(dims, context) {
-  stopifnot(is.list(dims), is_string(context))
-  message <- paste0(context, " dimensions must be non-negative")
-  for (dim in dims) {
-    if (is_scalar_na(dim)) {
-      stop(context, " dimensions must not be NA", call. = FALSE)
-    }
-    if (
-      is.numeric(dim) &&
-        length(dim) == 1L &&
-        !is.na(dim) &&
-        is.finite(dim) &&
-        dim < 0
-    ) {
-      stop(message, call. = FALSE)
-    }
-  }
-  invisible(TRUE)
-}
-
-validate_constructor_dim_integer_ranges <- function(
-  dims,
-  context,
-  scope,
-  hoist
-) {
-  stopifnot(is.list(dims), is_string(context), !is.null(hoist))
-  for (dim in dims) {
-    guard_exprs <- c(size_expr_integer_conversion_inputs(dim), list(dim))
-    guard_exprs <- Filter(
-      \(expr) size_expr_needs_r_integer_guard(expr, scope),
-      guard_exprs
-    )
-    raw_dims_f <- unique(vapply(
-      guard_exprs,
-      \(expr) dims2f(list(expr), scope, final_size_cast = FALSE),
-      character(1L)
-    ))
-    for (raw_dim_f in raw_dims_f) {
-      raw_dim_real <- glue("real(({raw_dim_f}), kind=c_double)")
-      emit_quickr_error_if(
-        glue(
-          "({raw_dim_real} /= {raw_dim_real}) .or. ",
-          "({raw_dim_real} <= ",
-          "(-real(huge(0_c_int), kind=c_double) - 1.0_c_double)) .or. ",
-          "({raw_dim_real} >= ",
-          "(real(huge(0_c_int), kind=c_double) + 1.0_c_double))"
-        ),
-        paste0(
-          context,
-          " dimensions must be finite and representable as an R integer"
-        ),
-        hoist,
-        scope
-      )
-    }
-  }
-  invisible(TRUE)
-}
-
-validate_guarded_constructor_dims <- function(dims, context, scope, hoist) {
-  validate_constructor_dim_integer_ranges(dims, context, scope, hoist)
-  message <- paste0(context, " dimensions must be non-negative")
-  for (dim in dims) {
-    if (!size_expr_needs_r_integer_guard(dim, scope)) {
-      next
-    }
-    dim_f <- dims2f(list(dim), scope)
-    if (!nzchar(dim_f) || grepl(":", dim_f, fixed = TRUE)) {
-      next
-    }
-    emit_quickr_error_if(
-      glue("{dim_f} < 0"),
-      message,
-      hoist,
-      scope
-    )
-  }
-  invisible(TRUE)
-}
-
-validate_constructor_dims <- function(dims, context, scope, hoist) {
-  stopifnot(is.list(dims), is_string(context), !is.null(hoist))
-  validate_static_constructor_dims(dims, context)
-  validate_constructor_dim_integer_ranges(dims, context, scope, hoist)
-  message <- paste0(context, " dimensions must be non-negative")
-  for (dim in dims) {
-    if (is_size_name(dim)) {
-      next
-    }
-    if (is_wholenumber(dim)) {
-      next
-    }
-    if (is_scalar_na(dim)) {
-      next
-    }
-    if (size_expr_is_known_nonnegative(dim)) {
-      next
-    }
-    dim_f <- dims2f(list(dim), scope)
-    if (!nzchar(dim_f) || grepl(":", dim_f, fixed = TRUE)) {
-      next
-    }
-    emit_quickr_error_if(
-      glue("{dim_f} < 0"),
-      message,
-      hoist,
-      scope
-    )
-  }
-  invisible(TRUE)
-}
-
 # --- Handlers ---
 
 r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
@@ -257,16 +144,13 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   mode <- promoted$mode
   # Fill constructors are one scalar literal claiming length k; spread them
   # as implied-dos so the emitted element count matches the claimed length.
+  # Known limitations: later closure calls can change symbolic fill lengths,
+  # and the implied-do counter is not OpenMP-private. Capturing lengths and
+  # supporting these constructors in parallel loops are deferred.
   fill_idx <- which(map_lgl(args, is_fill_constructor_call, scope = scope))
   if (length(fill_idx)) {
     spread_var <- NULL
     for (j in fill_idx) {
-      if (
-        !is.null(ff[[j]]@value@name) &&
-          identical(trimws(as.character(ff[[j]])), ff[[j]]@value@name)
-      ) {
-        next
-      }
       len_f <- dims2f(ff[[j]]@value@dims, scope)
       if (!nzchar(len_f)) {
         next # statically length 1: a single spliced scalar is already right
@@ -280,8 +164,9 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
         )
       }
       spread_var <- spread_var %||%
-        scope_unique_implied_do_var(
+        scope_unique_var(
           scope,
+          "integer",
           integer_kind = "c_ptrdiff_t"
         )
       ff[[j]] <- Fortran(
@@ -375,24 +260,12 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
     stop("rep.int() expects an integer scalar `times`", call. = FALSE)
   }
 
-  times <- hoist_unless_name(times, hoist)
   len_expr <- r2size(times_arg, scope)
   if (is.null(len_expr) || is_scalar_na(len_expr)) {
     len_expr <- NA_integer_
   }
-  if (is_scalar_integerish(len_expr) && as.integer(len_expr) < 0L) {
-    stop("invalid 'times' value", call. = FALSE)
-  }
-  if (!is_wholenumber(len_expr)) {
-    emit_quickr_error_if(
-      glue("{times} < 0"),
-      "invalid 'times' value",
-      hoist,
-      scope
-    )
-  }
 
-  i <- scope_unique_implied_do_var(scope)
+  i <- scope_unique_var(scope, "integer")
   out_val <- Variable("integer", list(len_expr))
   Fortran(glue("[({x}, {i}=1, int({times}, kind=c_int))]"), out_val)
 }
@@ -400,22 +273,15 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 
 # Compile a zero-fill constructor call: a single scalar literal carrying
 # array dims. Whole-array assignment broadcasts that correctly, and
-# c()/array() spread it as an implied-do, so those contexts keep the
-# scalar form. Any other consumer (elementwise ops, reductions,
-# matrix() -- whose reshape() lowering needs an array SOURCE, not a
-# scalar literal) needs a real array expression -- an expression like
-# `numeric(2) + 1` would otherwise contribute one element where its dims
-# claim two -- so materialize the fill into a hoisted temporary there.
+# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
+# the scalar form. Any other consumer (elementwise ops, reductions, ...)
+# needs a real array expression -- an expression like `numeric(2) + 1`
+# would otherwise contribute one element where its dims claim two -- so
+# materialize the fill into a hoisted temporary there.
 fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   dims <- if (length(args)) r2dims(args, scope) else list(0L)
   var <- Variable(mode = mode, dims = dims)
   length_dim <- var@dims[[1L]]
-  validate_constructor_dim_integer_ranges(
-    var@dims,
-    "fill constructor",
-    scope,
-    hoist
-  )
   if (is_wholenumber(length_dim)) {
     if (as.integer(length_dim) < 0L) {
       stop("invalid 'length' argument", call. = FALSE)
@@ -434,16 +300,10 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
     return(out)
   }
   parent_call <- parent_call_name(list(...)$calls)
-  if (parent_call %in% c("<-", "=", "<<-", "c", "array")) {
+  if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
     return(out)
   }
-  materialize_via_hoist(
-    literal,
-    mode,
-    var@dims,
-    hoist,
-    allocate_at_point = TRUE
-  )
+  materialize_via_hoist(literal, mode, var@dims, hoist)
 }
 
 register_r2f_handler(
@@ -533,7 +393,6 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
 
   src <- r2f(margs$data, scope, ..., hoist = hoist)
   dims <- r2dims(list(margs$nrow, margs$ncol), scope)
-  validate_static_constructor_dims(dims, "matrix()")
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
   # A scalar broadcasts natively on direct whole-array assignment, so keep
@@ -541,34 +400,16 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   # must be a real rank-2 array, so materialize it into a hoisted temporary.
   if (passes_as_scalar(src@value)) {
     if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
-      assignment_name <- list(...)$assignment_name
-      return_names <- scope_get(scope, "return_names", character()) %||%
-        character()
-      if (!is_string(assignment_name) || !assignment_name %in% return_names) {
-        validate_constructor_dims(dims, "matrix()", scope, hoist)
-      } else {
-        validate_guarded_constructor_dims(dims, "matrix()", scope, hoist)
-      }
       src@value <- out_val
       return(src)
     }
-    validate_constructor_dims(dims, "matrix()", scope, hoist)
-    return(materialize_via_hoist(
-      src,
-      src@value@mode,
-      dims,
-      hoist,
-      allocate_at_point = TRUE
-    ))
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
-  # reshape_vector_for_matrix() splices its source into both the `source`
-  # and `pad` args; hoist non-trivial expressions so they evaluate once.
-  validate_constructor_dims(dims, "matrix()", scope, hoist)
   rows <- dims[[1L]]
   cols <- dims[[2L]]
 
-  if (is_fill_constructor_call(margs$data, scope)) {
+  if (is_fill_constructor_call(args$data, scope)) {
     source_len <- src@value@dims[[1L]]
     source_may_be_empty <- !is_wholenumber(source_len) || source_len == 0
     if (source_may_be_empty) {
@@ -591,11 +432,8 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     }
   }
 
-  reshape_vector_for_matrix(
-    hoist_unless_name(src, hoist, allocate_at_point = TRUE),
-    rows,
-    cols
-  )
+  # The source is used twice by RESHAPE, so evaluate it once.
+  reshape_vector_for_matrix(hoist_unless_name(src, hoist), rows, cols)
 }
 
 r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
@@ -613,9 +451,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   if (!length(target_dims)) {
     stop("array(dim=) must not be empty", call. = FALSE)
   }
-  validate_static_constructor_dims(target_dims, "array()")
   if (!passes_as_scalar(out@value)) {
-    validate_constructor_dims(target_dims, "array()", scope, hoist)
     # R semantics: `array()` flattens its input (dropping dim) then reshapes.
     # We implement this as Fortran `reshape()`. Recycling (i.e. expanding a
     # shorter SOURCE to a larger target shape) is not supported.
@@ -624,6 +460,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       stop("array(dim=) must be known", call. = FALSE)
     }
 
+    is_fill_constructor <- is_fill_constructor_call(args$data, scope)
     axis_terms <- vapply(
       target_dims,
       function(d) {
@@ -645,8 +482,6 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     } else {
       paste0("(", paste0(axis_terms_ptrdiff, collapse = " * "), ")")
     }
-
-    is_fill_constructor <- is_fill_constructor_call(args$data, scope)
     if (is_fill_constructor) {
       source_len <- out@value@dims[[1L]]
       source_may_be_empty <- !is_wholenumber(source_len) || source_len == 0
@@ -656,10 +491,14 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
         if (!nzchar(source_len_f) || grepl(":", source_len_f, fixed = TRUE)) {
           stop("array() fill length must be known", call. = FALSE)
         }
+        target_nonempty <- paste0(
+          "(",
+          axis_terms,
+          ") > 0",
+          collapse = " .and. "
+        )
         emit_quickr_error_if(
-          glue(
-            "({source_len_f}) == 0 .and. ({n_expr_ptrdiff}) > 0_c_ptrdiff_t"
-          ),
+          glue("({source_len_f}) == 0 .and. {target_nonempty}"),
           "array() with empty data would produce NA values, which are not supported",
           hoist,
           scope
@@ -690,8 +529,9 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       shape <- glue("int([{dims_f}])")
 
       source <- if (is_fill_constructor) {
-        i <- scope_unique_implied_do_var(
+        i <- scope_unique_var(
           scope,
+          "integer",
           integer_kind = "c_ptrdiff_t"
         )
         glue("[({out}, {i}=1_c_ptrdiff_t, {n_expr_ptrdiff})]")
@@ -736,32 +576,10 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   )
   if (
     data_scalar &&
-      !passes_as_scalar(out@value)
+      !passes_as_scalar(out@value) &&
+      !parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")
   ) {
-    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
-      assignment_name <- list(...)$assignment_name
-      return_names <- scope_get(scope, "return_names", character()) %||%
-        character()
-      if (!is_string(assignment_name) || !assignment_name %in% return_names) {
-        validate_constructor_dims(target_dims, "array()", scope, hoist)
-      } else {
-        validate_guarded_constructor_dims(
-          target_dims,
-          "array()",
-          scope,
-          hoist
-        )
-      }
-      return(out)
-    }
-    validate_constructor_dims(target_dims, "array()", scope, hoist)
-    return(materialize_via_hoist(
-      out,
-      out@value@mode,
-      target_dims,
-      hoist,
-      allocate_at_point = TRUE
-    ))
+    return(materialize_via_hoist(out, out@value@mode, target_dims, hoist))
   }
   out
 }

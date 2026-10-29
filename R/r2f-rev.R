@@ -35,7 +35,7 @@ r2f_handlers[["rev"]] <- function(args, scope, ..., hoist = NULL) {
       mode = x@value@mode,
       dims = x@value@dims,
       hoist = hoist,
-      logical_storage = logical_as_int(x@value)
+      logical_as_int = logical_as_int(x@value)
     )
   }
 

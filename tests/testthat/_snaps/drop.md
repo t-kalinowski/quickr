@@ -149,16 +149,13 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(A, out_, A__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(A, out_, A__dim_2_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: A__dim_2_
-      
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: A(1, A__dim_2_)
@@ -166,23 +163,7 @@
         ! manifest end
       
       
-        if (size(A, 2) == 1) then
-          call quickr_set_error_msg("drop() requires singleton dimensions to be known at compile time")
-          return
-        end if
         out_ = A(1, :)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -195,8 +176,7 @@
       extern void fn(
         const double* const A__,
         double* const out___,
-        const R_len_t A__dim_2_,
-        char* quickr_err_msg);
+        const R_len_t A__dim_2_);
       
       SEXP fn_(SEXP _args) {
         // A
@@ -222,18 +202,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          A__,
-          out___,
-          A__dim_2_,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(A__, out___, A__dim_2_);
         
         UNPROTECT(1);
         return out_;
@@ -252,16 +221,13 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(A, out_, A__dim_1_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(A, out_, A__dim_1_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: A__dim_1_
-      
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: A(A__dim_1_, 1)
@@ -269,23 +235,7 @@
         ! manifest end
       
       
-        if (size(A, 1) == 1) then
-          call quickr_set_error_msg("drop() requires singleton dimensions to be known at compile time")
-          return
-        end if
         out_ = A(:, 1)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -298,8 +248,7 @@
       extern void fn(
         const double* const A__,
         double* const out___,
-        const R_len_t A__dim_1_,
-        char* quickr_err_msg);
+        const R_len_t A__dim_1_);
       
       SEXP fn_(SEXP _args) {
         // A
@@ -325,18 +274,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          A__,
-          out___,
-          A__dim_1_,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(A__, out___, A__dim_1_);
         
         UNPROTECT(1);
         return out_;
@@ -356,14 +294,11 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(A, n, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(A, n, out_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         real(c_double), intent(in) :: A(1, n)
         integer(c_int), intent(in) :: n
@@ -372,23 +307,7 @@
       
       
       
-        if (size(A, 2) == 1) then
-          call quickr_set_error_msg("drop() requires singleton dimensions to be known at compile time")
-          return
-        end if
         out_ = A(1, :)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -401,8 +320,7 @@
       extern void fn(
         const double* const A__,
         const int* const n__,
-        double* const out___,
-        char* quickr_err_msg);
+        double* const out___);
       
       SEXP fn_(SEXP _args) {
         // A
@@ -445,18 +363,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          A__,
-          n__,
-          out___,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(A__, n__, out___);
         
         UNPROTECT(1);
         return out_;
@@ -476,14 +383,11 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(A, n, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(A, n, out_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         real(c_double), intent(in) :: A(n, 1)
         integer(c_int), intent(in) :: n
@@ -492,23 +396,7 @@
       
       
       
-        if (size(A, 1) == 1) then
-          call quickr_set_error_msg("drop() requires singleton dimensions to be known at compile time")
-          return
-        end if
         out_ = A(:, 1)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -521,8 +409,7 @@
       extern void fn(
         const double* const A__,
         const int* const n__,
-        double* const out___,
-        char* quickr_err_msg);
+        double* const out___);
       
       SEXP fn_(SEXP _args) {
         // A
@@ -565,18 +452,7 @@
         SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
         double* out___ = REAL(out_);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          A__,
-          n__,
-          out___,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(A__, n__, out___);
         
         UNPROTECT(1);
         return out_;

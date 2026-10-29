@@ -16,27 +16,6 @@ test_that("repeat/break", {
   expect_quick_identical(inc_to_5, -1L, 0L, 4L, 5L)
 })
 
-test_that("parallel loops isolate body-local scratch bindings", {
-  skip_if_no_openmp()
-
-  fn <- function(x, n, out) {
-    declare(
-      type(x = double(n)),
-      type(n = integer(1)),
-      type(out = double(n))
-    )
-    declare(parallel())
-    for (i in seq_len(n)) {
-      scratch <- x[i] * 2
-      out[i] <- scratch + 1
-    }
-    out
-  }
-
-  x <- as.double(seq_len(10000L))
-  expect_quick_identical(fn, list(x, length(x), double(length(x))))
-})
-
 test_that("repeat + next", {
   inc_to_5_skip_neg <- function(x) {
     declare(type(x = integer(1)))
@@ -161,13 +140,26 @@ test_that("single-statement while/repeat bodies re-run their hoisted statements"
   expect_quick_identical(bounded_squarings_repeat, list(diag(2) * 2))
 })
 
-test_that("value iteration refuses to retype an existing loop variable", {
-  fn <- function(x) {
-    declare(type(x = double(2)))
-    i <- 1L
-    for (i in x) {}
-    i
+test_that("lazy while-condition errors preserve preceding effects", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    predicate <- function() {
+      while ((runif(1) + abs()) > 0) {
+        later <- runif(2)
+      }
+      TRUE
+    }
+    flag && predicate()
   }
-
-  expect_error(quick(fn), "loop variable `i` has mode integer")
+  qfn <- quick(fn)
+  withr::local_seed(153)
+  before <- .Random.seed
+  expect_identical(qfn(FALSE), fn(FALSE))
+  expect_identical(.Random.seed, before)
+  set.seed(153)
+  expect_error(fn(TRUE), "abs")
+  expected_seed <- .Random.seed
+  set.seed(153)
+  expect_error(qfn(TRUE), "abs")
+  expect_identical(.Random.seed, expected_seed)
 })

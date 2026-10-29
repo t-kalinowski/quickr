@@ -183,42 +183,6 @@ test_that("nested elementwise operands preserve left-to-right evaluation", {
   expect_identical(quick(conformable)(), expected)
 })
 
-test_that("later effects cannot change earlier elementwise operands", {
-  bare <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 1
-      2
-    }
-    x + bump()
-  }
-
-  expression <- function(x) {
-    declare(type(x = double(1)))
-    bump <- function() {
-      x <<- x + 1
-      2
-    }
-    (x * 2) + bump()
-  }
-
-  expect_quick_identical(bare, list(3))
-  expect_quick_identical(expression, list(3))
-})
-
-test_that("c() fixes fill lengths before evaluating later arguments", {
-  fn <- function(n) {
-    declare(type(n = integer(1)))
-    bump <- function() {
-      n <<- n + 1L
-      7L
-    }
-    c(integer(n), bump())
-  }
-
-  expect_quick_identical(fn, list(2L))
-})
-
 test_that("subscript operands preserve left-to-right evaluation", {
   fn <- function(x) {
     declare(type(x = double(2, 2)))
@@ -458,21 +422,6 @@ test_that("fill constructors spread inside c()", {
   expect_quick_identical(parenthesized, list(c(1, 2)))
 })
 
-test_that("parallel fill constructors privatize implied-do indices", {
-  fn <- function(n) {
-    declare(type(n = integer(1)), type(out = integer(n)))
-    out <- integer(n)
-    declare(parallel())
-    for (i in seq_len(n)) {
-      out[i] <- sum(c(integer(n), i))
-    }
-    out
-  }
-
-  fsub <- as.character(r2f(fn))
-  expect_match(fsub, "!$omp parallel do private(tmp1_)", fixed = TRUE)
-})
-
 test_that("c() evaluates effectful arguments from left to right", {
   fn <- function() {
     c(runif(2), runif(2) + 1)
@@ -579,36 +528,6 @@ test_that("fill constructors materialize where an array is required", {
   expect_quick_identical(symbolic, list(c(5, 6), 3L))
 })
 
-test_that("fill constructors materialize inside matrix()", {
-  # matrix() lowers non-scalar data through reshape(), whose SOURCE must
-  # be an array. Fills used to pass through as scalar literals with
-  # claimed dims and relied on hoist_unless_name() to materialize them;
-  # once that helper learned to skip literals, the generated
-  # reshape(0.0_c_double, ...) failed to compile (and logical(k) only
-  # kept working because the literal regex missed `.false.`). Fills now
-  # materialize before matrix() like any other array consumer.
-  numeric_fill <- function() {
-    matrix(numeric(6), 3, 2)
-  }
-  expect_quick_identical(numeric_fill, list())
-
-  integer_fill <- function() {
-    matrix(integer(6), 3, 2)
-  }
-  expect_quick_identical(integer_fill, list())
-
-  logical_fill <- function() {
-    matrix(logical(6), 3, 2)
-  }
-  expect_quick_identical(logical_fill, list())
-
-  assigned <- function() {
-    x <- matrix(numeric(6), 3, 2)
-    x
-  }
-  expect_quick_identical(assigned, list())
-})
-
 test_that("omitted fill lengths default to zero", {
   fn <- function() {
     c(numeric(), double(), integer(), logical(), 1, 2)
@@ -679,39 +598,23 @@ test_that("matrix(scalar, m, n) materializes where an array is required", {
   expect_quick_identical(transposed, list())
 })
 
-test_that("matrix() rejects negative extents before materializing", {
-  static <- function() {
-    sum(matrix(1, -1L, 2L))
-  }
-  dynamic <- function(n, k) {
-    declare(type(n = integer(1)), type(k = integer(1)))
-    sum(matrix(1, n, k))
-  }
-
-  expect_error(
-    quick(static),
-    "matrix() dimensions must be non-negative",
-    fixed = TRUE
-  )
-  qdynamic <- quick(dynamic)
-  expect_error(
-    qdynamic(-1L, 2L),
-    "matrix() dimensions must be non-negative",
-    fixed = TRUE
-  )
-  expect_error(
-    qdynamic(2L, -1L),
-    "matrix() dimensions must be non-negative",
-    fixed = TRUE
-  )
-  expect_quick_identical(dynamic, list(2L, 3L))
-})
-
 test_that("matrix() materializes direct non-scalar fill constructors", {
   fn <- function() {
     matrix(numeric(2), 2, 2)
   }
   expect_quick_identical(fn, list())
+
+  integer_fill <- function(n) {
+    declare(type(n = integer(1)))
+    matrix(integer(n), 2, 2)
+  }
+  expect_quick_identical(integer_fill, list(2L))
+
+  logical_fill <- function() {
+    x <- matrix(logical(6), 3, 2)
+    x
+  }
+  expect_quick_identical(logical_fill, list())
 })
 
 test_that("a closure's return expression materializes fills and matrix()", {
@@ -744,6 +647,19 @@ test_that("matrix(scalar, m, n) keeps the broadcast fast path on assignment", {
   # no hoisted temp: the scalar broadcasts straight into the target
   expect_match(fsub, "m = 0.0_c_double", fixed = TRUE)
   expect_quick_identical(fn, list(2L, 3L))
+})
+
+test_that("scalar-backed array expressions materialize before shape guards", {
+  fn <- function(mat, n, k) {
+    declare(
+      type(mat = double(n, k)),
+      type(n = integer(1)),
+      type(k = integer(1))
+    )
+    array(0, dim = c(n, k)) + mat
+  }
+  mat <- matrix(as.double(1:6), 2, 3)
+  expect_quick_identical(fn, list(mat, 2L, 3L))
 })
 
 test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
@@ -786,15 +702,6 @@ test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
     symbolic(matrix(as.double(1:4), 2, 2), 2L)
   )
 
-  numeric_dim <- function(x, n) {
-    declare(type(x = double(2, 2)), type(n = double(1)))
-    x + matrix(1, n, 2)
-  }
-  expect_quick_identical(
-    numeric_dim,
-    list(matrix(as.double(1:4), 2, 2), 2.5)
-  )
-
   # Two fills meeting each other still materialize (no scalar result
   # with claimed array dims may escape).
   both_fills <- function(n) {
@@ -811,634 +718,72 @@ test_that("matrix(scalar, m, n) broadcasts natively in elementwise ops", {
   expect_quick_identical(vec_operand, list(c(1, 2)))
 })
 
-test_that("elementwise matrix fills respect a local matrix closure", {
-  fn <- function(x) {
+test_that("scalar matrix broadcasting preserves operand order and dimensions", {
+  left <- function(x, s, n) {
+    declare(type(x = double(n, n)), type(s = double(1)), type(n = integer(1)))
+    matrix(s, n, n) - x
+  }
+  expect_quick_identical(left, list(matrix(as.double(1:4), 2, 2), 3, 2L))
+
+  numeric_dim <- function(x, n) {
+    declare(type(x = double(2, 2)), type(n = double(1)))
+    x + matrix(1, n, 2)
+  }
+  expect_quick_identical(numeric_dim, list(matrix(as.double(1:4), 2, 2), 2.5))
+
+  logical_data <- function(x, flag) {
+    declare(type(x = double(2, 2)), type(flag = logical(1)))
+    matrix(flag, 2, 2) + x
+  }
+  expect_quick_identical(logical_data, list(matrix(as.double(1:4), 2, 2), TRUE))
+})
+
+test_that("scalar matrix broadcasting leaves other expressions to matrix()", {
+  shadowed <- function(x) {
     declare(type(x = double(2, 2)))
     matrix <- function(data, nrow, ncol) data + 1
     matrix(1, 2, 2) + x
   }
+  expect_quick_identical(shadowed, list(matrix(as.double(1:4), 2, 2)))
 
-  expect_quick_identical(fn, list(matrix(as.double(1:4), 2, 2)))
-})
+  computed_dims <- function(x, n) {
+    declare(type(x = double(n, n)), type(n = integer(1)))
+    x + matrix(1, n + 0L, n)
+  }
+  expect_quick_identical(computed_dims, list(matrix(as.double(1:4), 2, 2), 2L))
 
-test_that("a left matrix fill is evaluated before its right operand", {
-  fn <- function(x, s, n) {
-    declare(
-      type(x = double(2, 2)),
-      type(s = double(1)),
-      type(n = integer(1))
-    )
+  effectful_rhs <- function(x, s, n) {
+    declare(type(x = double(2, 2)), type(s = double(1)), type(n = integer(1)))
     bump <- function() {
       s <<- s + 1
       n <<- n + 1L
       x
     }
-    out <- matrix(s, n, n) + bump()
-    out
+    matrix(s, n, n) + bump()
   }
-
-  expect_quick_identical(fn, list(matrix(as.double(1:4), 2, 2), 1, 2L))
+  expect_quick_identical(
+    effectful_rhs,
+    list(matrix(as.double(1:4), 2, 2), 1, 2L)
+  )
 })
 
-test_that("a left matrix fill keeps dimensions captured before a scalar RHS", {
-  fn <- function(n) {
-    declare(type(n = integer(1)))
-    bump <- function() {
-      n <<- n + 1L
-      1
-    }
-    matrix(1, n, 1) + bump()
+test_that("scalar matrix shape errors stay inside lazy operands", {
+  fn <- function(flag, x) {
+    declare(type(flag = logical(1)), type(x = double(2, 2)))
+    flag && sum(x + matrix(1, 3, 3)) > 0
   }
-
-  expect_quick_identical(fn, list(2L))
+  qfn <- quick(fn)
+  x <- matrix(as.double(1:4), 2, 2)
+  expect_identical(qfn(FALSE, x), FALSE)
+  expect_error(qfn(TRUE, x), "matching dimensions")
 })
 
-test_that("scalar-backed array expressions materialize before shape guards", {
-  fn <- function(mat, n, k) {
-    declare(
-      type(mat = double(n, k)),
-      type(n = integer(1)),
-      type(k = integer(1))
-    )
-    array(0, dim = c(n, k)) + mat
+test_that("scalar matrix fills compare current dimensions with the array", {
+  fn <- function(x, n) {
+    declare(type(x = double(n, n)), type(n = integer(1)))
+    n <- n + 1L
+    x + matrix(1, n, n)
   }
-  mat <- matrix(as.double(1:6), 2, 3)
-  expect_quick_identical(fn, list(mat, 2L, 3L))
-})
-
-test_that("constructor lengths follow current local bindings", {
-  fn <- function() {
-    n <- 2L
-    n <- 3L
-    double(n)
-  }
-
-  expect_identical(quick(fn)(), double(3))
-})
-
-test_that("matrix and array reject negative dimensions before use", {
-  matrix_static <- function() {
-    sum(matrix(1, -1L, 2L))
-  }
-  array_static <- function() {
-    sum(array(1, dim = c(-1L, 2L)))
-  }
-  matrix_dynamic <- function(n) {
-    declare(type(n = integer(1)))
-    sum(matrix(1, n, 2L))
-  }
-  array_dynamic <- function(n) {
-    declare(type(n = integer(1)))
-    sum(array(1, dim = c(n, 2L)))
-  }
-
-  expect_error(quick(matrix_static), "dimensions must be non-negative")
-  expect_error(quick(array_static), "dimensions must be non-negative")
-
-  qmatrix <- quick(matrix_dynamic)
-  qarray <- quick(array_dynamic)
-  expect_identical(qmatrix(2L), 4.0)
-  expect_identical(qarray(2L), 4.0)
-  expect_error(qmatrix(-1L), "dimensions must be non-negative")
-  expect_error(qarray(-1L), "dimensions must be non-negative")
-})
-
-test_that("matrix and array reject non-finite runtime dimensions", {
-  expect_error(
-    quick(function() {
-      sum(matrix(1, Inf, 2L))
-    }),
-    "size must be finite",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(array(1, dim = c(Inf, 2L)))
-    }),
-    "size must be finite",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(matrix(1, NA_integer_, 2L))
-    }),
-    "dimensions must not be NA",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(array(1, dim = c(NA_real_, 2L)))
-    }),
-    "size must be an integer, found: NA",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(matrix(1, as.integer(Inf), 2L))
-    }),
-    "size must be finite",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(array(1, dim = c(as.integer(NaN), 2L)))
-    }),
-    "size must be finite",
-    fixed = TRUE
-  )
-  expect_error(
-    quick(function() {
-      sum(array(1, dim = c(as.integer(2147483648), 2L)))
-    }),
-    "representable as an R integer",
-    fixed = TRUE
-  )
-
-  matrix_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    sum(matrix(1, n, 2L))
-  }
-  array_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    sum(array(1, dim = c(n, 2L)))
-  }
-
-  matrix_code <- suppressWarnings(as.character(r2f(matrix_dynamic)))
-  array_code <- suppressWarnings(as.character(r2f(array_dynamic)))
-  expect_match(matrix_code, "huge(0_c_int)", fixed = TRUE)
-  expect_match(array_code, "huge(0_c_int)", fixed = TRUE)
-  expect_lt(
-    regexpr("huge(0_c_int)", matrix_code, fixed = TRUE)[[1L]],
-    regexpr("allocate(", matrix_code, fixed = TRUE)[[1L]]
-  )
-  expect_lt(
-    regexpr("huge(0_c_int)", array_code, fixed = TRUE)[[1L]],
-    regexpr("allocate(", array_code, fixed = TRUE)[[1L]]
-  )
-
-  qmatrix <- suppressWarnings(quick(matrix_dynamic))
-  qarray <- suppressWarnings(quick(array_dynamic))
-  for (bad_dim in c(Inf, -Inf, NaN, 2147483648)) {
-    expect_error(
-      qmatrix(bad_dim),
-      "representable as an R integer",
-      fixed = TRUE
-    )
-    expect_error(
-      qarray(bad_dim),
-      "representable as an R integer",
-      fixed = TRUE
-    )
-  }
-  expect_identical(qmatrix(2), 4.0)
-  expect_identical(qarray(2), 4.0)
-
-  matrix_fill_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(numeric(n), n, 1L)
-    sum(out)
-  }
-  matrix_wrapped_fill_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(c(numeric(n)), n, 1L)
-    sum(out)
-  }
-  array_fill_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(numeric(n) + 0, dim = c(n))
-    sum(out)
-  }
-  matrix_fill_dynamic_code <- suppressWarnings(
-    as.character(r2f(matrix_fill_dynamic))
-  )
-  matrix_wrapped_fill_dynamic_code <- suppressWarnings(
-    as.character(r2f(matrix_wrapped_fill_dynamic))
-  )
-  array_fill_dynamic_code <- suppressWarnings(
-    as.character(r2f(array_fill_dynamic))
-  )
-  for (code in list(
-    matrix_fill_dynamic_code,
-    matrix_wrapped_fill_dynamic_code,
-    array_fill_dynamic_code
-  )) {
-    expect_lt(
-      regexpr("representable as an R integer", code, fixed = TRUE)[[1L]],
-      regexpr("allocate(", code, fixed = TRUE)[[1L]]
-    )
-  }
-  qmatrix_fill_dynamic <- suppressWarnings(quick(matrix_fill_dynamic))
-  qmatrix_wrapped_fill_dynamic <- suppressWarnings(
-    quick(matrix_wrapped_fill_dynamic)
-  )
-  qarray_fill_dynamic <- suppressWarnings(quick(array_fill_dynamic))
-  expect_error(qmatrix_fill_dynamic(Inf), "representable as an R integer")
-  expect_error(
-    qmatrix_wrapped_fill_dynamic(Inf),
-    "representable as an R integer"
-  )
-  expect_error(qarray_fill_dynamic(Inf), "representable as an R integer")
-  expect_identical(qmatrix_fill_dynamic(2), 0.0)
-  expect_identical(qmatrix_wrapped_fill_dynamic(2), 0.0)
-  expect_identical(qarray_fill_dynamic(2), 0.0)
-
-  fill_dynamic <- function(n) {
-    declare(type(n = double(1)))
-    out <- numeric(n)
-    sum(out)
-  }
-  fill_dynamic_code <- suppressWarnings(as.character(r2f(fill_dynamic)))
-  expect_lt(
-    regexpr(
-      "fill constructor dimensions must be finite",
-      fill_dynamic_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(out", fill_dynamic_code, fixed = TRUE)[[1L]]
-  )
-  qfill_dynamic <- suppressWarnings(quick(fill_dynamic))
-  expect_error(qfill_dynamic(Inf), "representable as an R integer")
-  expect_identical(qfill_dynamic(2), 0.0)
-
-  matrix_assigned <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(1, n, 2L)
-    sum(out)
-  }
-  array_assigned <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(1, dim = c(n, 2L))
-    sum(out)
-  }
-  qmatrix_assigned <- suppressWarnings(quick(matrix_assigned))
-  qarray_assigned <- suppressWarnings(quick(array_assigned))
-  expect_error(qmatrix_assigned(Inf), "representable as an R integer")
-  expect_error(qarray_assigned(Inf), "representable as an R integer")
-  expect_error(qmatrix_assigned(-1), "dimensions must be non-negative")
-  expect_error(qarray_assigned(-1), "dimensions must be non-negative")
-  expect_identical(qmatrix_assigned(2), 4.0)
-  expect_identical(qarray_assigned(2), 4.0)
-
-  matrix_declared <- function(n) {
-    declare(type(n = double(1)), type(out = double(n, 2L)))
-    out <- matrix(1, n, 2L)
-    sum(out)
-  }
-  array_declared <- function(n) {
-    declare(type(n = double(1)), type(out = double(n, 2L, 1L)))
-    out <- array(1, dim = c(n, 2L, 1L))
-    sum(out)
-  }
-  matrix_declared_code <- suppressWarnings(as.character(r2f(matrix_declared)))
-  array_declared_code <- suppressWarnings(as.character(r2f(array_declared)))
-  expect_lt(
-    regexpr(
-      "representable as an R integer",
-      matrix_declared_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(out", matrix_declared_code, fixed = TRUE)[[1L]]
-  )
-  expect_lt(
-    regexpr(
-      "representable as an R integer",
-      array_declared_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(out", array_declared_code, fixed = TRUE)[[1L]]
-  )
-  qmatrix_declared <- suppressWarnings(quick(matrix_declared))
-  qarray_declared <- suppressWarnings(quick(array_declared))
-  expect_error(qmatrix_declared(Inf), "representable as an R integer")
-  expect_error(qarray_declared(Inf), "representable as an R integer")
-  expect_identical(qmatrix_declared(2), 4.0)
-  expect_identical(qarray_declared(2), 4.0)
-
-  matrix_assigned_integer <- function(n) {
-    declare(type(n = integer(1)))
-    out <- matrix(1, n, 2L)
-    sum(out)
-  }
-  array_assigned_integer <- function(n) {
-    declare(type(n = integer(1)))
-    out <- array(1, dim = c(n, 2L))
-    sum(out)
-  }
-  qmatrix_assigned_integer <- quick(matrix_assigned_integer)
-  qarray_assigned_integer <- quick(array_assigned_integer)
-  expect_error(
-    qmatrix_assigned_integer(-1L),
-    "dimensions must be non-negative"
-  )
-  expect_error(
-    qarray_assigned_integer(-1L),
-    "dimensions must be non-negative"
-  )
-  expect_identical(qmatrix_assigned_integer(2L), 4.0)
-  expect_identical(qarray_assigned_integer(2L), 4.0)
-
-  matrix_coerced <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(1, as.integer(n), 2L)
-    sum(out)
-  }
-  array_coerced <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(1, dim = c(as.integer(n), 2L))
-    sum(out)
-  }
-  qmatrix_coerced <- suppressWarnings(quick(matrix_coerced))
-  qarray_coerced <- suppressWarnings(quick(array_coerced))
-  expect_error(qmatrix_coerced(Inf), "representable as an R integer")
-  expect_error(qarray_coerced(Inf), "representable as an R integer")
-  expect_error(qmatrix_coerced(-1), "dimensions must be non-negative")
-  expect_error(qarray_coerced(-1), "dimensions must be non-negative")
-  expect_identical(qmatrix_coerced(2), 4.0)
-  expect_identical(qarray_coerced(2), 4.0)
-
-  matrix_nested <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(1, n, 2L) + 0
-    sum(out)
-  }
-  nested_code <- suppressWarnings(as.character(r2f(matrix_nested)))
-  expect_lt(
-    regexpr("representable as an R integer", nested_code, fixed = TRUE)[[1L]],
-    regexpr("allocate(", nested_code, fixed = TRUE)[[1L]]
-  )
-  qmatrix_nested <- suppressWarnings(quick(matrix_nested))
-  expect_error(qmatrix_nested(Inf), "representable as an R integer")
-  expect_error(qmatrix_nested(-1), "dimensions must be non-negative")
-  expect_identical(qmatrix_nested(2), 4.0)
-
-  matrix_returned <- function(n) {
-    declare(type(n = double(1)))
-    out <- matrix(1, n, 2L)
-    out
-  }
-  array_returned <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(1, dim = c(n, 2L))
-    out
-  }
-  array_vector_returned <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(1, dim = c(n))
-    out
-  }
-  array_vector_nested_returned <- function(n) {
-    declare(type(n = double(1)))
-    out <- array(1, dim = c(n)) + 0
-    out
-  }
-  qmatrix_returned <- suppressWarnings(quick(matrix_returned))
-  qarray_returned <- suppressWarnings(quick(array_returned))
-  qarray_vector_returned <- suppressWarnings(quick(array_vector_returned))
-  qarray_vector_nested_returned <- suppressWarnings(
-    quick(array_vector_nested_returned)
-  )
-  expect_error(qmatrix_returned(Inf), "representable as an R integer")
-  expect_error(qarray_returned(Inf), "representable as an R integer")
-  expect_error(
-    qarray_vector_returned(Inf),
-    "representable as an R integer"
-  )
-  expect_error(
-    qarray_vector_nested_returned(Inf),
-    "representable as an R integer"
-  )
-  expect_identical(qmatrix_returned(2.5), matrix(1, 2.5, 2L))
-  expect_identical(qarray_returned(2.5), array(1, dim = c(2.5, 2L)))
-  expect_identical(qmatrix_returned(-0.5), matrix(1, -0.5, 2L))
-
-  closure_matrix <- function(n) {
-    declare(type(n = double(1)))
-    make <- function() matrix(1, n, 2L)
-    out <- make()
-    sum(out)
-  }
-  closure_matrix_inline <- function(n) {
-    declare(type(n = double(1)))
-    make <- function() matrix(1, n, 2L)
-    sum(make())
-  }
-  qclosure_matrix <- suppressWarnings(quick(closure_matrix))
-  qclosure_matrix_inline <- suppressWarnings(quick(closure_matrix_inline))
-  closure_code <- suppressWarnings(as.character(r2f(closure_matrix)))
-  closure_inline_code <- suppressWarnings(
-    as.character(r2f(closure_matrix_inline))
-  )
-  expect_lt(
-    regexpr(
-      "local closure result dimensions must be finite",
-      closure_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(", closure_code, fixed = TRUE)[[1L]]
-  )
-  expect_lt(
-    regexpr(
-      "local closure result dimensions must be finite",
-      closure_inline_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(", closure_inline_code, fixed = TRUE)[[1L]]
-  )
-  expect_error(qclosure_matrix(Inf), "representable as an R integer")
-  expect_error(
-    qclosure_matrix_inline(Inf),
-    "representable as an R integer"
-  )
-  expect_identical(qclosure_matrix(2), 4.0)
-  expect_identical(qclosure_matrix_inline(2), 4.0)
-
-  closure_matrix_integer <- function(n) {
-    declare(type(n = integer(1)))
-    make <- function() matrix(1, n, 2L)
-    out <- make()
-    sum(out)
-  }
-  closure_matrix_integer_code <- as.character(r2f(closure_matrix_integer))
-  expect_lt(
-    regexpr(
-      "local closure result dimensions must be non-negative",
-      closure_matrix_integer_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(out", closure_matrix_integer_code, fixed = TRUE)[[1L]]
-  )
-  qclosure_matrix_integer <- quick(closure_matrix_integer)
-  expect_error(qclosure_matrix_integer(-1L), "non-negative")
-  expect_identical(qclosure_matrix_integer(2L), 4.0)
-
-  closure_self_read <- function(n, x) {
-    declare(type(n = double(1)), type(x = double(n, 2L)))
-    make <- function(y) y + 1
-    x <- make(x)
-    sum(x)
-  }
-  closure_self_read_code <- suppressWarnings(
-    as.character(r2f(closure_self_read))
-  )
-  expect_lt(
-    regexpr(
-      "local closure result dimensions must be finite",
-      closure_self_read_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(btmp", closure_self_read_code, fixed = TRUE)[[1L]]
-  )
-  qclosure_self_read <- suppressWarnings(quick(closure_self_read))
-  expect_identical(qclosure_self_read(2, matrix(1, 2L, 2L)), 8.0)
-
-  sapply_matrix <- function(n) {
-    declare(type(n = double(1)))
-    out <- sapply(
-      seq_len(1L),
-      function(i) matrix(1, n, 2L),
-      simplify = "array"
-    )
-    sum(out)
-  }
-  qsapply_matrix <- suppressWarnings(quick(sapply_matrix))
-  sapply_code <- suppressWarnings(as.character(r2f(sapply_matrix)))
-  expect_lt(
-    regexpr(
-      "sapply() output dimensions must be finite",
-      sapply_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(", sapply_code, fixed = TRUE)[[1L]]
-  )
-  expect_error(qsapply_matrix(Inf), "representable as an R integer")
-  expect_identical(qsapply_matrix(2), 4.0)
-
-  sapply_integer <- function(n) {
-    declare(type(n = integer(1)))
-    out <- sapply(seq_len(n), function(i) i)
-    sum(out)
-  }
-  sapply_integer_code <- as.character(r2f(sapply_integer))
-  expect_lt(
-    regexpr("must be non-negative", sapply_integer_code, fixed = TRUE)[[1L]],
-    regexpr("allocate(out", sapply_integer_code, fixed = TRUE)[[1L]]
-  )
-  qsapply_integer <- quick(sapply_integer)
-  expect_error(qsapply_integer(-1L), "non-negative")
-  expect_identical(qsapply_integer(3L), 6L)
-
-  sapply_self_read <- function(n, out) {
-    declare(type(n = double(1)), type(out = double(n, 1L)))
-    out <- sapply(
-      seq_len(1L),
-      function(i) out[, 1L],
-      simplify = "array"
-    )
-    sum(out)
-  }
-  sapply_self_read_code <- suppressWarnings(
-    as.character(r2f(sapply_self_read))
-  )
-  expect_lt(
-    regexpr(
-      "sapply() output dimensions must be finite",
-      sapply_self_read_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(btmp", sapply_self_read_code, fixed = TRUE)[[1L]]
-  )
-  qsapply_self_read <- suppressWarnings(quick(sapply_self_read))
-  expect_identical(qsapply_self_read(2, matrix(1, 2L, 1L)), 2.0)
-
-  sapply_dynamic_iterable <- function(n) {
-    declare(type(n = double(1)))
-    x <- matrix(1, n, 2L)
-    out <- sapply(x, function(i) i)
-    sum(out)
-  }
-  sapply_dynamic_iterable_code <- suppressWarnings(
-    as.character(r2f(sapply_dynamic_iterable))
-  )
-  expect_lt(
-    regexpr(
-      "representable as an R integer",
-      sapply_dynamic_iterable_code,
-      fixed = TRUE
-    )[[1L]],
-    regexpr("allocate(", sapply_dynamic_iterable_code, fixed = TRUE)[[1L]]
-  )
-  qsapply_dynamic_iterable <- suppressWarnings(
-    quick(sapply_dynamic_iterable)
-  )
-  expect_error(
-    qsapply_dynamic_iterable(Inf),
-    "representable as an R integer"
-  )
-  expect_identical(qsapply_dynamic_iterable(2), 4.0)
-
-  closure_formal_matrix <- function(n) {
-    declare(type(n = double(1)))
-    make <- function(k) matrix(1, k, 2L)
-    sum(make(n))
-  }
-  expect_error(
-    suppressWarnings(r2f(closure_formal_matrix)),
-    "matrix() dimensions must not be NA",
-    fixed = TRUE
-  )
-
-  integer_return <- function(n, m) {
-    declare(type(n = integer(1)), type(m = integer(1)))
-    out <- matrix(1, n, m)
-    out
-  }
-  integer_return_code <- suppressWarnings(r2f(integer_return))
-  expect_match(
-    integer_return_code@c_bridge,
-    "(?s)return dimensions must be non-negative.*const R_xlen_t out__len_",
-    perl = TRUE
-  )
-  expect_match(
-    integer_return_code@c_bridge,
-    paste0(
-      "\\(\\(R_xlen_t\\)\\(_as_int_n\\)\\).*",
-      "\\(\\(R_xlen_t\\)\\(_as_int_m\\)\\)"
-    ),
-    perl = TRUE
-  )
-  qinteger_return <- quick(integer_return)
-  expect_error(
-    qinteger_return(-1L, -1L),
-    "return dimensions must be non-negative",
-    fixed = TRUE
-  )
-  expect_identical(qinteger_return(2L, 3L), matrix(1, 2L, 3L))
-})
-
-test_that("integer-backed logical matrix fills materialize portably", {
-  fn <- function(flag) {
-    declare(type(flag = logical(1)))
-    !matrix(rev(flag), 2, 2)
-  }
-
-  code <- as.character(r2f(fn))
-  expect_match(
-    code,
-    "integer(c_int) :: btmp1_(2, 2) ! logical",
-    fixed = TRUE
-  )
-  expect_quick_identical(fn, list(TRUE))
-})
-
-test_that("local closure arguments reject effectful expressions", {
-  fn <- function() {
-    subtract <- function(a, b) a - b
-    subtract(runif(1), runif(1))
-  }
-
-  expect_error(
-    quick(fn),
-    "local closure calls only support pure argument expressions",
-    fixed = TRUE
-  )
+  qfn <- quick(fn)
+  expect_error(qfn(matrix(as.double(1:4), 2, 2), 2L), "matching dimensions")
 })

@@ -1,8 +1,6 @@
 # r2f-logical.R
 # Handlers for comparison and logical operators, plus is.null().
 
-# --- Handlers ---
-
 # ---- unary logical not ----
 
 r2f_handlers[["!"]] <- function(args, scope, ..., hoist = NULL) {
@@ -36,6 +34,7 @@ register_r2f_handler(
     Fortran(glue("(.not. present({var@optional_dummy}))"), Variable("logical"))
   }
 )
+
 
 lower_comparison_operands <- function(args, scope, op, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
@@ -182,21 +181,35 @@ r2f_handlers[["|"]] <- function(args, scope, ..., hoist = NULL) {
   Fortran(glue("{left} .or. {right}"), value)
 }
 
+# ---- scalar short-circuit operators: && and || ----
+
 # && and || are R's *scalar* control operators: operands must be length 1
 # (R errors otherwise), and the right operand is evaluated only when the
 # left side does not already decide the answer.
-scalarize_andor_operand <- function(
+check_short_circuit_operand <- function(
   x,
   op,
   hoist,
   scope,
-  defer_length_error = FALSE
+  defer_error = FALSE
 ) {
-  if (is.null(x@value) || !identical(x@value@mode, "logical")) {
-    stop_static_mode_error(
-      paste0("`", op, "` requires logical operands"),
-      hoist
+  if (is.null(x@value) && nzchar(trimws(as.character(x)))) {
+    # Statement-only handlers such as print() cannot supply an operand.
+    # Reject their use here before their emitted statements can be discarded.
+    stop(
+      "`",
+      op,
+      "` does not support statement-only operands; use a separate statement",
+      call. = FALSE
     )
+  }
+  if (is.null(x@value) || !identical(x@value@mode, "logical")) {
+    message <- paste0("`", op, "` requires logical operands")
+    if (!defer_error) {
+      stop(message, call. = FALSE)
+    }
+    emit_quickr_error_if(".true.", message, hoist, scope)
+    return(Fortran(".false.", Variable("logical")))
   }
 
   message <- paste0(
@@ -217,7 +230,7 @@ scalarize_andor_operand <- function(
     logical(1L)
   ))
   if (length_known_bad) {
-    if (!defer_length_error) {
+    if (!defer_error) {
       stop(message, call. = FALSE)
     }
     emit_quickr_error_if(".true.", message, hoist, scope)
@@ -257,22 +270,22 @@ scalarize_andor_operand <- function(
 # conservative whitelist -- names, literals, and compositions of pure
 # non-trapping operations. Anything else (subscripts, %%/%/%, function
 # calls, ...) gets the conditional lowering.
-is_pure_scalar_condition <- function(e, scope) {
+is_eager_safe_condition <- function(e, scope) {
+  # Only these modes have supported promotions throughout the whitelist.
+  # Other modes may fail during lowering even when the expression is pure.
+  eager_modes <- c("logical", "integer", "double")
   if (is.symbol(e)) {
     var <- get0(as.character(e), scope)
-    if (inherits(var, Variable) && !is.null(var@optional_dummy)) {
-      return(FALSE)
-    }
     return(
-      !inherits(var, Variable) ||
-        passes_as_scalar(var) ||
-        var@rank > 0L && all(vapply(var@dims, dim_is_one, logical(1L)))
+      inherits(var, Variable) &&
+        var@mode %in% eager_modes &&
+        (passes_as_scalar(var) ||
+          var@rank > 0L && all(vapply(var@dims, dim_is_one, logical(1L))))
     )
   }
   if (is.atomic(e) && length(e) == 1L) {
     return(
-      !anyNA(e) &&
-        typeof(e) %in% c("logical", "integer", "double", "complex")
+      typeof(e) %in% eager_modes && is.finite(e)
     )
   }
   if (!is.call(e) || !is.symbol(e[[1L]])) {
@@ -310,7 +323,7 @@ is_pure_scalar_condition <- function(e, scope) {
   if (
     !all(vapply(
       as.list(e)[-1L],
-      is_pure_scalar_condition,
+      is_eager_safe_condition,
       logical(1L),
       scope = scope
     ))
@@ -321,89 +334,6 @@ is_pure_scalar_condition <- function(e, scope) {
     return(is_statically_logical_condition(e, scope))
   }
   TRUE
-}
-
-is_statically_complex_expression <- function(e, scope) {
-  if (is.symbol(e)) {
-    var <- get0(as.character(e), scope)
-    return(inherits(var, Variable) && identical(var@mode, "complex"))
-  }
-  if (is.atomic(e)) {
-    return(is.complex(e))
-  }
-  if (!is.call(e) || !is.symbol(e[[1L]])) {
-    return(FALSE)
-  }
-  op <- as.character(e[[1L]])
-  args <- as.list(e)[-1L]
-  if (op == "(" && length(args) == 1L) {
-    return(is_statically_complex_expression(args[[1L]], scope))
-  }
-  op %in%
-    c("+", "-", "*") &&
-    any(vapply(
-      args,
-      is_statically_complex_expression,
-      logical(1L),
-      scope = scope
-    ))
-}
-
-is_statically_safe_expression <- function(e, scope) {
-  if (is.symbol(e)) {
-    var <- get0(as.character(e), scope)
-    return(inherits(var, Variable) && var@mode %in% mode_lattice)
-  }
-  if (is.atomic(e)) {
-    return(length(e) == 1L && typeof(e) %in% mode_lattice)
-  }
-  if (!is.call(e) || !is.symbol(e[[1L]])) {
-    return(FALSE)
-  }
-
-  op <- as.character(e[[1L]])
-  args <- as.list(e)[-1L]
-  allowed <- lazy_builtin_arities[[op]]
-  if (
-    inherits(scope[[op]], LocalClosure) ||
-      is.null(allowed) ||
-      !length(args) %in% allowed
-  ) {
-    return(FALSE)
-  }
-  if (op == "(") {
-    return(is_statically_safe_expression(args[[1L]], scope))
-  }
-  if (op %in% c("!", "&&", "||", "&", "|")) {
-    return(is_statically_logical_condition(e, scope))
-  }
-  if (op %in% c("<", "<=", ">", ">=", "==", "!=")) {
-    operands_are_safe <- all(vapply(
-      args,
-      is_statically_safe_expression,
-      logical(1L),
-      scope = scope
-    ))
-    return(
-      operands_are_safe &&
-        (op %in%
-          c("==", "!=") ||
-          !any(vapply(
-            args,
-            is_statically_complex_expression,
-            logical(1L),
-            scope = scope
-          )))
-    )
-  }
-  op %in%
-    c("+", "-", "*", "abs") &&
-    all(vapply(
-      args,
-      is_statically_safe_expression,
-      logical(1L),
-      scope = scope
-    ))
 }
 
 is_statically_logical_condition <- function(e, scope) {
@@ -422,8 +352,8 @@ is_statically_logical_condition <- function(e, scope) {
   if (op == "(" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
   }
-  if (op %in% c("<", "<=", ">", ">=", "==", "!=")) {
-    return(is_statically_safe_expression(e, scope))
+  if (op %in% c("==", "!=", "<", "<=", ">", ">=")) {
+    return(TRUE)
   }
   if (op == "!" && length(args) == 1L) {
     return(is_statically_logical_condition(args[[1L]], scope))
@@ -581,44 +511,54 @@ lazy_builtin_arity_error <- function(e, scope, recursive = TRUE) {
   NULL
 }
 
+# Bindings and compiler annotations must be separate statements. Function
+# literals own their scopes, so their bodies do not affect this check.
+has_current_scope_assignment <- function(e) {
+  if (!is.call(e) || is_function_call(e)) {
+    return(FALSE)
+  }
+  if (
+    is.symbol(e[[1L]]) &&
+      as.character(e[[1L]]) %in% c("<-", "=", "for", "declare")
+  ) {
+    return(TRUE)
+  }
+  any(vapply(as.list(e), has_current_scope_assignment, logical(1L)))
+}
+
 lower_short_circuit_operator <- function(
   args,
   scope,
-  op,
   ...,
   hoist = NULL,
-  defer_andor_length_error = FALSE
+  defer_andor_error = FALSE
 ) {
+  op <- last(list(...)$calls)
   stopifnot(length(args) == 2L, op %in% c("&&", "||"))
-  has_assignment <- vapply(
-    args,
-    function(arg) {
-      any(c("<-", "=") %in% all.names(arg, functions = TRUE))
-    },
-    logical(1L)
-  )
+  has_assignment <- vapply(args, has_current_scope_assignment, logical(1L))
   if (any(has_assignment)) {
     stop(
       "`",
       op,
-      "` does not support assignment expressions; assign on a separate line",
+      "` does not support assignment expressions or declarations; use separate statements",
       call. = FALSE
     )
   }
 
+  # R always evaluates the left operand: its hoists stay unconditional.
   left <- r2f(
     args[[1L]],
     scope,
     ...,
     hoist = hoist,
-    defer_andor_length_error = defer_andor_length_error
+    defer_andor_error = defer_andor_error
   )
-  left <- scalarize_andor_operand(
+  left <- check_short_circuit_operand(
     left,
     op,
     hoist,
     scope,
-    defer_length_error = defer_andor_length_error
+    defer_error = defer_andor_error
   )
 
   f <- if (op == "&&") ".and." else ".or."
@@ -626,7 +566,7 @@ lower_short_circuit_operator <- function(
 
   if (
     is.null(rhs_arity_error) &&
-      is_pure_scalar_condition(args[[2L]], scope) &&
+      is_eager_safe_condition(args[[2L]], scope) &&
       is_statically_logical_condition(args[[2L]], scope)
   ) {
     # Fortran may evaluate both operands of .and./.or.; for a pure right
@@ -637,18 +577,21 @@ lower_short_circuit_operator <- function(
       scope,
       ...,
       hoist = hoist,
-      defer_andor_length_error = defer_andor_length_error
+      defer_andor_error = defer_andor_error
     )
-    right <- scalarize_andor_operand(
+    right <- check_short_circuit_operand(
       right,
       op,
       hoist,
       scope,
-      defer_length_error = defer_andor_length_error
+      defer_error = defer_andor_error
     )
     return(Fortran(glue("{left} {f} {right}"), Variable("logical")))
   }
 
+  # The right operand can error or have side effects; R reaches it only
+  # when the left side does not decide. Compile it into its own hoist and
+  # emit everything inside the conditional.
   if (is.null(hoist)) {
     stop("internal error: `", op, "` requires hoist context", call. = FALSE)
   }
@@ -663,22 +606,13 @@ lower_short_circuit_operator <- function(
   sub$defer_static_mode_error <- TRUE
   deferred_error <- NULL
   right <- tryCatch(
-    {
-      right <- r2f(
-        args[[2L]],
-        scope,
-        ...,
-        hoist = sub,
-        defer_andor_length_error = TRUE
-      )
-      scalarize_andor_operand(
-        right,
-        op,
-        sub,
-        scope,
-        defer_length_error = TRUE
-      )
-    },
+    r2f(
+      args[[2L]],
+      scope,
+      ...,
+      hoist = sub,
+      defer_andor_error = TRUE
+    ),
     quickr_deferred_branch_error = function(error) {
       deferred_error <<- conditionMessage(error)
       NULL
@@ -688,23 +622,25 @@ lower_short_circuit_operator <- function(
       NULL
     }
   )
-  if (!is.null(deferred_error)) {
+  if (is.null(deferred_error)) {
+    right <- check_short_circuit_operand(
+      right,
+      op,
+      sub,
+      scope,
+      defer_error = TRUE
+    )
+  } else {
     emit_quickr_error_if(".true.", deferred_error, sub, scope)
     right <- Fortran(".false.", Variable("logical"))
   }
 
   hoist$emit(glue("{tmp@name} = {left}"))
-  condition <- if (op == "&&") tmp@name else glue(".not. {tmp@name}")
-  hoist$emit(glue("if ({condition}) then"))
+  cond <- if (op == "&&") tmp@name else glue(".not. {tmp@name}")
+  hoist$emit(glue("if ({cond}) then"))
   hoist$emit(indent(sub$render(glue("{tmp@name} = {right}"))))
   hoist$emit("end if")
   Fortran(tmp@name, tmp)
 }
 
-r2f_handlers[["&&"]] <- function(args, scope, ..., hoist = NULL) {
-  lower_short_circuit_operator(args, scope, "&&", ..., hoist = hoist)
-}
-
-r2f_handlers[["||"]] <- function(args, scope, ..., hoist = NULL) {
-  lower_short_circuit_operator(args, scope, "||", ..., hoist = hoist)
-}
+register_r2f_handler(c("&&", "||"), lower_short_circuit_operator)

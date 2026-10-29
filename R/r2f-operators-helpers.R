@@ -84,38 +84,6 @@ maybe_cast_double <- function(x) {
   }
 }
 
-# Cast a linear-algebra operand to double for the real BLAS/LAPACK
-# lowerings (dgemm, dgesv, ...). Complex operands are refused: the d*
-# routines would read complex storage as reals and return a plausible
-# wrong answer, and quickr has no z* lowerings. R supports complex
-# linear algebra, so the message names the divergence.
-# Used by: r2f-matrix.R, r2f-matrix-parse.R, r2f-matrix-blas.R
-cast_linalg_double <- function(x, context, hoist = NULL) {
-  if (identical(x@value@mode, "complex")) {
-    stop_static_mode_error(
-      paste0(
-        context,
-        " does not support complex operands; ",
-        "linear algebra in quickr is double-only"
-      ),
-      hoist
-    )
-  }
-  x <- maybe_cast_double(x)
-  if (!identical(x@value@mode, "double")) {
-    stop_static_mode_error(
-      paste0(
-        context,
-        " does not support ",
-        x@value@mode,
-        " operands; linear algebra in quickr is double-only"
-      ),
-      hoist
-    )
-  }
-  x
-}
-
 # Promote a list of operands to their common (lattice-join) mode, casting
 # each one whose mode differs. For contexts where Fortran requires uniform
 # argument types: array constructors (c()), min/max, merge, modulo.
@@ -153,172 +121,91 @@ promote_arith_pair <- function(left, right, context = "arithmetic") {
   list(left = left, right = right)
 }
 
-# Lower arbitrary argument lists in R's left-to-right order. Used by
-# conditionals and constructors; elementwise lowering has additional matrix
-# fill handling below.
+# Lower operands into isolated hoists and materialize call expressions into
+# the parent hoist before lowering the next operand. Nested lowering can emit
+# guards that return from the generated procedure, so sharing one hoist and
+# materializing only after every operand has been lowered can reverse R's
+# left-to-right evaluation order.
+# Used by: r2f-conditionals.R, r2f-constructors.R, lower_elementwise_operands()
 lower_operands_in_order <- function(args, scope, ..., hoist) {
   stopifnot(!is.null(hoist))
-  out <- vector("list", length(args))
-  names(out) <- names(args)
-  for (i in seq_along(args)) {
-    later_args <- if (i < length(args)) {
-      args[seq.int(i + 1L, length(args))]
-    } else {
-      list()
-    }
-    out[[i]] <- lower_r2f_operand_in_order(
-      args[[i]],
-      scope,
-      ...,
-      hoist = hoist,
-      later_args = later_args
-    )
-  }
-  out
+  lapply(args, lower_r2f_operand_in_order, scope, ..., hoist = hoist)
 }
 
-# Match `matrix(<scalar>, nrow, ncol)`: a matrix() call
-# matrix_call_args() accepts (data/nrow/ncol present, no
-# byrow/dimnames) whose data is a length-1 literal or a declared
-# scalar. Returns the matched arguments or NULL. Used by
-# lower_elementwise_operands() to lower the fill to a native scalar
-# broadcast instead of the O(nrow * ncol) temporary the matrix()
-# handler would otherwise materialize; anything it declines falls back
-# to the matrix() handler, which raises the real diagnostics.
+# Recognize only scalar fills whose arguments cannot have side effects.
+# Only a bare matrix variable can be the opposite operand. Calls and computed
+# dimensions keep matrix()'s normal materialization path. Extending this
+# optimization to those forms needs evaluation-order analysis and is deferred.
 match_scalar_matrix_fill <- function(e, scope) {
-  if (!is.call(e) || !identical(e[[1L]], quote(matrix))) {
-    return(NULL)
-  }
-  if (!is.null(scope) && inherits(scope[["matrix"]], LocalClosure)) {
+  if (
+    !is_call(e, quote(matrix)) ||
+      inherits(get0("matrix", scope), LocalClosure)
+  ) {
     return(NULL)
   }
   mc <- tryCatch(match.call(matrix, e), error = function(...) NULL)
-  if (is.null(mc)) {
+  args <- as.list(mc)[-1L]
+  if (
+    !setequal(names(args), c("data", "nrow", "ncol")) ||
+      any(map_lgl(args, is_missing))
+  ) {
     return(NULL)
   }
-  margs <- tryCatch(
-    matrix_call_args(as.list(mc)[-1L]),
-    error = function(...) NULL
-  )
-  if (is.null(margs)) {
-    return(NULL)
-  }
-  data <- margs$data
-  data_is_scalar <- (is.atomic(data) && length(data) == 1L && !is.na(data)) ||
-    (is.symbol(data) &&
-      {
-        var <- get0(as.character(data), scope)
-        inherits(var, Variable) && passes_as_scalar(var)
-      })
-  if (!data_is_scalar) {
-    return(NULL)
-  }
-  margs
-}
-
-# Compile the two operands of an elementwise binary op. The one special
-# case: `matrix(scalar, m, n)` against a genuine rank-2 array broadcasts
-# natively -- compile just the scalar and enforce the claimed dims against
-# the other operand (compile error when statically wrong, runtime guard
-# when symbolic, spelled from the dim expressions since the fill has no
-# array to size()). Everything else compiles as written.
-# Used by: r2f-arithmetic.R, r2f-logical.R
-lower_elementwise_operands <- function(args, scope, ..., hoist = NULL) {
-  stopifnot(length(args) == 2L, !is.null(hoist))
-  lower_one <- function(arg) {
-    lower_r2f_operand_in_order(arg, scope, ..., hoist = hoist)
-  }
-
-  fills <- lapply(args, match_scalar_matrix_fill, scope = scope)
-  fill_idx <- which(!map_lgl(fills, is.null))
-
-  if (length(fill_idx) == 1L && !is.null(hoist)) {
-    j <- fill_idx
-    fill_args <- fills[[j]]
-    fill_dims <- lapply(list(fill_args$nrow, fill_args$ncol), function(dim) {
-      if (is.numeric(dim) && length(dim) == 1L && is.finite(dim)) {
-        as.integer(dim)
-      } else {
-        dim
-      }
-    })
-    validate_constructor_dims(fill_dims, "matrix()", scope, hoist)
-    fill_dims_f <- map_chr(fill_dims, bind_dim_int)
-    lower_fill <- function(materialize = FALSE) {
-      lower_arg <- function(arg) {
-        value <- lower_one(arg)
-        if (!materialize) {
-          return(value)
-        }
-        materialize_via_hoist(
-          value,
-          value@value@mode,
-          value@value@dims,
-          hoist,
-          allocate_at_point = TRUE
-        )
-      }
-      value <- lower_arg(fill_args$data)
-      dims <- lapply(list(fill_args$nrow, fill_args$ncol), lower_arg)
-      list(
-        value = value,
-        dims_f = map_chr(dims, \(dim) glue("int({dim})"))
+  scalar <- function(x, modes) {
+    if (is.symbol(x)) {
+      value <- get0(as.character(x), scope)
+      return(
+        inherits(value, Variable) &&
+          isTRUE(value@mode %in% modes) &&
+          passes_as_scalar(value)
       )
     }
+    is.atomic(x) && length(x) == 1L && typeof(x) %in% modes && is.finite(x)
+  }
+  if (
+    !scalar(args$data, c("integer", "double", "logical", "complex")) ||
+      !all(map_lgl(args[c("nrow", "ncol")], scalar, c("integer", "double")))
+  ) {
+    return(NULL)
+  }
+  matrix_call_args(args)
+}
 
-    if (j == 1L) {
-      fill <- lower_fill(materialize = TRUE)
-      fill_dims_f <- fill$dims_f
-      other <- lower_one(args[[2L]])
-    } else {
-      other <- lower_one(args[[1L]])
-    }
-    broadcastable <- inherits(other, Fortran) &&
-      !is.null(other@value) &&
-      other@value@rank == 2L &&
-      !passes_as_scalar(other@value) &&
-      !any(map_lgl(fill_dims, is_scalar_na)) &&
-      all(nzchar(fill_dims_f)) &&
-      !any(grepl(":", fill_dims_f, fixed = TRUE))
-    if (broadcastable) {
-      if (j == 2L) {
-        fill <- lower_fill()
-        fill_dims_f <- fill$dims_f
-      }
-      other_dims <- matrix_dims(other)
+# Used by: r2f-arithmetic.R, r2f-logical.R
+lower_elementwise_operands <- function(args, scope, ..., hoist) {
+  stopifnot(length(args) == 2L, !is.null(hoist))
+  fills <- lapply(args, match_scalar_matrix_fill, scope = scope)
+  fill_index <- which(!map_lgl(fills, is.null))
+  if (length(fill_index) == 1L && is.symbol(args[[3L - fill_index]])) {
+    other_var <- get0(as.character(args[[3L - fill_index]]), scope)
+    if (
+      inherits(other_var, Variable) &&
+        other_var@rank == 2L &&
+        !passes_as_scalar(other_var)
+    ) {
+      fill_args <- fills[[fill_index]]
+      other <- r2f(args[[3L - fill_index]], scope, ..., hoist = hoist)
+      fill <- r2f(fill_args$data, scope, ..., hoist = hoist)
+      dims <- fill_args[c("nrow", "ncol")]
+      dims_f <- lapply(dims, r2f, scope, ..., hoist = hoist)
       for (axis in 1:2) {
-        # The fill has no array to size(), so its side of a runtime guard
-        # is spelled from the claimed dim expression via `left_f`.
+        dim <- dims[[axis]]
         guard_conformable_dims(
-          fill_dims[[axis]],
-          if (axis == 1L) other_dims$rows else other_dims$cols,
+          if (is.numeric(dim)) as.integer(dim) else dim,
+          other_var@dims[[axis]],
           elementwise_matrix_msg,
           hoist,
           scope,
           left = NULL,
           right = other,
           right_axis = axis,
-          left_f = glue("({fill_dims_f[[axis]]})")
+          left_f = glue("int({dims_f[[axis]]}, kind=c_ptrdiff_t)")
         )
       }
-      out <- list(fill$value, other)
-      return(if (j == 1L) out else rev(out))
+      out <- list(fill, other)
+      return(if (fill_index == 1L) out else rev(out))
     }
-    fallback <- if (j == 1L) {
-      materialize_via_hoist(
-        fill$value,
-        fill$value@value@mode,
-        fill_dims,
-        hoist,
-        allocate_at_point = TRUE
-      )
-    } else {
-      lower_one(args[[j]])
-    }
-    out <- list(fallback, other)
-    return(if (j == 1L) out else rev(out))
   }
-
   lower_operands_in_order(args, scope, ..., hoist = hoist)
 }
 
@@ -356,23 +243,6 @@ dims_match <- function(left, right) {
     return(identical(as.integer(left), as.integer(right)))
   }
   identical(left, right)
-}
-
-# Check if two dimension expressions are *proven* equal: both known and
-# equal, or structurally identical after symbol normalization. NA dims
-# are never proven (two unknown lengths are not the same quantity).
-# Stronger than dims_match() (normalizes symbols), stricter than
-# check_elementwise_lengths() (an incomparable pair is FALSE, not a
-# deferred runtime guard).
-# Used by: r2f-matrix-blas.R (dest_dims_proven_equal)
-dims_proven_equal <- function(left, right) {
-  if (is_scalar_na(left) || is_scalar_na(right)) {
-    return(FALSE)
-  }
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    return(identical(as.integer(left), as.integer(right)))
-  }
-  identical(fortranize_expr_symbols(left), fortranize_expr_symbols(right))
 }
 
 # Equality-only dimension checks permit matching zero extents. This is the
@@ -423,37 +293,15 @@ check_elementwise_lengths <- function(left, right) {
   list(ok = TRUE, unknown = TRUE, reject_zero = TRUE)
 }
 
-# Equality-only shape checks allow zero extents. Used where operands must have
-# the same physical shape but no elementwise recycling policy applies.
-check_equal_dims <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    return(list(
-      ok = identical(as.integer(left), as.integer(right)),
-      unknown = FALSE,
-      reject_zero = FALSE
-    ))
-  }
-  if (!is_scalar_na(left) && !is_scalar_na(right)) {
-    left_norm <- fortranize_expr_symbols(left)
-    right_norm <- fortranize_expr_symbols(right)
-    if (identical(left_norm, right_norm)) {
-      return(list(ok = TRUE, unknown = FALSE, reject_zero = FALSE))
-    }
-  }
-  list(ok = TRUE, unknown = TRUE, reject_zero = FALSE)
-}
-
-# The message shared by every enforcement point of the elementwise matrix
-# shape contract: the runtime-guard text must match the compile-error text.
+# The static and runtime matrix shape diagnostics share one spelling.
 elementwise_matrix_msg <-
   "elementwise matrix operations require matching dimensions"
 
-# Render one side of a dim-comparison guard: a caller-provided spelling
-# (`f`, for operands with no array to size(), e.g. a scalar fill's claimed
-# dims) wins; then a literal dim as the literal; anything else as the
-# operand's actual extent (whole size when `axis` is NULL). size() is an
-# inquiry, so applying it to operand expression text does not evaluate the
-# operand.
+# Render one side of a dim-comparison guard: a caller-provided spelling for
+# scalar fills without an array to size(), then a literal dim as the literal,
+# anything else as the operand's actual extent (whole size when `axis` is
+# NULL). size() is an inquiry, so applying it to operand expression text
+# does not evaluate the operand.
 # Used by: guard_conformable_dims()
 dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
   if (!is.null(f)) {
@@ -479,10 +327,7 @@ dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
 # `hoist` is always live: r2f() opens one per statement before dispatching
 # to a handler, and every caller forwards the one it received.
 # emit_quickr_error_if() asserts it.
-# Used by: conform_elementwise_operands(), lower_elementwise_operands(),
-# r2f-conditionals.R, r2f-matrix*.R. `left_f`/`right_f` override that
-# side's guard spelling (see dimension_guard_expr()); its `left`/`right` operand is
-# then unused and may be NULL.
+# Used by: conform_elementwise_operands(), r2f-conditionals.R, r2f-matrix*.R
 guard_conformable_dims <- function(
   left_dim,
   right_dim,
@@ -503,18 +348,18 @@ guard_conformable_dims <- function(
     is.function(checker),
     is_bool(defer_static_error)
   )
-  conform <- checker(left_dim, right_dim)
-  if (!conform$ok) {
+  verdict <- checker(left_dim, right_dim)
+  if (!verdict$ok) {
     if (defer_static_error) {
       stop_deferred_branch_error(message)
     }
     stop(message, call. = FALSE)
   }
-  if (conform$unknown) {
+  if (verdict$unknown) {
     left_guard <- dimension_guard_expr(left_dim, left, left_axis, left_f)
     right_guard <- dimension_guard_expr(right_dim, right, right_axis, right_f)
     condition <- glue("{left_guard} /= {right_guard}")
-    if (isTRUE(conform$reject_zero)) {
+    if (isTRUE(verdict$reject_zero)) {
       condition <- glue(
         "{left_guard} == 0 .or. {condition}"
       )
@@ -830,9 +675,8 @@ dim_guard_spellable <- function(dim, scope) {
 
 # Reassignment cannot re-declare a Fortran variable to a new shape the
 # way R rebinds a symbol, so rank and every extent must stay
-# compatible. Scalars broadcast natively into an array target (an
-# existing divergence: R rebinds the symbol to the scalar), and a
-# deferred-shape local (declared with NA dims) reallocates extents on
+# compatible. Scalar/array reassignments are refused. A deferred-shape
+# local (declared with NA dims) reallocates extents on
 # same-rank whole-array assignment, matching R, so it is exempt. Per
 # axis, the conformability policy applies: a statically known mismatch
 # is a compile error, dims that cannot be compared statically get a
@@ -909,59 +753,55 @@ check_assignment_compatible <- function(
   for (axis in seq_len(target@rank)) {
     t_dim <- target@dims[[axis]]
     v_dim <- value@dims[[axis]]
-    unknown_extent <- is_scalar_na(t_dim) || is_scalar_na(v_dim)
-    if (!unknown_extent) {
-      if (is_wholenumber(t_dim) && is_wholenumber(v_dim)) {
-        if (!identical(as.integer(t_dim), as.integer(v_dim))) {
-          stop(
-            "cannot reassign `",
-            name,
-            "`: dimension ",
-            axis,
-            " would change from ",
-            as.integer(t_dim),
-            " to ",
-            as.integer(v_dim),
-            "; R would rebind `",
-            name,
-            "` to the new shape",
-            call. = FALSE
-          )
-        }
-        next
-      }
-      if (
-        identical(
-          fortranize_expr_symbols(t_dim),
-          fortranize_expr_symbols(v_dim)
-        )
-      ) {
-        next
-      }
-    }
-    if (is.null(hoist)) {
+    if (is_scalar_na(t_dim) || is_scalar_na(v_dim)) {
+      # Unknown extents need guards against actual stored arrays; deferred.
       next
     }
-    if (!is.null(target@name) && !is.null(value@name)) {
-      condition <- glue(
-        "size({target@name}, {axis}, kind=c_ptrdiff_t) /= size({value@name}, {axis}, kind=c_ptrdiff_t)"
-      )
-    } else if (
-      !unknown_extent &&
-        dim_guard_spellable(t_dim, scope) &&
-        dim_guard_spellable(v_dim, scope)
-    ) {
-      condition <- glue(
-        "({dims2f(list(t_dim), scope)}) /= ({dims2f(list(v_dim), scope)})"
-      )
-    } else {
-      stop(
-        "cannot reassign `",
-        name,
-        "`: runtime shape cannot be validated",
-        call. = FALSE
-      )
+    if (is_wholenumber(t_dim) && is_wholenumber(v_dim)) {
+      if (!identical(as.integer(t_dim), as.integer(v_dim))) {
+        stop(
+          "cannot reassign `",
+          name,
+          "`: dimension ",
+          axis,
+          " would change from ",
+          as.integer(t_dim),
+          " to ",
+          as.integer(v_dim),
+          "; R would rebind `",
+          name,
+          "` to the new shape",
+          call. = FALSE
+        )
+      }
+      next
     }
+    if (
+      identical(
+        fortranize_expr_symbols(t_dim),
+        fortranize_expr_symbols(v_dim)
+      )
+    ) {
+      next
+    }
+    if (
+      is.null(hoist) ||
+        !dim_guard_spellable(t_dim, scope) ||
+        !dim_guard_spellable(v_dim, scope)
+    ) {
+      # Local self-size expressions are not available here. Tracking their
+      # runtime extents and guarding context-free assignments is deferred.
+      next
+    }
+    target_dim <- dims2f(list(t_dim), scope)
+    value_dim <- dims2f(list(v_dim), scope)
+    if (!nzchar(target_dim)) {
+      target_dim <- "1"
+    }
+    if (!nzchar(value_dim)) {
+      value_dim <- "1"
+    }
+    condition <- glue("({target_dim}) /= ({value_dim})")
     # Different axes can spell the same guard (e.g. a square dest vs a
     # square result, m/=k on both axes); emit each condition once.
     if (condition %in% emitted) {
@@ -978,18 +818,12 @@ check_assignment_compatible <- function(
   invisible()
 }
 
-# Whole-binding reassignment cannot re-type a Fortran variable the way R
-# rebinds a symbol, so require the same mode. Subassignment writes into the
-# existing storage and may coerce a lower-mode replacement, but still refuses
-# a replacement that would promote the R vector and truncate in Fortran.
+# Reassignment cannot re-type a Fortran variable the way R promotes an R
+# binding, so a value whose mode sits above the variable's on the lattice
+# would be silently truncated by the assignment. Refuse at compile time
+# instead.
 # Used by: r2f-assign.R
-check_reassignment_narrowing <- function(
-  name,
-  target,
-  value,
-  whole_binding = TRUE
-) {
-  stopifnot(is_bool(whole_binding))
+check_reassignment_narrowing <- function(name, target, value) {
   if (
     !inherits(target, Variable) ||
       !inherits(value, Variable) ||
@@ -998,31 +832,8 @@ check_reassignment_narrowing <- function(
   ) {
     return()
   }
-  if (identical(target@mode, value@mode)) {
-    return()
-  }
   target_rank <- mode_rank(target@mode)
   value_rank <- mode_rank(value@mode)
-  if (
-    isTRUE(whole_binding) &&
-      (is.na(target_rank) ||
-        is.na(value_rank) ||
-        value_rank <= target_rank)
-  ) {
-    stop(
-      "cannot reassign `",
-      name,
-      "`: replacement mode ",
-      value@mode,
-      " differs from the declared mode ",
-      target@mode,
-      "; R would rebind `",
-      name,
-      "` to ",
-      value@mode,
-      call. = FALSE
-    )
-  }
   if (is.na(target_rank) || is.na(value_rank) || value_rank <= target_rank) {
     return()
   }

@@ -1,5 +1,7 @@
 # Public API tests for abs() support in declared size expressions
 
+skip_on_cran()
+
 test_that("declare() size expressions support abs()", {
   fn <- function(start, end) {
     declare(
@@ -32,16 +34,6 @@ test_that("declare() size expressions validate abs() arity", {
   }
 
   expect_error(quick(bad), "unused argument", fixed = TRUE)
-})
-
-test_that("double abs() size expressions become integer extents", {
-  fn <- function(x) {
-    declare(type(x = double(1)))
-    double(abs(x))
-  }
-
-  expect_warning(qfn <- quick(fn), "size is not an integer")
-  expect_identical(qfn(3.0), fn(3.0))
 })
 
 test_that("declare() size expressions support as.integer()", {

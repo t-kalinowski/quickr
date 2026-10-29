@@ -63,11 +63,7 @@
                       (double)b__len_);
           const int _as_int_a = Rf_asInteger(a);
           const int _as_int_b = Rf_asInteger(b);
-          if ((double)(_as_int_a) < 0)
-            Rf_error("return dimensions must be non-negative");
-          if ((double)(_as_int_b) < 0)
-            Rf_error("return dimensions must be non-negative");
-          const R_xlen_t out__len_ = ((R_xlen_t)(_as_int_a)) * ((R_xlen_t)(_as_int_b));
+          const R_xlen_t out__len_ = (_as_int_a) * (_as_int_b);
           SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
           double* out__ = REAL(out);
           {

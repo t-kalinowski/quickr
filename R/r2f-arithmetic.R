@@ -3,40 +3,14 @@
 
 # --- Handlers ---
 
-refuse_raw_arithmetic <- function(..., context) {
-  operands <- list(...)
-  if (any(map_lgl(operands, \(x) identical(x@value@mode, "raw")))) {
-    stop(context, " does not support raw operands", call. = FALSE)
-  }
-  invisible(TRUE)
-}
-
-guard_nonzero_arithmetic_divisor <- function(right, hoist, scope, context) {
-  stopifnot(inherits(right, Fortran), !is.null(hoist))
-  message <- paste0(context, " does not support zero divisors")
-  r_value <- attr(right, "r", exact = TRUE)
-  if (is.atomic(r_value) && length(r_value) == 1L && !is.na(r_value)) {
-    if (r_value == 0) {
-      stop(message, call. = FALSE)
-    }
-    return(right)
-  }
-
-  right <- hoist_unless_name(right, hoist)
-  condition <- if (passes_as_scalar(right@value)) {
-    glue("{right} == 0")
-  } else {
-    glue("any({right} == 0)")
-  }
-  emit_quickr_error_if(condition, message, hoist, scope)
-  right
+is_literal_zero_divisor <- function(x) {
+  is_scalar_atomic(x) && !is.na(x) && x == 0
 }
 
 r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
   # Support both binary and unary plus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    refuse_raw_arithmetic(x, context = "+")
     # R: +TRUE is 1L
     x <- cast_to_mode(x, arith_join_mode(x), "unary +")
     Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
@@ -47,7 +21,6 @@ r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
       ...,
       hoist = hoist
     )
-    refuse_raw_arithmetic(left, right, context = "+")
     .[left, right] <- promote_arith_pair(left, right, "+")
     .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
     Fortran(
@@ -61,7 +34,6 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
   # Support both binary and unary minus
   if (length(args) == 1L) {
     x <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    refuse_raw_arithmetic(x, context = "-")
     # R: -TRUE is -1L
     x <- cast_to_mode(x, arith_join_mode(x), "unary -")
     Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
@@ -72,7 +44,6 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
       ...,
       hoist = hoist
     )
-    refuse_raw_arithmetic(left, right, context = "-")
     .[left, right] <- promote_arith_pair(left, right, "-")
     .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
     Fortran(
@@ -84,7 +55,6 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  refuse_raw_arithmetic(left, right, context = "*")
   .[left, right] <- promote_arith_pair(left, right, "*")
   .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
   Fortran(
@@ -94,10 +64,16 @@ r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
 }
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
+  literal_zero_divisor <- is_literal_zero_divisor(args[[2L]])
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  refuse_raw_arithmetic(left, right, context = "/")
   left <- maybe_cast_double(left)
   right <- maybe_cast_double(right)
+  if (literal_zero_divisor) {
+    # Keep a zero divisor out of a constant Fortran expression. Compilers
+    # reject constant division by zero, while a runtime zero follows the
+    # floating-point behavior used by R.
+    right <- hoist_unless_name(right, hoist, hoist_literals = TRUE)
+  }
   .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
   Fortran(
     glue("({left} / {right})"),
@@ -107,7 +83,6 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
 
 r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  refuse_raw_arithmetic(left, right, context = "^")
   # R's ^ always returns double (R_pow), so cast the base. Keep an integer
   # exponent as integer: Fortran `real ** int` is exact and, unlike
   # `real ** real`, defined for negative bases -- matching R, which
@@ -115,6 +90,11 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   left <- maybe_cast_double(left)
   if (identical(right@value@mode, "logical")) {
     right <- cast_to_mode(right, "integer", "^")
+  }
+  if (isTRUE(hoist$defer_static_mode_error)) {
+    # Keep compile-time domain errors inside a branch that may not run.
+    left <- hoist_unless_name(left, hoist, hoist_literals = TRUE)
+    right <- hoist_unless_name(right, hoist, hoist_literals = TRUE)
   }
   .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
   mode <- reduce_promoted_mode(left, right)
@@ -141,9 +121,16 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
 #   - FLOOR(x)      : greatest integer <= x      (real)
 #   - AINT(x)       : truncation toward 0       (real)
 
+# Known limitation: the literal-zero checks in %% and %/% precede operand
+# effects. Preserving those effects before the unsupported-input error is deferred.
 r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is_literal_zero_divisor(args[[2L]])) {
+    stop_static_mode_error(
+      "`%%` does not support a literal zero divisor",
+      hoist
+    )
+  }
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  refuse_raw_arithmetic(left, right, context = "%%")
   # `modulo` requires same-typed arguments, so cast both operands to the
   # join (logical joins as integer: R's TRUE %% TRUE is 0L).
   mode <- arith_join_mode(left, right)
@@ -154,18 +141,21 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
   .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
-  right <- guard_nonzero_arithmetic_divisor(right, hoist, scope, "%%")
   out_val <- infer_result_variable(left@value, right@value)
   # MODULO gives result with sign(right) - matches R %% behaviour
   Fortran(glue("modulo({left}, {right})"), out_val)
 }
 
 r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
+  if (is_literal_zero_divisor(args[[2L]])) {
+    stop_static_mode_error(
+      "`%/%` does not support a literal zero divisor",
+      hoist
+    )
+  }
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
-  refuse_raw_arithmetic(left, right, context = "%/%")
   .[left, right] <- promote_arith_pair(left, right, "%/%")
   .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
-  right <- guard_nonzero_arithmetic_divisor(right, hoist, scope, "%/%")
   out_val <- infer_result_variable(left@value, right@value)
 
   expr <- switch(

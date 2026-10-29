@@ -34,7 +34,7 @@ new_fortran_subroutine <- function(
   #           type(bar = integer(foo_dim_1_, 3L)))
   body <- substitute_declared_sizes(body)
   stmts <- as.list(body)[-1L]
-  body <- compile_nonreturn_statements(drop_last(stmts), scope)
+  body <- compile_nonreturn_statements(drop_last(stmts), scope)$code
 
   # check all input vars were declared
   # TODO: this check might be too late, because r2f() might throw cryptic errors
@@ -98,7 +98,7 @@ new_fortran_subroutine <- function(
   uses_rng <- scope_uses_rng(scope)
   used_iso_bindings <- iso_c_binding_symbols(
     vars = scope_vars(scope),
-    body_code = str_flatten_lines(manifest, body_code),
+    body_code = body,
     logical_is_c_int = function(var) var@name %in% fsub_arg_names,
     uses_rng = uses_rng,
     include_errors = uses_errors
@@ -198,10 +198,15 @@ insert_fortran_line_continuations <- function(
         "Too long line encountered.",
         "Please split long expressions into a sequence of smaller expressions."
       )
+      continuation <- if (grepl("^!\\$omp\\b", line, ignore.case = TRUE)) {
+        "!$omp& "
+      } else {
+        "& "
+      }
       wrapped <- strwrap(
         line,
         width = max_len - 1L,
-        prefix = "& ",
+        prefix = continuation,
         initial = ""
       )
       if (length(wrapped) > 256L || any(nchar(wrapped) > max_len - 1L)) {
@@ -213,8 +218,9 @@ insert_fortran_line_continuations <- function(
     # remove leading indentation
     lines[too_long] <- trimws(lines[too_long], "left")
 
-    # move trailing comment at the end
-    lines[too_long] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[too_long])
+    # OpenMP sentinels are directives, not trailing comments.
+    code_lines <- too_long & !grepl("^!\\$omp\\b", lines, ignore.case = TRUE)
+    lines[code_lines] <- sub("^(.*)!(.*)$", "!\\2\n\\1", lines[code_lines])
     lines <- str_split_lines(lines)
 
     lines <- unlist(lapply(lines, split_long_fortran_line), use.names = FALSE)

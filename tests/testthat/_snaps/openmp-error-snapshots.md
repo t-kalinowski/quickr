@@ -40,13 +40,12 @@
       
       
         !$omp parallel do
-        quickr_omp_loop1_: do i = 1, 1_c_int
+        do i = 1, 1_c_int
           if ((x < 0.0_c_double)) then
             call quickr_set_error_msg("x must be nonnegative")
             !$omp cancel do
-            cycle quickr_omp_loop1_
           end if
-        end do quickr_omp_loop1_
+        end do
         !$omp end parallel do
         if (quickr_err_msg(1) /= c_null_char) return
         out_ = (x + 1.0_c_double)
@@ -154,22 +153,20 @@
       
       
         !$omp parallel do
-        quickr_omp_loop1_: do i = 1, 1_c_int
+        do i = 1, 1_c_int
       
           !$omp parallel do
-          quickr_omp_loop2_: do j = 1, 1_c_int
+          do j = 1, 1_c_int
             if ((x < 0.0_c_double)) then
               call quickr_set_error_msg("x must be nonnegative")
               !$omp cancel do
-              cycle quickr_omp_loop2_
             end if
-          end do quickr_omp_loop2_
+          end do
           !$omp end parallel do
           if (quickr_err_msg(1) /= c_null_char) then
             !$omp cancel do
-            cycle quickr_omp_loop1_
           end if
-        end do quickr_omp_loop1_
+        end do
         !$omp end parallel do
         if (quickr_err_msg(1) /= c_null_char) return
         out_ = (x + 1.0_c_double)

@@ -12,16 +12,13 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__len_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+      subroutine fn(x, out, x__len_) bind(c)
+        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_ptrdiff_t), intent(in), value :: x__len_
-      
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__len_)
@@ -29,23 +26,7 @@
         ! manifest end
       
       
-        if (any(((x /= x) .or. (x <= -2147483648.0_c_double) .or. (x >= 2147483648.0_c_double)))) then
-          call quickr_set_error_msg("as.integer() input must be representable as an R integer")
-          return
-        end if
         out = int(x, kind=c_int)
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -58,8 +39,7 @@
       extern void fn(
         const double* const x__,
         int* const out__,
-        const R_xlen_t x__len_,
-        char* quickr_err_msg);
+        const R_xlen_t x__len_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -75,18 +55,7 @@
         SEXP out = PROTECT(Rf_allocVector(INTSXP, out__len_));
         int* out__ = INTEGER(out);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          x__,
-          out__,
-          x__len_,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(x__, out__, x__len_);
         
         UNPROTECT(1);
         return out;
@@ -250,23 +219,13 @@
         ! manifest end
       
       
-        block
-          real(c_double), allocatable :: btmp1_(:)
-      
-          allocate(btmp1_(a__len_))
       if (size(real(a, kind=c_double), kind=c_ptrdiff_t) == 0 .or. size(real(a, kind=c_double), kind=c_ptrdiff_t) /= size(real(b,&
       & kind=c_double), kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
-            return
-          end if
-          btmp1_ = (real(a, kind=c_double) / real(b, kind=c_double))
-          if (any(((btmp1_ /= btmp1_) .or. (btmp1_ <= -2147483648.0_c_double) .or. (btmp1_ >= 2147483648.0_c_double)))) then
-            call quickr_set_error_msg("as.integer() input must be representable as an R integer")
-            return
-          end if
-          out = int(btmp1_, kind=c_int)
-        end block
+          return
+        end if
+        out = int((real(a, kind=c_double) / real(b, kind=c_double)), kind=c_int)
       
         contains
           subroutine quickr_set_error_msg(msg)

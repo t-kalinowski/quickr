@@ -156,108 +156,10 @@ substitute_declared_sizes <- function(e) {
 }
 
 
-reject_local_closure_size_call <- function(r, scope) {
-  if (!is.call(r) || !is.symbol(r[[1L]]) || is.null(scope)) {
-    return(invisible(NULL))
-  }
-  name <- as.character(r[[1L]])
-  if (inherits(get0(name, scope), LocalClosure)) {
-    stop(
-      "local closure `",
-      name,
-      "()` cannot determine a result size before the generated function runs",
-      call. = FALSE
-    )
-  }
-  invisible(NULL)
-}
-
-unwrap_scalar_size_expr <- function(r, scope) {
-  repeat {
-    r <- unwrap_parens(r)
-    reject_local_closure_size_call(r, scope)
-    if (!is_call(r, quote(c)) || length(r) != 2L) {
-      return(r)
-    }
-    r <- r[[2L]]
-  }
-}
-
-size_power_exponent_is_integer <- function(x, scope) {
-  x <- unwrap_parens(x)
-  if (
-    is.atomic(x) &&
-      typeof(x) %in% c("integer", "double") &&
-      length(x) == 1L &&
-      !is.na(x) &&
-      (is.integer(x) || is.finite(x) && trunc(x) == x)
-  ) {
-    return(TRUE)
-  }
-  if (is.symbol(x)) {
-    if (is_size_name(x)) {
-      return(TRUE)
-    }
-    var <- get0(as.character(x), scope)
-    return(
-      inherits(var, Variable) &&
-        identical(var@mode, "integer") &&
-        passes_as_scalar(var)
-    )
-  }
-  if (!is.call(x) || !is.symbol(x[[1L]])) {
-    return(FALSE)
-  }
-  op <- as.character(x[[1L]])
-  args <- as.list(x)[-1L]
-  if (identical(op, "as.integer")) {
-    return(length(args) == 1L)
-  }
-  if (op %in% c("length", "nrow", "ncol")) {
-    return(length(args) == 1L)
-  }
-  if (
-    identical(op, "[") &&
-      length(args) == 2L &&
-      is_call(args[[1L]], quote(dim))
-  ) {
-    return(TRUE)
-  }
-  if (op %in% c("+", "-", "*", "%/%", "%%", "abs", "min", "max")) {
-    return(all(vapply(
-      args,
-      size_power_exponent_is_integer,
-      logical(1L),
-      scope = scope
-    )))
-  }
-  FALSE
-}
-
-validate_static_size_integer_range <- function(x) {
-  stopifnot(is.numeric(x), length(x) == 1L)
-  if (is.nan(x) || is.infinite(x)) {
-    stop("size must be finite, found: ", x, call. = FALSE)
-  }
-  if (is.na(x)) {
-    return(invisible(TRUE))
-  }
-  if (x <= -2147483648 || x >= 2147483648) {
-    stop(
-      "size must be representable as an R integer, found: ",
-      x,
-      call. = FALSE
-    )
-  }
-  invisible(TRUE)
-}
-
-r2size <- function(r, scope, preserve_numeric = FALSE) {
-  r <- unwrap_scalar_size_expr(r, scope)
-
+r2size <- function(r, scope) {
   sanitize_dim <- function(dim) {
     if (is.symbol(dim) || is.call(dim)) {
-      return(r2size(dim, scope, preserve_numeric = preserve_numeric))
+      return(r2size(dim, scope))
     }
     dim
   }
@@ -277,11 +179,8 @@ r2size <- function(r, scope, preserve_numeric = FALSE) {
     switch(
       integer = r,
       double = {
-        validate_static_size_integer_range(r)
         if (is_wholenumber(r)) {
           as.integer(r)
-        } else if (isTRUE(preserve_numeric)) {
-          r
         } else {
           stop("size must be an integer, found: ", r)
         }
@@ -309,44 +208,14 @@ r2size <- function(r, scope, preserve_numeric = FALSE) {
         # symbol, or fail gracefully and return NA.
         # closure-locals with unspecified shape are declared allocatable
         # input and/or output args with unspecified shape signal an error.
-        r2size(var@r, scope, preserve_numeric = preserve_numeric)
+        r2size(var@r, scope)
       },
       language = {
         op <- as.character(r[[1]])
 
-        if (
-          identical(op, "^") &&
-            length(r) == 3L &&
-            !size_power_exponent_is_integer(r[[3L]], scope)
-        ) {
-          stop(
-            "size expression powers require an integer exponent",
-            call. = FALSE
-          )
-        }
-
-        if (
-          op %in%
-            c(
-              "+",
-              "-",
-              "/",
-              "*",
-              "^",
-              "%/%",
-              "%%",
-              "abs",
-              "min",
-              "max"
-            )
-        ) {
+        if (op %in% c("+", "-", "/", "*", "^", "%/%", "%%")) {
           args <- as.list(r)[-1]
-          args <- lapply(
-            args,
-            r2size,
-            scope,
-            preserve_numeric = preserve_numeric
-          )
+          args <- lapply(args, r2size, scope)
           if (anyNA(rapply(args, as.list))) {
             return(NA_integer_)
           }
@@ -363,24 +232,16 @@ r2size <- function(r, scope, preserve_numeric = FALSE) {
             if (length(r) != 2L) {
               stop("as.integer() in a size expression expects one argument")
             }
-            inner_expr <- unwrap_scalar_size_expr(r[[2L]], scope)
-            # A scalar literal is coerced here rather than recursed into:
-            # r2size() rejects a non-whole double (and a bare logical), which
-            # are exactly the cases as.integer() exists to handle.
-            if (
-              is.atomic(inner_expr) &&
-                typeof(inner_expr) %in% c("logical", "integer", "double") &&
-                length(inner_expr) == 1L
-            ) {
-              if (is.double(inner_expr)) {
-                validate_static_size_integer_range(inner_expr)
-              }
-              return(as.integer(inner_expr))
+            # A numeric literal is coerced here rather than recursed into:
+            # r2size() rejects a non-whole double, which is exactly the
+            # case as.integer() exists to handle.
+            if (is.numeric(r[[2L]]) && length(r[[2L]]) == 1L) {
+              return(as.integer(r[[2L]]))
             }
             # An explicit coercion is exactly what the "not an integer"
             # warning asks for, so don't also warn about the operand.
             inner <- withCallingHandlers(
-              r2size(inner_expr, scope, preserve_numeric = TRUE),
+              r2size(r[[2L]], scope),
               warning = function(w) {
                 if (
                   grepl(
@@ -456,43 +317,6 @@ r2dims <- function(r, scope) {
       )
   }
   lapply(r, r2size, scope)
-}
-
-size_expr_is_known_nonnegative <- function(x) {
-  x <- unwrap_parens(x)
-  if (is_scalar_integerish(x)) {
-    return(as.integer(x) >= 0L)
-  }
-  if (is_size_name(x)) {
-    return(TRUE)
-  }
-  if (
-    is.call(x) &&
-      is.symbol(x[[1L]]) &&
-      as.character(x[[1L]]) %in%
-        c("length", "nrow", "ncol", "quickr_seq_length")
-  ) {
-    return(TRUE)
-  }
-  if (
-    is_call(x, quote(`[`)) &&
-      length(x) == 3L &&
-      is_call(x[[2L]], quote(dim))
-  ) {
-    return(TRUE)
-  }
-  if (
-    !is.call(x) ||
-      !is.symbol(x[[1L]]) ||
-      !as.character(x[[1L]]) %in% c("+", "*", "min", "max")
-  ) {
-    return(FALSE)
-  }
-  all(vapply(
-    as.list(x)[-1L],
-    size_expr_is_known_nonnegative,
-    logical(1L)
-  ))
 }
 
 get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {

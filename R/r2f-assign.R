@@ -59,100 +59,6 @@ assignment_is_local_closure_call <- function(rhs, scope) {
     inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
 }
 
-materialize_unknown_reassignment_value <- function(target, value, hoist) {
-  stopifnot(inherits(target, Variable), inherits(value, Fortran))
-  if (
-    !inherits(value@value, Variable) ||
-      is.null(value@value@dims) ||
-      !any(vapply(value@value@dims, is_scalar_na, logical(1L))) ||
-      !is.null(value@value@name) ||
-      (!target@is_external && has_self_size_dims(target))
-  ) {
-    return(value)
-  }
-  materialize_via_hoist(
-    value,
-    mode = value@value@mode,
-    dims = value@value@dims,
-    hoist = hoist,
-    logical_storage = logical_as_int(value@value)
-  )
-}
-
-assignment_expression_has_constructor <- function(e) {
-  e <- unwrap_parens(e)
-  if (!is.call(e)) {
-    return(FALSE)
-  }
-  callable <- unwrap_parens(e[[1L]])
-  if (is.symbol(callable)) {
-    name <- as.character(callable)
-    if (
-      name %in%
-        c(
-          "logical",
-          "integer",
-          "double",
-          "numeric",
-          "matrix",
-          "array"
-        )
-    ) {
-      return(TRUE)
-    }
-    if (identical(name, "function")) {
-      return(FALSE)
-    }
-  }
-  children <- as.list(e)[-1L]
-  for (i in seq_along(children)) {
-    if (is_missing(children[[i]])) {
-      next
-    }
-    if (assignment_expression_has_constructor(children[[i]])) {
-      return(TRUE)
-    }
-  }
-  FALSE
-}
-
-allocate_new_guarded_constructor_local_at_point <- function(
-  name,
-  var,
-  scope,
-  hoist
-) {
-  stopifnot(
-    is_string(name),
-    inherits(var, Variable),
-    inherits(scope, "quickr_scope"),
-    is.environment(hoist)
-  )
-  if (
-    !scope_kind(scope) %in% c("subroutine", "closure") ||
-      name %in%
-        (scope_get(scope, "return_names", character()) %||%
-          character()) ||
-      (var@r_name %||% var@name) %in% names(formals(scope_closure(scope))) ||
-      !subroutine_local_allocatable(var, scope) ||
-      !hoist$contains_runtime_guard()
-  ) {
-    return(invisible(var))
-  }
-  point_allocated <- scope_get(
-    scope,
-    "point_allocated_local_names",
-    character()
-  )
-  scope_set(
-    scope,
-    "point_allocated_local_names",
-    unique(c(point_allocated, var@name))
-  )
-  hoist$emit(glue("allocate({var@name}({dims2f(var@dims, scope)}))"))
-  invisible(var)
-}
-
 register_r2f_handler(
   "<-",
   function(args, scope, ..., hoist = NULL) {
@@ -257,16 +163,9 @@ register_r2f_handler(
 
     if (existing_binding) {
       value <- if (dest_allowed) {
-        r2f(
-          rhs,
-          scope,
-          ...,
-          hoist = hoist,
-          dest = var,
-          assignment_name = name
-        )
+        r2f(rhs, scope, ..., hoist = hoist, dest = var)
       } else {
-        r2f(rhs, scope, ..., hoist = hoist, assignment_name = name)
+        r2f(rhs, scope, ..., hoist = hoist)
       }
     } else if (inherits(inferred_var, Variable)) {
       var <- inferred_var
@@ -280,24 +179,10 @@ register_r2f_handler(
           var@logical_as_int <- TRUE
         }
       }
-      value <- r2f(
-        rhs,
-        scope,
-        ...,
-        hoist = hoist,
-        dest = var,
-        assignment_name = name
-      )
+      value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
     } else {
-      value <- r2f(rhs, scope, ..., hoist = hoist, assignment_name = name)
+      value <- r2f(rhs, scope, ..., hoist = hoist)
     }
-
-    guarded_constructor <- assignment_expression_has_constructor(rhs_unwrapped)
-    initialized_local_names <- scope_get(
-      scope,
-      "initialized_local_names",
-      character()
-    )
 
     # immutable / copy-on-modify usage of Variable()
     if (!existing_binding) {
@@ -337,7 +222,6 @@ register_r2f_handler(
         error = function(e) NULL
       )
       scope[[name]] <- var
-      register_openmp_private(scope, var@name)
     } else {
       # The var already exists, this assignment is a modification / reassignment
       if (is.null(var@r_name)) {
@@ -352,7 +236,6 @@ register_r2f_handler(
         var@dims <- value@value@dims
       }
       check_reassignment_narrowing(name, var, value@value)
-      value <- materialize_unknown_reassignment_value(var, value, hoist)
       check_assignment_compatible(
         name,
         var,
@@ -361,41 +244,11 @@ register_r2f_handler(
         scope = scope
       )
       var@modified <- TRUE
-      # Subsequent size expressions must not reuse the expression that
-      # initialized this binding. Preserve a new expression when it does not
-      # refer back to the binding itself; self-referential updates cannot be
-      # folded safely into a result shape.
-      var@r <- if (name %in% all.vars(rhs)) NA_integer_ else rhs
       # could probably drop this @modified property, and instead track
       # if the var populated by declare is identical at the end (e.g., perhaps by
       # address, or by attaching a unique id to each var, or ???)
       assign(name, var, scope)
     }
-
-    if (
-      !var@name %in% initialized_local_names &&
-        guarded_constructor &&
-        any(
-          !vapply(
-            var@dims,
-            size_expr_is_known_nonnegative,
-            logical(1L)
-          )
-        ) &&
-        (!inherits(value, Fortran) || !isTRUE(value@writes_to_dest))
-    ) {
-      allocate_new_guarded_constructor_local_at_point(
-        name,
-        var,
-        scope,
-        hoist
-      )
-    }
-    scope_set(
-      scope,
-      "initialized_local_names",
-      unique(c(initialized_local_names, var@name))
-    )
 
     # If child consumed destination (e.g., BLAS wrote directly into LHS), skip assignment
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
@@ -430,12 +283,7 @@ register_r2f_handler(
     # whole-variable reassignment can: `x[1L] <- 2.5` on an integer `x`
     # would silently truncate where R promotes `x` to double.
     base_name <- as.character(target_call[[2L]])
-    check_reassignment_narrowing(
-      base_name,
-      get0(base_name, scope),
-      value@value,
-      whole_binding = FALSE
-    )
+    check_reassignment_narrowing(base_name, get0(base_name, scope), value@value)
 
     Fortran(str_flatten_lines(lhs$pre, glue("{lhs$lhs} = {value}")))
   }
@@ -502,7 +350,6 @@ register_r2f_handler(
 
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
-    value <- materialize_unknown_reassignment_value(host_var, value, hoist)
     check_assignment_compatible(
       name,
       host_var,
@@ -541,12 +388,7 @@ register_r2f_handler(
       target = "host"
     )
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
-    check_reassignment_narrowing(
-      name,
-      host_var,
-      value@value,
-      whole_binding = FALSE
-    )
+    check_reassignment_narrowing(name, host_var, value@value)
     Fortran(glue("{lhs$lhs} = {value}"))
   }
 )

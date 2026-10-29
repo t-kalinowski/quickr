@@ -23,24 +23,25 @@
         integer(c_int), intent(in) :: c(c__len_) ! logical
         real(c_double), intent(in) :: a(c__len_)
         real(c_double), intent(out) :: out_(c__len_)
-      
-        ! locals
-        logical, allocatable :: tmp1_(:) ! logical
-        real(c_double), allocatable :: tmp2_(:)
         ! manifest end
       
-        allocate(tmp1_(c__len_))
-        allocate(tmp2_(c__len_))
       
+        block
+          logical, allocatable :: btmp1_(:) ! logical
+          real(c_double), allocatable :: btmp2_(:)
       
-        tmp1_ = (c/=0)
-        if (any(tmp1_)) then
-          where (tmp1_) tmp2_ = real(1_c_int, kind=c_double)
-        end if
-        if (any(.not. tmp1_)) then
-          where (.not. tmp1_) tmp2_ = a
-        end if
-        out_ = tmp2_
+          allocate(btmp1_(c__len_))
+          btmp1_ = (c/=0)
+          if (any(btmp1_)) then
+            if (.not. allocated(btmp2_)) allocate(btmp2_(c__len_))
+            where (btmp1_) btmp2_ = real(1_c_int, kind=c_double)
+          end if
+          if (any(.not. btmp1_)) then
+            if (.not. allocated(btmp2_)) allocate(btmp2_(c__len_))
+            where (.not. btmp1_) btmp2_ = a
+          end if
+          out_ = btmp2_
+        end block
       end subroutine
     Code
       cat(cwrapper)
@@ -124,34 +125,35 @@
         real(c_double), intent(in) :: a(a__len_)
         real(c_double), intent(in) :: b(b__len_)
         real(c_double), intent(out) :: out_(c__len_)
-      
-        ! locals
-        logical, allocatable :: tmp1_(:) ! logical
-        real(c_double), allocatable :: tmp2_(:)
         ! manifest end
       
-        allocate(tmp1_(c__len_))
-        allocate(tmp2_(c__len_))
       
+        block
+          logical, allocatable :: btmp1_(:) ! logical
+          real(c_double), allocatable :: btmp2_(:)
       
-        tmp1_ = (c/=0)
-        if (any(tmp1_)) then
-          if (size(a, 1, kind=c_ptrdiff_t) /= size(tmp1_, 1, kind=c_ptrdiff_t)) then
+          allocate(btmp1_(c__len_))
+          btmp1_ = (c/=0)
+          if (any(btmp1_)) then
+            if (size(a, 1, kind=c_ptrdiff_t) /= size(btmp1_, 1, kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("ifelse() `yes` and `no` must be scalars or match the shape of `test`; R-style recycling is not&
       & supported")
-            return
+              return
+            end if
+            if (.not. allocated(btmp2_)) allocate(btmp2_(c__len_))
+            where (btmp1_) btmp2_ = a
           end if
-          where (tmp1_) tmp2_ = a
-        end if
-        if (any(.not. tmp1_)) then
-          if (size(b, 1, kind=c_ptrdiff_t) /= size(tmp1_, 1, kind=c_ptrdiff_t)) then
+          if (any(.not. btmp1_)) then
+            if (size(b, 1, kind=c_ptrdiff_t) /= size(btmp1_, 1, kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("ifelse() `yes` and `no` must be scalars or match the shape of `test`; R-style recycling is not&
       & supported")
-            return
+              return
+            end if
+            if (.not. allocated(btmp2_)) allocate(btmp2_(c__len_))
+            where (.not. btmp1_) btmp2_ = b
           end if
-          where (.not. tmp1_) tmp2_ = b
-        end if
-        out_ = tmp2_
+          out_ = btmp2_
+        end block
       
         contains
           subroutine quickr_set_error_msg(msg)

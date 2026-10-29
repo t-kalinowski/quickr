@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Unsupported-type errors are more specific: character declarations are
+  rejected at `declare()`, complex ordering uses R's error message, and
+  non-logical operands to `&` and `|` report the operator name.
+
 * Repeated `quick()` compilations now reuse successful `R CMD config` results
   for the rest of the R session. Restart R after changing the compiler or
   Makevars configuration.
@@ -17,8 +21,9 @@
   to every dimension: quickr cannot re-declare a Fortran variable the
   way R rebinds a symbol. A statically known mismatch (e.g.
   `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
-  dimensions that cannot be compared at compile time are checked at run
-  time. Previously such reassignments silently kept the old shape or
+  supported symbolic dimension expressions get runtime checks when
+  equality cannot be proved. Unknown or unspellable local extents remain
+  outside these checks. Previously such reassignments silently kept the old shape or
   produced invalid Fortran. This also covers reassignment between a scalar
   and an array in either direction: `x <- numeric(n); x <- 0` used to
   broadcast the scalar across every element, and assigning an array to a
@@ -26,14 +31,15 @@
   symbol in both cases. Locals declared with unknown (`NA`) dims still
   reallocate on assignment, like R.
 
-- `diag(x)` with a length-1 `x` and no `nrow`/`ncol` now builds the
+- `diag(x)` with a length-1 `x` as the only argument now builds the
   identity matrix of size `x`, matching R. Previously only a *literal*
   size took that path, so `diag(n)` with `n` declared `integer(1)`
   returned a 1x1 matrix containing `n` instead of the n-by-n identity —
   a silent divergence in both shape and values. As in R the size is
   `as.integer(x)`, so a `double` or `logical` `x` works and truncates
   toward zero (`diag(3.7)` is the 3x3 identity, as in R). Use
-  `diag(x, nrow)` for a 1x1 matrix holding `x`.
+  `diag(x, nrow = 1L)` for a 1x1 matrix holding `x`. Supplying `names`
+  explicitly also selects diagonal construction, matching R.
 
 - `declare()` size expressions now accept `as.integer()`, which lowers to
   Fortran's `INT()` and to an integer cast in the generated C bridge.
@@ -63,14 +69,22 @@
   build even in arithmetic, and a symbolic-length `x + m` returned a plain
   vector where R returns a `1x1` matrix.
 
-- `&&` and `||` now behave like R's scalar control operators. They
-  require length-1 logical operands (longer operands are a compile-time
-  error, as they are a runtime error in R; use `&`/`|` for elementwise
-  logic), and they short-circuit: the right operand is evaluated only when
-  the left side does not decide the answer, so idioms like
-  `while (i <= n && x[i] > 0)` are safe. Previously they compiled exactly
-  like `&`/`|` — elementwise over vectors (returning answers where R
-  errors) and with both sides always evaluated.
+- `&&` and `||` now short-circuit: the right operand is evaluated only
+  when the left side does not decide the answer, so idioms like
+  `while (i <= n && x[i] > 0)` are safe. Operands must still be length-1
+  logical values; numeric coercion and `NA` semantics remain unsupported.
+  Assignment expressions, loop bindings, and declarations inside these
+  operands are rejected; use separate statements.
+  `print()` remains a statement-only operation.
+
+- Infinite literals now produce a clear diagnostic. Inside `&&` and `||`,
+  it is deferred until the operand is reached. Skipped `Inf` or `-Inf`
+  operands no longer cause a Fortran compilation error. This does not add
+  support for evaluating infinite literals or change infinite values
+  passed as arguments.
+
+- `while` conditions now re-evaluate hoisted expressions each iteration;
+  `repeat` loops evaluate hoisted body expressions on each pass.
 
 - `solve(a, b)` now requires a square `a`, matching R. A rectangular `a`
   previously fell through to a least-squares solve (dgels), returning an
@@ -78,13 +92,6 @@
   rectangular systems are now a compile-time error; when squareness is not
   known at compile time it is checked at run time. Use `qr.solve()` for
   least-squares solutions of rectangular systems (unchanged).
-
-- Complex operands in linear algebra (`%*%`, `crossprod()`, `solve()`,
-  `chol()`, ...) are now a compile-time error. quickr's lowerings use the
-  real (double-only) BLAS/LAPACK routines, which previously read complex
-  storage as reals and returned a plausible but wrong real result where R
-  returns a complex one. Elementwise complex arithmetic and the
-  mode-preserving `t()`/`diag()` are unaffected.
 
 # quickr 0.3.0
 

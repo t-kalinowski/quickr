@@ -110,21 +110,16 @@ test_that("later user variables do not shadow generated temps", {
   expect_quick_identical(block_fn, list(c(1, 2)))
 })
 
-test_that("parallel loops privatize bindings created in the body", {
-  fn <- function(x, n, out) {
-    declare(
-      type(x = double(n)),
-      type(n = integer(1)),
-      type(out = double(n))
-    )
-    declare(parallel())
-    for (i in seq_len(n)) {
-      scratch <- x[i] * 2
-      out[i] <- scratch + 1
+test_that("later loop variables do not shadow generated temps", {
+  fn <- function(x) {
+    declare(type(x = logical(1)))
+    guard <- x && runif(1) > 0
+    out <- 0L
+    for (Tmp1. in 1:2) {
+      out <- out + Tmp1.
     }
-    out
+    out + as.integer(guard)
   }
 
-  code <- as.character(r2f(fn))
-  expect_match(code, "!$omp parallel do private(scratch)", fixed = TRUE)
+  expect_quick_identical(fn, list(FALSE))
 })

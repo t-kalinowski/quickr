@@ -184,7 +184,7 @@ infer_dest_solve <- function(args, scope) {
 
   b_arg <- args$b %||% if (length(args) >= 2L) args[[2L]] else NULL
   if (is.null(b_arg)) {
-    return(Variable("double", list(n_rows, n_rows)))
+    return(Variable("double", list(n_rows, n_cols)))
   }
   B <- infer_symbol_var(b_arg, scope)
   if (is.null(B)) {
@@ -211,7 +211,7 @@ infer_dest_chol <- function(args, scope) {
     return(NULL)
   }
   x_dims <- matrix_dims_var(X)
-  Variable("double", list(x_dims$rows, x_dims$rows))
+  Variable("double", list(x_dims$rows, x_dims$cols))
 }
 
 infer_dest_chol2inv <- infer_dest_chol
@@ -282,7 +282,8 @@ diag_call_args <- function(args) {
     nrow = nrow_arg,
     ncol = ncol_arg,
     has_nrow = !is.null(nrow_arg) && !is_missing(nrow_arg),
-    has_ncol = !is.null(ncol_arg) && !is_missing(ncol_arg)
+    has_ncol = !is.null(ncol_arg) && !is_missing(ncol_arg),
+    identity = length(args) == 1L
   )
 }
 
@@ -331,7 +332,7 @@ infer_dest_diag <- function(args, scope) {
 
   # Case: x is a scalar literal (identity matrix of that size)
   if (is.null(x) && is.numeric(x_arg) && length(x_arg) == 1L) {
-    if (!has_nrow && !has_ncol && is_wholenumber(x_arg)) {
+    if (margs$identity && is_wholenumber(x_arg)) {
       n <- as.integer(x_arg)
       return(Variable("double", list(n, n)))
     }
@@ -341,7 +342,7 @@ infer_dest_diag <- function(args, scope) {
   # match the handler's predicate exactly, or the inferred destination
   # would be the 1x1 constructor result instead of the identity's (x, x).
   # The size depends on x's value, so leave the destination uninferred.
-  if (!is.null(x) && passes_as_scalar(x) && !has_nrow && !has_ncol) {
+  if (!is.null(x) && passes_as_scalar(x) && margs$identity) {
     return(NULL)
   }
 
