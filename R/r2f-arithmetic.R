@@ -63,7 +63,7 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     # Keep a zero divisor out of a constant Fortran expression. Compilers
     # reject constant division by zero, while a runtime zero follows the
     # floating-point behavior used by R.
-    right <- hoist_unless_name(right, hoist)
+    right <- hoist_unless_name(right, hoist, hoist_literals = TRUE)
   }
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   Fortran(glue("({left} / {right})"), conform(left@value, right@value))
@@ -81,8 +81,8 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   }
   if (isTRUE(hoist$defer_static_mode_error)) {
     # Keep compile-time domain errors inside a branch that may not run.
-    left <- hoist_unless_name(left, hoist)
-    right <- hoist_unless_name(right, hoist)
+    left <- hoist_unless_name(left, hoist, hoist_literals = TRUE)
+    right <- hoist_unless_name(right, hoist, hoist_literals = TRUE)
   }
   .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
   mode <- reduce_promoted_mode(left, right)

@@ -133,9 +133,80 @@ lower_operands_in_order <- function(args, scope, ..., hoist) {
   lapply(args, lower_r2f_operand_in_order, scope, ..., hoist = hoist)
 }
 
+# Recognize only scalar fills whose arguments cannot have side effects.
+# Only a bare matrix variable can be the opposite operand. Calls and computed
+# dimensions keep matrix()'s normal materialization path. Extending this
+# optimization to those forms needs evaluation-order analysis and is deferred.
+match_scalar_matrix_fill <- function(e, scope) {
+  if (
+    !is_call(e, quote(matrix)) ||
+      inherits(get0("matrix", scope), LocalClosure)
+  ) {
+    return(NULL)
+  }
+  mc <- tryCatch(match.call(matrix, e), error = function(...) NULL)
+  args <- as.list(mc)[-1L]
+  if (
+    !setequal(names(args), c("data", "nrow", "ncol")) ||
+      any(map_lgl(args, is_missing))
+  ) {
+    return(NULL)
+  }
+  scalar <- function(x, modes) {
+    if (is.symbol(x)) {
+      value <- get0(as.character(x), scope)
+      return(
+        inherits(value, Variable) &&
+          isTRUE(value@mode %in% modes) &&
+          passes_as_scalar(value)
+      )
+    }
+    is.atomic(x) && length(x) == 1L && typeof(x) %in% modes && is.finite(x)
+  }
+  if (
+    !scalar(args$data, c("integer", "double", "logical", "complex")) ||
+      !all(map_lgl(args[c("nrow", "ncol")], scalar, c("integer", "double")))
+  ) {
+    return(NULL)
+  }
+  args
+}
+
 # Used by: r2f-arithmetic.R, r2f-logical.R
 lower_elementwise_operands <- function(args, scope, ..., hoist) {
-  stopifnot(length(args) == 2L)
+  stopifnot(length(args) == 2L, !is.null(hoist))
+  fills <- lapply(args, match_scalar_matrix_fill, scope = scope)
+  fill_index <- which(!map_lgl(fills, is.null))
+  if (length(fill_index) == 1L && is.symbol(args[[3L - fill_index]])) {
+    other_var <- get0(as.character(args[[3L - fill_index]]), scope)
+    if (
+      inherits(other_var, Variable) &&
+        other_var@rank == 2L &&
+        !passes_as_scalar(other_var)
+    ) {
+      fill_args <- fills[[fill_index]]
+      other <- r2f(args[[3L - fill_index]], scope, ..., hoist = hoist)
+      fill <- r2f(fill_args$data, scope, ..., hoist = hoist)
+      dims <- fill_args[c("nrow", "ncol")]
+      dims_f <- lapply(dims, r2f, scope, ..., hoist = hoist)
+      for (axis in 1:2) {
+        dim <- dims[[axis]]
+        guard_conformable_dims(
+          if (is.numeric(dim)) as.integer(dim) else dim,
+          other_var@dims[[axis]],
+          elementwise_matrix_msg,
+          hoist,
+          scope,
+          left = NULL,
+          right = other,
+          right_axis = axis,
+          left_f = glue("int({dims_f[[axis]]}, kind=c_ptrdiff_t)")
+        )
+      }
+      out <- list(fill, other)
+      return(if (fill_index == 1L) out else rev(out))
+    }
+  }
   lower_operands_in_order(args, scope, ..., hoist = hoist)
 }
 
@@ -223,12 +294,20 @@ check_elementwise_lengths <- function(left, right) {
   list(ok = TRUE, unknown = TRUE, reject_zero = TRUE)
 }
 
-# Render one side of a dim-comparison guard: a literal dim as the literal,
+# The static and runtime matrix shape diagnostics share one spelling.
+elementwise_matrix_msg <-
+  "elementwise matrix operations require matching dimensions"
+
+# Render one side of a dim-comparison guard: a caller-provided spelling for
+# scalar fills without an array to size(), then a literal dim as the literal,
 # anything else as the operand's actual extent (whole size when `axis` is
 # NULL). size() is an inquiry, so applying it to operand expression text
 # does not evaluate the operand.
 # Used by: guard_conformable_dims()
-guard_dim_f <- function(dim, operand, axis = NULL) {
+guard_dim_f <- function(dim, operand, axis = NULL, f = NULL) {
+  if (!is.null(f)) {
+    return(f)
+  }
   if (is_wholenumber(dim)) {
     return(as.character(as.integer(dim)))
   }
@@ -260,6 +339,8 @@ guard_conformable_dims <- function(
   right,
   left_axis = NULL,
   right_axis = NULL,
+  left_f = NULL,
+  right_f = NULL,
   checker = check_elementwise_lengths,
   defer_static_error = isTRUE(hoist$defer_static_shape_error)
 ) {
@@ -276,8 +357,8 @@ guard_conformable_dims <- function(
     stop(message, call. = FALSE)
   }
   if (conform$unknown) {
-    left_guard <- guard_dim_f(left_dim, left, left_axis)
-    right_guard <- guard_dim_f(right_dim, right, right_axis)
+    left_guard <- guard_dim_f(left_dim, left, left_axis, left_f)
+    right_guard <- guard_dim_f(right_dim, right, right_axis, right_f)
     condition <- glue("{left_guard} /= {right_guard}")
     if (isTRUE(conform$reject_zero)) {
       condition <- glue(
@@ -460,7 +541,7 @@ maybe_reshape_vector_matrix <- function(
 
   if (left_rank >= 2L && left_rank == right_rank) {
     array_msg <- if (left_rank == 2L) {
-      "elementwise matrix operations require matching dimensions"
+      elementwise_matrix_msg
     } else {
       "elementwise array operations require matching dimensions"
     }

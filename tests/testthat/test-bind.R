@@ -121,7 +121,7 @@ test_that("cbind/rbind evaluate effectful arguments from left to right", {
 
 test_that("cbind/rbind reject rank > 2 inputs with clear errors", {
   capture_bind_error <- function(expr) {
-    tryCatch(expr, error = function(e) cat(conditionMessage(e), "\n"))
+    tryCatch(expr, error = function(e) cat(conditionMessage(e), "\n", sep = ""))
   }
 
   bad_cbind <- function(x) {

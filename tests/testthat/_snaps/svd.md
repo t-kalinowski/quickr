@@ -80,8 +80,8 @@
       
       
       extern void fn(
-        const double* const x__, 
-        double* const out___, 
+        const double* const x__,
+        double* const out___,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {

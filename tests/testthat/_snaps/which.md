@@ -190,13 +190,13 @@
       
       
       extern void fn(
-        const int* const lgl1__, 
-        const int* const int1__, 
-        const double* const dbl1__, 
-        int* const out__, 
-        const R_xlen_t dbl1__len_, 
-        const R_xlen_t int1__len_, 
-        const R_xlen_t lgl1__len_, 
+        const int* const lgl1__,
+        const int* const int1__,
+        const double* const dbl1__,
+        int* const out__,
+        const R_xlen_t dbl1__len_,
+        const R_xlen_t int1__len_,
+        const R_xlen_t lgl1__len_,
         char* quickr_err_msg);
       
       SEXP fn_(SEXP _args) {

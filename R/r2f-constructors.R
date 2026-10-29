@@ -56,6 +56,9 @@ r2f_handlers[["c"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   mode <- promoted$mode
   # Fill constructors are one scalar literal claiming length k; spread them
   # as implied-dos so the emitted element count matches the claimed length.
+  # Known limitations: later closure calls can change symbolic fill lengths,
+  # and the implied-do counter is not OpenMP-private. Capturing lengths and
+  # supporting these constructors in parallel loops are deferred.
   fill_idx <- which(map_lgl(args, is_fill_constructor_call, scope = scope))
   if (length(fill_idx)) {
     spread_var <- NULL

@@ -185,14 +185,24 @@ new_hoist <- function(scope, defer_errors = scope_defers_branch_errors(scope)) {
 }
 
 # Hoist `x` into a temporary variable unless it already renders as a bare
-# variable name. Use this whenever the same operand is spliced into generated
-# code more than once: Fortran evaluates intrinsic actual arguments before the
-# call, so repeating an expression duplicates its side effects (e.g. RNG
-# state via runif()).
-hoist_unless_name <- function(x, hoist) {
+# variable name or scalar literal. Use this whenever the same operand is
+# spliced into generated code more than once: Fortran evaluates actual
+# arguments before the call, so repeating an expression duplicates its side
+# effects (e.g. RNG state via runif()).
+hoist_unless_name <- function(x, hoist, hoist_literals = FALSE) {
   stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
   code <- trimws(as.character(x))
   if (!is.null(x@value@name) && identical(code, x@value@name)) {
+    return(x)
+  }
+  # Array-shaped fills still need storage, e.g. matrix(numeric(6), 3, 2).
+  # Some callers also need literals evaluated at runtime to avoid constant
+  # division/domain errors, including in branches that will not execute.
+  if (
+    !hoist_literals &&
+      passes_as_scalar(x@value) &&
+      grepl("^-?[0-9]+(\\.[0-9]+)?(_c_(int|double))?$", code)
+  ) {
     return(x)
   }
   tmp <- hoist$declare_tmp(
@@ -268,6 +278,10 @@ capture_inheriting_deferred_errors <- function(hoist) {
   captured_hoist
 }
 
+# Known limitation: an earlier operand is not copied before a later local
+# closure mutates its host bindings. General operand snapshots, including
+# runif() bounds and reduction arguments, are deferred. Assignment-valued
+# operands are also unsupported: assignment handlers emit statements.
 lower_r2f_operand_in_order <- function(
   arg,
   scope,

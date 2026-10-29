@@ -116,6 +116,9 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     hoist = hoist
   )[[1L]]
   mask_code <- trimws(as.character(mask))
+  # Known limitation: a branch can mutate a named mask or its symbolic
+  # extents through a local closure. Freezing both before branch evaluation
+  # requires broader ifelse() allocation changes and remains deferred.
   if (is.null(mask@value@name) || !identical(mask_code, mask@value@name)) {
     # Keep the selector in the parent statement block. Branch captures share
     # this declaration scope, so their temporary names cannot shadow it.

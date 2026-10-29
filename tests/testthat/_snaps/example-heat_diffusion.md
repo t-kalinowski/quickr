@@ -150,13 +150,13 @@
       
       
       extern void diffuse_heat(
-        const int* const nx__, 
-        const int* const ny__, 
-        const int* const dx__, 
-        const int* const dy__, 
-        const double* const dt__, 
-        const double* const k__, 
-        const int* const steps__, 
+        const int* const nx__,
+        const int* const ny__,
+        const int* const dx__,
+        const int* const dy__,
+        const double* const dt__,
+        const double* const k__,
+        const int* const steps__,
         double* const temp__);
       
       SEXP diffuse_heat_(SEXP _args) {
@@ -406,13 +406,13 @@
       
       
       extern void diffuse_heat(
-        const int* const nx__, 
-        const int* const ny__, 
-        const int* const dx__, 
-        const int* const dy__, 
-        const double* const dt__, 
-        const double* const k__, 
-        const int* const steps__, 
+        const int* const nx__,
+        const int* const ny__,
+        const int* const dx__,
+        const int* const dy__,
+        const double* const dt__,
+        const double* const k__,
+        const int* const steps__,
         double* const temp__);
       
       SEXP diffuse_heat_(SEXP _args) {
