@@ -73,7 +73,7 @@ register_r2f_handler(
         } else if (!is.na(element_count)) {
           nonempty <- element_count > 0
         } else {
-          x <- hoist_unless_name(x, arg_hoist)
+          x <- hoist_unless_name(x, arg_hoist, calls = dots$calls)
           nonempty <- glue(
             "size({x}, kind=c_ptrdiff_t) > 0_c_ptrdiff_t"
           )
@@ -120,7 +120,7 @@ register_r2f_handler(
         if (allow_empty) {
           return(list(value = out, nonempty = nonempty, hoist = arg_hoist))
         }
-        out <- hoist_unless_name(out, arg_hoist)
+        out <- hoist_unless_name(out, arg_hoist, calls = dots$calls)
         dots$hoist$emit(arg_hoist$render(character()))
       }
       out
@@ -158,7 +158,11 @@ register_r2f_handler(
             dots$hoist$emit(reduced[[i]]$hoist$render(character()))
             next
           }
-          value <- hoist_unless_name(values[[i]], reduced[[i]]$hoist)
+          value <- hoist_unless_name(
+            values[[i]],
+            reduced[[i]]$hoist,
+            calls = dots$calls
+          )
           dots$hoist$emit(reduced[[i]]$hoist$render(character()))
           active[[length(active) + 1L]] <- value
         }

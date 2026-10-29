@@ -189,12 +189,36 @@ new_hoist <- function(scope, defer_errors = scope_defers_branch_errors(scope)) {
 # spliced into generated code more than once: Fortran evaluates actual
 # arguments before the call, so repeating an expression duplicates its side
 # effects (e.g. RNG state via runif()).
-hoist_unless_name <- function(x, hoist, hoist_literals = FALSE) {
+hoist_unless_name <- function(
+  x,
+  hoist,
+  hoist_literals = FALSE,
+  calls = character()
+) {
   stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
   code <- trimws(as.character(x))
   if (!is.null(x@value@name) && identical(code, x@value@name)) {
     return(x)
   }
+  # Retain runtime evaluation inside enclosing operations with domain checks.
+  # For example, in 1 / floor(0.5), eliding floor()'s literal temporary turns
+  # the divisor into a constant zero that gfortran rejects during compilation.
+  hoist_literals <- hoist_literals ||
+    any(
+      calls %in%
+        c(
+          "/",
+          "%%",
+          "%/%",
+          "^",
+          "asin",
+          "acos",
+          "sqrt",
+          "exp",
+          "log",
+          "log10"
+        )
+    )
   # Array-shaped fills still need storage, e.g. matrix(numeric(6), 3, 2).
   # Some callers also need literals evaluated at runtime to avoid constant
   # division/domain errors, including in branches that will not execute.

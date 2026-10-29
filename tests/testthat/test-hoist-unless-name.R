@@ -79,3 +79,40 @@ test_that("log10 constants remain inside short-circuit branches", {
   }
   expect_quick_identical(fn, list(FALSE), list(TRUE))
 })
+
+test_that("derived zero divisors remain runtime expressions", {
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  fn <- function() {
+    1 / floor(0.5)
+  }
+  expect_quick_identical(fn, list())
+})
+
+test_that("derived zero divisors compile in short-circuit operands", {
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  fn <- function(flag) {
+    declare(type(flag = logical(1)))
+    flag && (1 / floor(0.5) > 0)
+  }
+  expect_quick_identical(fn, list(FALSE), list(TRUE))
+})
+
+test_that("domain-sensitive expressions retain nested literal hoists", {
+  withr::local_options(quickr.fortran_compiler = "gfortran")
+  expressions <- alist(
+    1 / ceiling(0.0),
+    1 / sum(0.0, 0.0),
+    1 / min(0.0, 0.0),
+    1 %/% floor(0.5),
+    log(floor(0.5)),
+    log10(floor(0.5)),
+    exp(floor(1000.5)),
+    floor(0.5)^(-1)
+  )
+  for (expr in expressions) {
+    fn <- eval(bquote(function() {
+      .(expr)
+    }))
+    expect_quick_identical(fn, list())
+  }
+})

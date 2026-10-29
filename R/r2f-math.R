@@ -64,7 +64,7 @@ r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
   }
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
-  arg <- hoist_unless_name(arg, hoist)
+  arg <- hoist_unless_name(arg, hoist, calls = list(...)$calls)
   out_val <- Variable("double", arg@value@dims)
 
   # Avoid Fortran FLOOR() overflow (it returns an integer) by staying in
@@ -85,7 +85,7 @@ r2f_handlers[["ceiling"]] <- function(args, scope, ..., hoist = NULL) {
   }
   # `arg` is spliced into the emitted expression three times below; hoist
   # non-trivial expressions so side effects (e.g. RNG state) happen once.
-  arg <- hoist_unless_name(arg, hoist)
+  arg <- hoist_unless_name(arg, hoist, calls = list(...)$calls)
   out_val <- Variable("double", arg@value@dims)
 
   # As with floor(): avoid integer overflow by implementing in real arithmetic.
