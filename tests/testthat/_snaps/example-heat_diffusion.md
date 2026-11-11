@@ -80,8 +80,16 @@
       
       
         temp = 0.0_c_double
-      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
-      & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
+        block
+          real(c_double) :: btmp1_
+          real(c_double) :: btmp2_
+          real(c_double) :: btmp3_
+      
+          btmp3_ = 100.0_c_double
+          btmp1_ = real(2_c_int, kind=c_double)
+          btmp2_ = real(2_c_int, kind=c_double)
+      temp(int((real(nx, kind=c_double) / btmp1_), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / btmp2_), kind=c_ptrdiff_t)) = btmp3_
+        end block
       
       
         do step = 1, steps
@@ -144,9 +152,23 @@
             temp_new = temp
             do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
               do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+                block
+                  real(c_double) :: btmp1_
+                  real(c_double) :: btmp2_
+                  real(c_double) :: btmp3_
+                  real(c_double) :: btmp4_
+                  real(c_double) :: btmp5_
+                  real(c_double) :: btmp6_
+      
+                  btmp1_ = real(dx, kind=c_double)
+                  btmp2_ = 2.0_c_double
+                  btmp3_ = (btmp1_ ** (btmp2_))
+                  btmp4_ = real(dy, kind=c_double)
+                  btmp5_ = 2.0_c_double
+                  btmp6_ = (btmp4_ ** (btmp5_))
       temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
-          & / (real(dx, kind=c_double) ** (2.0_c_double))) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j -&
-          & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
+          & / btmp3_) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / btmp6_)))))
+                end block
               end do
             end do
             if (size(temp_new, 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
@@ -385,8 +407,16 @@
       
       
         temp = 0.0_c_double
-      temp(int((real(nx, kind=c_double) / real(2_c_int, kind=c_double)), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / real(2_c_int,&
-      & kind=c_double)), kind=c_ptrdiff_t)) = 100.0_c_double
+        block
+          real(c_double) :: btmp1_
+          real(c_double) :: btmp2_
+          real(c_double) :: btmp3_
+      
+          btmp3_ = 100.0_c_double
+          btmp1_ = real(2_c_int, kind=c_double)
+          btmp2_ = real(2_c_int, kind=c_double)
+      temp(int((real(nx, kind=c_double) / btmp1_), kind=c_ptrdiff_t), int((real(ny, kind=c_double) / btmp2_), kind=c_ptrdiff_t)) = btmp3_
+        end block
       
       
         do step = 1, steps
@@ -430,9 +460,23 @@
             temp_new = temp
             do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
               do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+                block
+                  real(c_double) :: btmp1_
+                  real(c_double) :: btmp2_
+                  real(c_double) :: btmp3_
+                  real(c_double) :: btmp4_
+                  real(c_double) :: btmp5_
+                  real(c_double) :: btmp6_
+      
+                  btmp1_ = real(dx, kind=c_double)
+                  btmp2_ = 2.0_c_double
+                  btmp3_ = (btmp1_ ** (btmp2_))
+                  btmp4_ = real(dy, kind=c_double)
+                  btmp5_ = 2.0_c_double
+                  btmp6_ = (btmp4_ ** (btmp5_))
       temp_new(i, j) = (temp(i, j) + ((k * dt) * ((((((temp((i + 1_c_int), j) - (2.0_c_double * temp(i, j))) + temp((i - 1_c_int), j)))&
-          & / (real(dx, kind=c_double) ** (2.0_c_double))) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j -&
-          & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
+          & / btmp3_) + ((((temp(i, (j + 1_c_int)) - (2.0_c_double * temp(i, j))) + temp(i, (j - 1_c_int)))) / btmp6_)))))
+                end block
               end do
             end do
             if (size(temp_new, 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then

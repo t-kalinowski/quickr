@@ -246,6 +246,17 @@ parent_call_name <- function(calls) {
   if (length(calls) >= 2L) calls[[length(calls) - 1L]] else ""
 }
 
+# Scalar literal optimizations can make enclosing arithmetic constant too.
+# Keep those operands at runtime. Preserve the array hoists in lazy branches
+# without adding array allocations to ordinary arithmetic.
+hoist_domain_operand <- function(x, hoist) {
+  stopifnot(inherits(x, Fortran), inherits(x@value, Variable))
+  if (passes_as_scalar(x@value) || isTRUE(hoist$defer_static_mode_error)) {
+    return(hoist_unless_name(x, hoist, hoist_literals = TRUE))
+  }
+  x
+}
+
 # Replay statements captured while lowering one operand before the next
 # operand is lowered. runif() is the only effectful expression that remains
 # inline; materialize it so its RNG effect also happens at this point.

@@ -355,7 +355,12 @@
         ! manifest end
       
       
-        out_ = (merge(1.0_c_double, 0.0_c_double, (a/=0)) / merge(1.0_c_double, 0.0_c_double, (b/=0)))
+        block
+          real(c_double) :: btmp1_
+      
+          btmp1_ = merge(1.0_c_double, 0.0_c_double, (b/=0))
+          out_ = (merge(1.0_c_double, 0.0_c_double, (a/=0)) / btmp1_)
+        end block
       end subroutine
     Code
       cat(cwrapper)
@@ -543,7 +548,12 @@
         ! manifest end
       
       
-        mu = (sum(x) / real(size(x), kind=c_double))
+        block
+          real(c_double) :: btmp1_
+      
+          btmp1_ = real(size(x), kind=c_double)
+          mu = (sum(x) / btmp1_)
+        end block
       end subroutine
     Code
       cat(cwrapper)
