@@ -306,6 +306,7 @@ fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
   }
   parent_call <- parent_call_name(list(...)$calls)
   if (parent_call %in% c("<-", "=", "<<-", "c", "array", "matrix")) {
+    out@scalar_fill <- TRUE
     return(out)
   }
   materialize_via_hoist(literal, mode, var@dims, hoist)
@@ -406,6 +407,7 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   if (passes_as_scalar(src@value)) {
     if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
       src@value <- out_val
+      src@scalar_fill <- TRUE
       return(src)
     }
     return(materialize_via_hoist(src, src@value@mode, dims, hoist))
@@ -586,5 +588,6 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   ) {
     return(materialize_via_hoist(out, out@value@mode, target_dims, hoist))
   }
+  out@scalar_fill <- data_scalar && !passes_as_scalar(out@value)
   out
 }

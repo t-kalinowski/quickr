@@ -410,6 +410,10 @@
               return
             end if
             x(:, j) = (x(:, j) * 2.0_c_double)
+            if (size(x(:, j), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = x(:, j)
           end subroutine
           subroutine quickr_set_error_msg(msg)

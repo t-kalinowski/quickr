@@ -56,11 +56,14 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -87,7 +90,7 @@
       
             allocate(btmp1_(nx, ny))
             call apply_boundary_conditions(temp, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
           block
@@ -95,29 +98,37 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
         end do
       
         contains
           subroutine apply_boundary_conditions(temp, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             real(c_double), intent(in) :: temp(:, :)
             real(c_double), intent(out) :: res(:, :)
-            real(c_double) :: temp__local_(nx, ny)
+            real(c_double) :: temp__local_(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t))
       
             temp__local_ = temp
             temp__local_(1_c_int, :) = 0.0_c_double
             temp__local_(nx, :) = 0.0_c_double
             temp__local_(:, 1_c_int) = 0.0_c_double
             temp__local_(:, ny) = 0.0_c_double
+            if (size(temp__local_, 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size(temp__local_, 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = temp__local_
           end subroutine
           subroutine update_temperature(temp, k, dx, dy, dt, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             real(c_double), intent(in) :: temp(:, :)
@@ -126,7 +137,7 @@
             integer(c_int), intent(in) :: dy
             real(c_double), intent(in) :: dt
             real(c_double), intent(out) :: res(:, :)
-            real(c_double) :: temp_new(nx, ny)
+            real(c_double) :: temp_new(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t))
             integer(c_int) :: i
             integer(c_int) :: j
       
@@ -138,8 +149,26 @@
           & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
               end do
             end do
+            if (size(temp_new, 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size(temp_new, 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = temp_new
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -157,7 +186,8 @@
         const double* const dt__,
         const double* const k__,
         const int* const steps__,
-        double* const temp__);
+        double* const temp__,
+        char* quickr_err_msg);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -257,6 +287,10 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         diffuse_heat(
           nx__,
           ny__,
@@ -265,7 +299,11 @@
           dt__,
           k__,
           steps__,
-          temp__);
+          temp__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return temp;
@@ -323,11 +361,14 @@
     Code
       cat(fsub)
     Output
-      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp) bind(c)
-        use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
+      subroutine diffuse_heat(nx, ny, dx, dy, dt, k, steps, temp, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -355,7 +396,7 @@
       
             allocate(btmp1_(nx, ny))
             call update_temperature(temp, k, dx, dy, dt, btmp1_)
-      
+            if (quickr_err_msg(1) /= c_null_char) return
             temp = btmp1_
           end block
         end do
@@ -373,7 +414,7 @@
             temp(:, ny) = 0.0_c_double
           end subroutine
           subroutine update_temperature(temp, k, dx, dy, dt, res)
-            use iso_c_binding, only: c_double, c_int
+            use iso_c_binding, only: c_double, c_int, c_ptrdiff_t
             implicit none
       
             real(c_double), intent(in) :: temp(:, :)
@@ -382,7 +423,7 @@
             integer(c_int), intent(in) :: dy
             real(c_double), intent(in) :: dt
             real(c_double), intent(out) :: res(:, :)
-            real(c_double) :: temp_new(nx, ny)
+            real(c_double) :: temp_new(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t))
             integer(c_int) :: i
             integer(c_int) :: j
       
@@ -394,8 +435,26 @@
           & 1_c_int)))) / (real(dy, kind=c_double) ** (2.0_c_double)))))))
               end do
             end do
+            if (size(temp_new, 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size(temp_new, 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = temp_new
           end subroutine
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(make_c_bridge(fsub))
@@ -413,7 +472,8 @@
         const double* const dt__,
         const double* const k__,
         const int* const steps__,
-        double* const temp__);
+        double* const temp__,
+        char* quickr_err_msg);
       
       SEXP diffuse_heat_(SEXP _args) {
         // nx
@@ -513,6 +573,10 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
         diffuse_heat(
           nx__,
           ny__,
@@ -521,7 +585,11 @@
           dt__,
           k__,
           steps__,
-          temp__);
+          temp__,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
         
         UNPROTECT(2);
         return temp;

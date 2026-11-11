@@ -113,12 +113,15 @@ dim_or_one_from <- function(dims, axis) {
 # Return the requested axis length, defaulting scalars (or missing axes) to 1L.
 dim_or_one <- function(x, axis) {
   stopifnot(inherits(x, Fortran))
-  dim_or_one_from(x@value@dims, axis)
+  var_dim_or_one(x@value, axis)
 }
 
 # Return the requested axis length for a Variable, defaulting to 1L.
 var_dim_or_one <- function(var, axis) {
   stopifnot(inherits(var, Variable))
+  if (!is.null(var@name) && has_storage_dims(var)) {
+    var <- storage_dimension_view(var)
+  }
   dim_or_one_from(var@dims, axis)
 }
 
@@ -152,7 +155,7 @@ matrix_dims_from <- function(
 # matrices, and vectors can be viewed as either row or column vectors.
 matrix_dims <- function(x, orientation = c("matrix", "rowvec", "colvec")) {
   stopifnot(inherits(x, Fortran))
-  matrix_dims_from(x@value@rank, x@value@dims, orientation = orientation)
+  matrix_dims_var(x@value, orientation = orientation)
 }
 
 # Interpret a Variable value as a matrix for BLAS calls.
@@ -161,6 +164,9 @@ matrix_dims_var <- function(
   orientation = c("matrix", "rowvec", "colvec")
 ) {
   stopifnot(inherits(var, Variable))
+  if (!is.null(var@name) && has_storage_dims(var)) {
+    var <- storage_dimension_view(var)
+  }
   matrix_dims_from(var@rank, var@dims, orientation = orientation)
 }
 

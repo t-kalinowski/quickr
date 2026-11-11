@@ -163,9 +163,9 @@ register_r2f_handler(
 
     if (existing_binding) {
       value <- if (dest_allowed) {
-        r2f(rhs, scope, ..., hoist = hoist, dest = var)
+        lower_r2f_operand_in_order(rhs, scope, ..., hoist = hoist, dest = var)
       } else {
-        r2f(rhs, scope, ..., hoist = hoist)
+        lower_r2f_operand_in_order(rhs, scope, ..., hoist = hoist)
       }
     } else if (inherits(inferred_var, Variable)) {
       var <- inferred_var
@@ -222,6 +222,9 @@ register_r2f_handler(
         error = function(e) NULL
       )
       scope[[name]] <- var
+      if (inherits(inferred_var, Variable) && !value@writes_to_dest) {
+        allocate_reusable_local_output_at_point(var, scope, hoist)
+      }
     } else {
       # The var already exists, this assignment is a modification / reassignment
       if (is.null(var@r_name)) {
@@ -239,7 +242,7 @@ register_r2f_handler(
       check_assignment_compatible(
         name,
         var,
-        value@value,
+        value,
         hoist = hoist,
         scope = scope
       )
@@ -391,12 +394,12 @@ register_r2f_handler(
 
     host_var <- resolve_superassign_target(name, scope)
 
-    value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    value <- lower_r2f_operand_in_order(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
     check_assignment_compatible(
       name,
       host_var,
-      value@value,
+      value,
       hoist = hoist,
       scope = scope
     )
