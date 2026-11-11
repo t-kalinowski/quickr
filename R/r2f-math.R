@@ -4,34 +4,44 @@
 
 # --- Local Helpers ---
 
-# Register a unary intrinsic handler for one or more function names.
-# Used by: math intrinsic registrations in this file
-register_unary_intrinsic <- function(
-  name,
-  mode_fun,
-  expr_fun
-) {
-  handler <- function(args, scope, ..., hoist = NULL) {
-    stopifnot(length(args) == 1L)
-    arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
-    intrinsic <- last(list(...)$calls)
-    if (intrinsic %in% c("asin", "acos", "sqrt", "exp", "log")) {
-      # Derived constants can fold to domain errors or overflow. Evaluate
-      # at runtime both here and inside a branch that may not run.
-      arg <- hoist_domain_operand(arg, hoist)
-    }
-    val <- Variable(mode = mode_fun(arg), dims = arg@value@dims)
-    Fortran(expr_fun(arg, intrinsic), val)
+# Keep the handler in a namespace binding so coverage can instrument it.
+lower_unary_intrinsic <- function(args, scope, ..., hoist = NULL) {
+  stopifnot(length(args) == 1L)
+  arg <- r2f(args[[1L]], scope, ..., hoist = hoist)
+  intrinsic <- last(list(...)$calls)
+  if (intrinsic %in% c("asin", "acos", "sqrt", "exp", "log")) {
+    # Derived constants can fold to domain errors or overflow. Evaluate
+    # at runtime both here and inside a branch that may not run.
+    arg <- hoist_domain_operand(arg, hoist)
   }
-  register_r2f_handler(name, handler)
-  invisible(handler)
+  mode <- switch(
+    intrinsic,
+    Re = ,
+    Im = ,
+    Mod = ,
+    Arg = "double",
+    Conj = "complex",
+    arg@value@mode
+  )
+  expr <- switch(
+    intrinsic,
+    # kind-less real() of an integer or double argument is single precision;
+    # kind=c_double preserves precision for real and complex arguments.
+    Re = glue("real({arg}, kind=c_double)"),
+    Im = glue("aimag({arg})"),
+    Mod = glue("abs({arg})"),
+    Arg = glue("atan2(aimag({arg}), real({arg}))"),
+    Conj = glue("conjg({arg})"),
+    glue("{intrinsic}({arg})")
+  )
+  Fortran(expr, Variable(mode = mode, dims = arg@value@dims))
 }
 
 
 # --- Handlers ---
 
 ## real and complex intrinsics
-register_unary_intrinsic(
+register_r2f_handler(
   c(
     "sin",
     "cos",
@@ -42,10 +52,14 @@ register_unary_intrinsic(
     "atan",
     "sqrt",
     "exp",
-    "log"
+    "log",
+    "Re",
+    "Im",
+    "Mod",
+    "Arg",
+    "Conj"
   ),
-  mode_fun = function(arg) arg@value@mode,
-  expr_fun = function(arg, intrinsic) glue("{intrinsic}({arg})")
+  lower_unary_intrinsic
 )
 
 r2f_handlers[["floor"]] <- function(args, scope, ..., hoist = NULL) {
@@ -137,38 +151,3 @@ r2f_handlers[["abs"]] <- function(args, scope, ...) {
   out_mode <- if (arg@value@mode == "complex") "double" else arg@value@mode
   Fortran(glue("abs({arg})"), Variable(mode = out_mode, dims = arg@value@dims))
 }
-
-
-# ---- complex elemental unary intrinsics ----
-
-register_unary_intrinsic(
-  "Re",
-  mode_fun = function(arg) "double",
-  # kind-less real() of an integer or double argument is single precision;
-  # kind=c_double is a no-op change of meaning for complex arguments (F2018).
-  expr_fun = function(arg, intrinsic) glue("real({arg}, kind=c_double)")
-)
-
-register_unary_intrinsic(
-  "Im",
-  mode_fun = function(arg) "double",
-  expr_fun = function(arg, intrinsic) glue("aimag({arg})")
-)
-
-register_unary_intrinsic(
-  "Mod",
-  mode_fun = function(arg) "double",
-  expr_fun = function(arg, intrinsic) glue("abs({arg})")
-)
-
-register_unary_intrinsic(
-  "Arg",
-  mode_fun = function(arg) "double",
-  expr_fun = function(arg, intrinsic) glue("atan2(aimag({arg}), real({arg}))")
-)
-
-register_unary_intrinsic(
-  "Conj",
-  mode_fun = function(arg) "complex",
-  expr_fun = function(arg, intrinsic) glue("conjg({arg})")
-)
