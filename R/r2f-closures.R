@@ -509,6 +509,7 @@ compile_internal_subroutine <- function(
     captures = character(),
     res = res_name,
     res_var = res_var,
+    uses_errors = scope_uses_errors_flag(proc_scope),
     error = if (body_failed) expr_error else NULL
   )
 }
@@ -1012,7 +1013,7 @@ compile_closure_call <- function(
     call_args <- inputs$args
     call_stmt <- str_flatten_lines(
       glue("call {proc$name}({str_flatten_commas(call_args)})"),
-      quickr_error_return_if_set(scope)
+      quickr_error_return_if_set(scope, uses_errors = proc$uses_errors)
     )
     if (needs_value) {
       hoist$emit(call_stmt)
@@ -1036,7 +1037,10 @@ compile_closure_call <- function(
   }
   call_args <- c(call_args, res_arg)
   call_stmt <- glue("call {proc$name}({str_flatten_commas(call_args)})")
-  call_stmt <- str_flatten_lines(call_stmt, quickr_error_return_if_set(scope))
+  call_stmt <- str_flatten_lines(
+    call_stmt,
+    quickr_error_return_if_set(scope, uses_errors = proc$uses_errors)
+  )
 
   if (!is.null(proc$error)) {
     hoist$emit(call_stmt)
@@ -1123,7 +1127,7 @@ compile_closure_call_assignment <- function(
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
     hoist$emit(str_flatten_lines(
       glue("call {proc$name}({str_flatten_commas(inputs$args)})"),
-      quickr_error_return_if_set(scope)
+      quickr_error_return_if_set(scope, uses_errors = proc$uses_errors)
     ))
     stop_deferred_branch_error("local closure does not return a value")
   }
@@ -1194,7 +1198,7 @@ compile_closure_call_assignment <- function(
   out <- Fortran(glue(
     "
     call {proc$name}({str_flatten_commas(call_args)})
-    {quickr_error_return_if_set(scope)}
+    {quickr_error_return_if_set(scope, uses_errors = proc$uses_errors)}
     {str_flatten_lines(post)}
     "
   ))
@@ -1447,17 +1451,19 @@ compile_sapply_assignment <- function(
     mark_openmp_used(scope)
   }
   error_check_inner <- if (is.null(parallel)) {
-    quickr_error_return_if_set(scope)
+    quickr_error_return_if_set(scope, uses_errors = proc$uses_errors)
   } else {
     quickr_error_return_if_set(
       scope,
-      openmp_depth = scope_openmp_depth(scope) + 1L
+      openmp_depth = scope_openmp_depth(scope) + 1L,
+      uses_errors = proc$uses_errors
     )
   }
   error_check_after <- if (!is.null(parallel)) {
     quickr_error_return_if_set(
       scope,
-      openmp_depth = scope_openmp_depth(scope)
+      openmp_depth = scope_openmp_depth(scope),
+      uses_errors = proc$uses_errors
     )
   } else {
     ""

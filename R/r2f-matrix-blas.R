@@ -184,9 +184,7 @@ effective_dims <- function(dims, trans) {
 # column (right) vector; transposes apply to matrix operands only (a
 # transposed vector is already reoriented by its dims). The result is
 # left_eff$rows x right_eff$cols in every case -- the gemv cases keep
-# their literal 1 extent from the vector orientation. Shared by the
-# %*% handler and infer_dest_matmul() so lowering and dest inference
-# cannot drift.
+# their literal 1 extent from the vector orientation.
 matmul_shapes <- function(
   left_rank,
   left_dims,
@@ -392,16 +390,28 @@ resolve_blas_output <- function(
   mode = "double",
   logical_is_c_int = FALSE
 ) {
+  new_dest <- !is.null(dest) && is.null(dest@mode)
+  if (new_dest) {
+    # A first assignment supplies a name, and recursive operand translation
+    # supplies the output shape. Existing bindings keep their declared shape.
+    dest@mode <- mode
+    dest@dims <- expected_dims
+    dest@logical_as_int <- logical_is_c_int ||
+      (identical(mode, "logical") && dest@is_return)
+  }
   if (
-    can_use_output(
-      dest,
-      input_names = input_names,
-      expected_dims = expected_dims,
-      context = context,
-      allow_alias = allow_alias,
-      mode = mode,
-      logical_is_c_int = logical_is_c_int
-    )
+    # A fresh destination has exactly the inferred shape and cannot alias an
+    # input. Reused bindings still need the shape and alias checks.
+    (new_dest && identical(logical_as_int(dest), logical_is_c_int)) ||
+      can_use_output(
+        dest,
+        input_names = input_names,
+        expected_dims = expected_dims,
+        context = context,
+        allow_alias = allow_alias,
+        mode = mode,
+        logical_is_c_int = logical_is_c_int
+      )
   ) {
     if (at_point) {
       allocate_reusable_local_output_at_point(dest, scope, hoist)

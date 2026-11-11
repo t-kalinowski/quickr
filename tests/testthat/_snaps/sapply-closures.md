@@ -46,7 +46,7 @@
       
         do tmp1_ = 1_c_int, x__len_
           call f(tmp1_, out(tmp1_))
-          if (quickr_err_msg(1) /= c_null_char) return
+      
         end do
       
       
@@ -164,7 +164,7 @@
         out = .false.
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
-          if (quickr_err_msg(1) /= c_null_char) return
+      
         end do
       
       
@@ -295,7 +295,7 @@
         out = 0_c_int
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
-          if (quickr_err_msg(1) /= c_null_char) return
+      
         end do
       
       

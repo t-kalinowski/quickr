@@ -29,7 +29,7 @@
         ! manifest end
       
       
-        if (size(a, kind=c_ptrdiff_t) == 0 .or. size(a, kind=c_ptrdiff_t) /= size(b, kind=c_ptrdiff_t)) then
+        if (size(a, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return
@@ -143,7 +143,7 @@
           real(c_double), allocatable :: btmp1_(:)
       
           allocate(btmp1_(a__len_))
-          if (size(a, kind=c_ptrdiff_t) == 0 .or. size(a, kind=c_ptrdiff_t) /= size(b, kind=c_ptrdiff_t)) then
+          if (size(a, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
             return

@@ -175,8 +175,7 @@ register_r2f_handler(
       context = "%*%"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_matmul
+  dest_supported = TRUE
 )
 
 
@@ -486,8 +485,7 @@ register_r2f_handler(
       context = "crossprod"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_crossprod
+  dest_supported = TRUE
 )
 
 
@@ -508,8 +506,7 @@ register_r2f_handler(
       context = "tcrossprod"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_tcrossprod
+  dest_supported = TRUE
 )
 
 # Handle outer() for FUN = "*" as BLAS outer product.
@@ -537,8 +534,7 @@ register_r2f_handler(
       context = "outer"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_outer
+  dest_supported = TRUE
 )
 
 # Handle %o% for outer products via BLAS GER.
@@ -557,8 +553,7 @@ register_r2f_handler(
       context = "%o%"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_outer
+  dest_supported = TRUE
 )
 
 register_r2f_handler(
@@ -601,8 +596,7 @@ register_r2f_handler(
       context = "solve"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_solve
+  dest_supported = TRUE
 )
 
 register_r2f_handler(
@@ -645,8 +639,7 @@ register_r2f_handler(
       tol = tol
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_solve
+  dest_supported = TRUE
 )
 
 register_r2f_handler(
@@ -673,8 +666,7 @@ register_r2f_handler(
       context = "chol"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_chol
+  dest_supported = TRUE
 )
 
 register_r2f_handler(
@@ -697,8 +689,7 @@ register_r2f_handler(
       context = "chol2inv"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_chol2inv
+  dest_supported = TRUE
 )
 
 register_r2f_handler(
@@ -830,8 +821,7 @@ register_r2f_handler(
       context = "diag"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_diag
+  dest_supported = TRUE
 )
 
 # Handle forwardsolve() via triangular BLAS routines.
@@ -873,8 +863,7 @@ register_r2f_handler(
       context = "forwardsolve"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_triangular
+  dest_supported = TRUE
 )
 
 # Handle backsolve() via triangular BLAS routines.
@@ -906,8 +895,7 @@ register_r2f_handler(
       context = "backsolve"
     )
   },
-  dest_supported = TRUE,
-  dest_infer = infer_dest_triangular
+  dest_supported = TRUE
 )
 
 # Shared crossprod/tcrossprod logic for one- and two-argument forms.

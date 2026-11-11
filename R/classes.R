@@ -268,8 +268,6 @@ R2FHandler := new_class(
   class_function,
   properties = list(
     dest_supported = prop_bool(default = FALSE),
-    dest_infer = new_property(NULL | class_function),
-    dest_infer_name = prop_string(allow_null = TRUE),
     # Set when the handler was registered as a namespace-level named function,
     # so dispatch can re-resolve it by name. See register_r2f_handler().
     fun_name = prop_string(allow_null = TRUE),

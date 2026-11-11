@@ -19,7 +19,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -47,13 +47,8 @@
           integer(c_int) :: btmp7_
           real(c_double), allocatable :: btmp8_(:, :)
           integer(c_int) :: btmp9_
-          real(c_double), allocatable :: btmp10_(:)
-          integer(c_int) :: btmp11_
+          integer(c_int) :: btmp10_
       
-          if (size(a, 1, kind=c_ptrdiff_t) /= size(b, kind=c_ptrdiff_t)) then
-            call quickr_set_error_msg("non-conformable arguments in qr.solve")
-            return
-          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, 1))
@@ -78,12 +73,10 @@
             call quickr_set_error_msg("exact singularity in 'qr.coef'")
             return
           end if
-          allocate(btmp10_(a__dim_2_))
-          btmp10_ = 0.0_c_double
-          do btmp11_ = 1_c_int, btmp6_
-            btmp10_(btmp4_(btmp11_)) = btmp8_(btmp11_, 1)
+          out_ = 0.0_c_double
+          do btmp10_ = 1_c_int, btmp6_
+            out_(btmp4_(btmp10_)) = btmp8_(btmp10_, 1)
           end do
-          out_ = btmp10_
         end block
       
         contains
@@ -188,7 +181,7 @@
       cat(fsub)
     Output
       subroutine fn(a, b, out_, a__dim_1_, a__dim_2_, b__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -217,14 +210,9 @@
           integer(c_int) :: btmp7_
           real(c_double), allocatable :: btmp8_(:, :)
           integer(c_int) :: btmp9_
-          real(c_double), allocatable :: btmp10_(:, :)
+          integer(c_int) :: btmp10_
           integer(c_int) :: btmp11_
-          integer(c_int) :: btmp12_
       
-          if (size(a, 1, kind=c_ptrdiff_t) /= size(b, 1, kind=c_ptrdiff_t)) then
-            call quickr_set_error_msg("non-conformable arguments in qr.solve")
-            return
-          end if
           allocate(btmp1_(a__dim_1_, a__dim_2_))
           btmp1_ = a
           allocate(btmp2_(a__dim_1_, b__dim_2_))
@@ -249,14 +237,12 @@
             call quickr_set_error_msg("exact singularity in 'qr.coef'")
             return
           end if
-          allocate(btmp10_(a__dim_2_, b__dim_2_))
-          btmp10_ = 0.0_c_double
-          do btmp12_ = 1_c_int, int(b__dim_2_, kind=c_int)
-            do btmp11_ = 1_c_int, btmp6_
-              btmp10_(btmp4_(btmp11_), btmp12_) = btmp8_(btmp11_, btmp12_)
+          out_ = 0.0_c_double
+          do btmp11_ = 1_c_int, int(b__dim_2_, kind=c_int)
+            do btmp10_ = 1_c_int, btmp6_
+              out_(btmp4_(btmp10_), btmp11_) = btmp8_(btmp10_, btmp11_)
             end do
           end do
-          out_ = btmp10_
         end block
       
         contains

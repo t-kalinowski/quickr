@@ -170,6 +170,14 @@ scope_generated_fortran_names <- function(scope) {
   registry$fortran_names
 }
 
+scope_reserve_fortran_name <- function(scope, name) {
+  stopifnot(is_string(name))
+  registry <- scope_get(scope, "generated_name_state")
+  registry$fortran_names <- union(registry$fortran_names, name)
+  registry$reserved_names <- union(registry$reserved_names, name)
+  invisible(name)
+}
+
 scope_unique_proc <- function(scope, prefix = "closure") {
   stopifnot(is_string(prefix))
   f <- scope_get(scope, "get_unique_proc")

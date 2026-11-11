@@ -83,6 +83,7 @@ new_scope <- function(closure, parent = emptyenv()) {
   } else {
     registry <- new.env(parent = emptyenv())
     registry$fortran_names <- character()
+    registry$reserved_names <- character()
     registry
   }
 
@@ -104,12 +105,16 @@ new_scope <- function(closure, parent = emptyenv()) {
         subroutine = "tmp",
         "tmp"
       )
+      used <- tolower(c(
+        scope_fortran_names(scope),
+        state$generated_name_state$reserved_names
+      ))
       if (identical(prefix, "btmp")) {
         counter <- state$block_name_state
         repeat {
           counter$i <- counter$i + 1L
           name <- paste0(prefix, counter$i, "_")
-          if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+          if (!tolower(name) %in% used) {
             break
           }
         }
@@ -117,7 +122,7 @@ new_scope <- function(closure, parent = emptyenv()) {
       }
       repeat {
         name <- paste0(prefix, i <<- i + 1L, "_")
-        if (!tolower(name) %in% tolower(scope_fortran_names(scope))) {
+        if (!tolower(name) %in% used) {
           break
         }
       }
