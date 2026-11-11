@@ -43,7 +43,10 @@ flatten_to_vector <- function(x, scope, hoist) {
       Variable(x@value@mode, list(1L))
     ))
   }
-  len_expr <- value_length_expr(x@value)
+  len_expr <- known_dims_product(x@value@dims)
+  if (is.na(len_expr)) {
+    len_expr <- value_length_expr(x@value)
+  }
   # Deferred-shape locals have self-size placeholders, not size dummies.
   if (!dim_guard_spellable(len_expr, scope)) {
     len_expr <- NA_integer_

@@ -158,6 +158,13 @@ test_that("singleton matrix concatenation uses scalar storage", {
   expect_quick_identical(logical_fn, list(matrix(TRUE, 1, 1)))
 })
 
+test_that("empty matrices and arrays preserve singleton concatenation", {
+  fn <- function() {
+    c(matrix(numeric(), 0, 2), array(integer(), c(2, 0, 3)), 2) + c(1, 2, 3)
+  }
+  expect_quick_identical(fn, list())
+})
+
 test_that("singleton logical concatenations select matrix axes", {
   literal <- function(m) {
     declare(type(m = double(1, 3)))
