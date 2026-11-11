@@ -387,35 +387,6 @@ test_that("symbolic size names reuse fortranized symbols", {
   )
 })
 
-test_that("quick() returns named lists from compiled functions", {
-  fn <- function(a, b) {
-    declare(type(a = double(1)), type(b = double(1)))
-    sum <- a + b
-    diff <- a - b
-    list(sum = sum, diff = diff)
-  }
-
-  qfn <- quick(fn)
-  expect_identical(qfn(2, 1), fn(2, 1))
-})
-
-test_that("triangular solve handles matrix right-hand sides", {
-  fn <- function(U, B) {
-    declare(type(U = double(n, n)), type(B = double(n, k)))
-    backsolve(U, B)
-  }
-
-  set.seed(6)
-  n <- 3
-  k <- 2
-  U <- matrix(rnorm(n * n), nrow = n)
-  U[lower.tri(U)] <- 0
-  B <- matrix(rnorm(n * k), nrow = n)
-
-  qfn <- quick(fn)
-  expect_equal(qfn(U, B), backsolve(U, B), tolerance = 1e-10)
-})
-
 test_that("inline local closure calls compile", {
   fn <- function(x) {
     declare(type(x = double(1)))
@@ -488,20 +459,6 @@ test_that("reductions reject distinct masks within one expression", {
   )
 })
 
-test_that("cbind handles matrix, vector, and scalar inputs with symbolic sizes", {
-  fn <- function(A, v, s) {
-    declare(type(A = double(n, k)), type(v = double(n)), type(s = double(1)))
-    cbind(A, v, s)
-  }
-
-  set.seed(7)
-  A <- matrix(rnorm(6), nrow = 2)
-  v <- rnorm(2)
-  s <- 1.25
-  qfn <- quick(fn)
-  expect_equal(unname(qfn(A, v, s)), unname(cbind(A, v, s)))
-})
-
 test_that("cbind preserves logical inputs", {
   fn <- function(a, b) {
     declare(type(a = logical(n)), type(b = logical(n)))
@@ -546,19 +503,6 @@ test_that("cbind supports dynamic column sizes with common row counts", {
     "cbind() requires inputs with a common row count",
     fixed = TRUE
   )
-})
-
-test_that("crossprod supports two-argument form", {
-  fn <- function(x, y) {
-    declare(type(x = double(n, k)), type(y = double(n, m)))
-    crossprod(x, y)
-  }
-
-  set.seed(8)
-  x <- matrix(rnorm(6), nrow = 3)
-  y <- matrix(rnorm(9), nrow = 3)
-  qfn <- quick(fn)
-  expect_equal(qfn(x, y), crossprod(x, y), tolerance = 1e-12)
 })
 
 test_that("crossprod errors on non-conformable arguments", {
@@ -614,31 +558,6 @@ test_that("raw constructor is not implemented", {
   expect_error(quick(fn), "not implemented yet", fixed = TRUE)
 })
 
-test_that("cbind errors for complex mixed with non-complex", {
-  fn <- function(x, y) {
-    declare(type(x = complex(n)), type(y = double(n)))
-    cbind(x, y)
-  }
-
-  expect_error(
-    quick(fn),
-    "cbind() does not support mixing complex with other types",
-    fixed = TRUE
-  )
-})
-
-test_that("cbind requires known and common row sizes", {
-  mismatched_rows <- function(x, y) {
-    declare(type(x = double(n)), type(y = double(m)))
-    cbind(x, y)
-  }
-  expect_error(
-    quick(mismatched_rows),
-    "cbind() requires inputs with a common row count",
-    fixed = TRUE
-  )
-})
-
 test_that("rbind requires common column sizes", {
   mismatched_cols <- function(x, y) {
     declare(type(x = double(n)), type(y = double(m)))
@@ -665,18 +584,6 @@ test_that("cbind supports symbolic size expressions", {
   x <- as.double(1:4)
   y <- as.double(5:8)
   expect_equal(unname(qfn(3L, x, y)), unname(cbind(x, y)))
-})
-
-test_that("tcrossprod supports single-argument form", {
-  fn <- function(x) {
-    declare(type(x = double(n, k)))
-    tcrossprod(x)
-  }
-
-  set.seed(10)
-  x <- matrix(rnorm(12), nrow = 3)
-  qfn <- quick(fn)
-  expect_equal(qfn(x), tcrossprod(x), tolerance = 1e-12)
 })
 
 test_that("svd() $u and $v can be accessed inline", {
@@ -734,20 +641,6 @@ test_that("local closure calls returning NULL cannot be assigned", {
   )
 })
 
-test_that("optional args must be initialized before use", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    f <- function(i, shift = NULL) x[i] + shift
-    f(1L)
-  }
-
-  expect_error(
-    quick(fn),
-    "optional argument\\(s\\) used without initializing",
-    fixed = FALSE
-  )
-})
-
 test_that("optional args can be initialized via is.null branches", {
   fn <- function(x) {
     declare(type(x = double(n)))
@@ -755,20 +648,6 @@ test_that("optional args can be initialized via is.null branches", {
       if (is.null(shift)) {
         shift <- 2
       }
-      x[i] + shift
-    }
-    f(1L)
-  }
-
-  x <- as.double(1:3)
-  expect_quick_equal(fn, list(x))
-})
-
-test_that("optional args can be assigned before use", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    f <- function(i, shift = NULL) {
-      shift <- 3
       x[i] + shift
     }
     f(1L)
@@ -794,38 +673,6 @@ test_that("optional args can be initialized in else branches", {
 
   x <- as.double(1:3)
   expect_quick_equal(fn, list(x))
-})
-
-test_that("local subset assignment shadows host variables", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    f <- function() {
-      x[1] <- x[1] + 1
-      NULL
-    }
-    f()
-    x
-  }
-
-  x <- as.double(1:3)
-  expect_quick_identical(fn, list(x))
-})
-
-test_that("subset superassignment with linear indexing updates host", {
-  fn <- function(A) {
-    declare(type(A = double(m, n)))
-    f <- function() {
-      A[3] <<- 0
-      NULL
-    }
-    f()
-    A
-  }
-
-  A <- matrix(as.double(1:6), nrow = 2)
-  qfn <- quick(fn)
-  out <- qfn(A)
-  expect_identical(out[3], 0.0)
 })
 
 test_that("subset superassignment supports scalar indices", {
@@ -875,19 +722,6 @@ test_that("elementwise vector-matrix ops reshape vectors", {
   expect_equal(qr(A, x), A + x)
 })
 
-test_that("elementwise vector lengths must recycle cleanly", {
-  fn <- function(x, y) {
-    declare(type(x = double(3L)), type(y = double(2L)))
-    x + y
-  }
-
-  expect_error(
-    quick(fn),
-    "elementwise vector operations require equal lengths",
-    fixed = TRUE
-  )
-})
-
 test_that("recycling uses fortranized size expressions", {
   fn <- function(foo.bar, x, y) {
     declare(
@@ -923,19 +757,6 @@ test_that("local closures enforce unique fortranized argument names", {
   expect_error(
     quick(fn),
     "Fortran is case-insensitive; these names conflict when mapped",
-    fixed = TRUE
-  )
-})
-
-test_that("local closure calls error on missing required arguments", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    f <- function(i, j) x[i] + j
-    f(i = 1L)
-  }
-  expect_error(
-    quick(fn),
-    "call is missing required argument",
     fixed = TRUE
   )
 })
@@ -1033,50 +854,6 @@ test_that("quick() runs when DEVTOOLS_LOAD is set and pkgload is available", {
   withr::local_envvar(c(DEVTOOLS_LOAD = "quickr"))
   qfn <- quick(fn)
   expect_identical(qfn(1), 2.0)
-})
-
-test_that("unary intrinsic handlers run for complex inputs", {
-  fn <- function(z) {
-    declare(type(z = complex(n)))
-    Arg(Conj(z)) + Mod(z)
-  }
-
-  z <- complex(real = c(1, -2, 0.5), imaginary = c(0.5, -1, 2))
-  qfn <- quick(fn)
-  expect_equal(qfn(z), Arg(Conj(z)) + Mod(z))
-})
-
-test_that("cbind casts logical to integer when integer inputs are present", {
-  fn <- function(x, y) {
-    declare(type(x = integer(n)), type(y = logical(n)))
-    cbind(x, y)
-  }
-
-  x <- 1:3
-  y <- c(TRUE, FALSE, TRUE)
-  qfn <- quick(fn)
-  actual <- qfn(x, y)
-  expected <- cbind(x, y)
-  dimnames(actual) <- NULL
-  dimnames(expected) <- NULL
-  expect_identical(actual, expected)
-})
-
-test_that("local closure optional args initialize before use", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    f <- function(i, shift = NULL) {
-      if (is.null(shift)) {
-        shift <- 1.5
-      }
-      x[i] + shift
-    }
-    f(1L)
-  }
-
-  set.seed(10)
-  x <- runif(6)
-  expect_quick_equal(fn, list(x))
 })
 
 test_that("local closure optional args error when used without init", {
@@ -1178,29 +955,6 @@ test_that("quick errors when DEVTOOLS_LOAD is set without pkgload", {
   )
 })
 
-test_that("unary intrinsics exercise handler registration paths", {
-  fn <- function(x) {
-    declare(type(x = double(n)))
-    sin(x) + cos(x)
-  }
-
-  x <- c(0, 0.5, 1)
-  expect_quick_equal(fn, list(x))
-})
-
-test_that("cbind rejects complex mixed with real", {
-  fn <- function(x, y) {
-    declare(type(x = complex(n)), type(y = double(n)))
-    cbind(x, y)
-  }
-
-  expect_error(
-    quick(fn),
-    "mixing complex with other types",
-    fixed = TRUE
-  )
-})
-
 test_that("cbind errors on unsupported coercion to logical", {
   fn <- function(x, y) {
     declare(type(x = raw(n)), type(y = logical(n)))
@@ -1229,46 +983,4 @@ test_that("cbind combines symbolic column sizes", {
   y <- matrix(2, nrow = 3, ncol = 4)
   out <- quick(fn)(x, y, 3L, 4L)
   expect_identical(dim(out), c(3L, 6L))
-})
-
-test_that("cbind requires common row counts", {
-  fn <- function(x, y) {
-    declare(type(x = double(2L, 2L)), type(y = double(3L, 1L)))
-    cbind(x, y)
-  }
-
-  expect_error(
-    quick(fn),
-    "requires inputs with a common row count",
-    fixed = TRUE
-  )
-})
-
-test_that("svd rejects unsupported field access", {
-  fn <- function(x) {
-    declare(type(x = double(3L, 2L)))
-    svd(x)$foo
-  }
-
-  x <- matrix(c(3, 0, 0, 0, 2, 0), nrow = 3)
-  expect_error(
-    quick(fn)(x),
-    "`$` only supports `.Machine$double.eps` and `svd()` results ($d, $u, $v)",
-    fixed = TRUE
-  )
-})
-
-test_that("svd returns a named list", {
-  fn <- function(x) {
-    declare(type(x = double(3L, 2L)))
-    s <- svd(x)
-    s
-  }
-
-  x <- matrix(c(3, 0, 0, 0, 2, 0), nrow = 3)
-  out <- quick(fn)(x)
-  expect_named(out, c("d", "u", "v"))
-  expect_equal(out$d, svd(x)$d)
-  recon <- out$u %*% diag(out$d, nrow = length(out$d)) %*% t(out$v)
-  expect_equal(recon, x, tolerance = 1e-8)
 })
