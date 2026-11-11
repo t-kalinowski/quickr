@@ -15,8 +15,9 @@ unwrap_transpose_arg <- function(arg, scope, ..., hoist) {
     } else if (inner@value@rank == 1L) {
       len <- inner@value@dims[[1L]]
       val <- Variable("double", list(1L, len))
+      source <- if (passes_as_scalar(inner@value)) glue("[{inner}]") else inner
       return(list(
-        value = Fortran(glue("reshape({inner}, [1, int({len})])"), val),
+        value = Fortran(glue("reshape({source}, [1, int({len})])"), val),
         trans = "N"
       ))
     } else if (inner@value@rank == 0L) {

@@ -94,6 +94,17 @@ test_that("matrix multiplication handles transposed operands", {
   expect_quick_equal(matmul_t_both, list(x = x, y = y_both))
 })
 
+test_that("matrix multiplication transposes singleton concatenations", {
+  for (expr in list(
+    quote(t(c(2L)) %*% 3),
+    quote(2 %*% t(c(3))),
+    quote(t(c(TRUE)) %*% 3)
+  )) {
+    fn <- as.function(list(call("{", expr)))
+    expect_quick_identical(fn, list())
+  }
+})
+
 test_that("matrix multiplication handles chained mixes", {
   chain_mix <- function(a, b, c) {
     declare(
