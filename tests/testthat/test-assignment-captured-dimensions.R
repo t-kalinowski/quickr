@@ -239,19 +239,30 @@ test_that("a shadowed self-size owner does not disable assignment guards", {
 })
 
 test_that("assignment size inquiries do not repeat random draws", {
-  fn <- function(n, x) {
+  fn_assign <- function(n, x) {
     declare(type(n = integer(1)), type(x = double(n)))
     x <- runif(n)
     x
   }
+  fn_superassign <- function(n, x) {
+    declare(type(n = integer(1)), type(x = double(n)))
+    f <- function() {
+      x <<- runif(n)
+      NULL
+    }
+    f()
+    x
+  }
 
-  qfn <- quick(fn)
-  withr::local_seed(123)
-  expected <- fn(3L, double(3))
-  expected_next <- runif(1)
-  set.seed(123)
-  expect_identical(qfn(3L, double(3)), expected)
-  expect_identical(runif(1), expected_next)
+  for (fn in list(fn_assign, fn_superassign)) {
+    qfn <- quick(fn)
+    withr::local_seed(123)
+    expected <- fn(3L, double(3))
+    expected_next <- runif(1)
+    set.seed(123)
+    expect_identical(qfn(3L, double(3)), expected)
+    expect_identical(runif(1), expected_next)
+  }
 })
 
 test_that("inferred deferred locals can change their extents", {

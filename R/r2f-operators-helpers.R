@@ -300,8 +300,8 @@ elementwise_matrix_msg <-
 # Render one side of a dim-comparison guard: a caller-provided spelling for
 # scalar fills without an array to size(), then a literal dim as the literal,
 # anything else as the operand's actual extent (whole size when `axis` is
-# NULL). size() is an inquiry, so applying it to operand expression text
-# does not evaluate the operand.
+# NULL). Materialize operand side effects before calling: some compilers
+# evaluate an expression supplied to size().
 # Used by: guard_conformable_dims()
 dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
   if (!is.null(f)) {

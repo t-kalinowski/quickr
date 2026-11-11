@@ -163,9 +163,9 @@ register_r2f_handler(
 
     if (existing_binding) {
       value <- if (dest_allowed) {
-        r2f(rhs, scope, ..., hoist = hoist, dest = var)
+        lower_r2f_operand_in_order(rhs, scope, ..., hoist = hoist, dest = var)
       } else {
-        r2f(rhs, scope, ..., hoist = hoist)
+        lower_r2f_operand_in_order(rhs, scope, ..., hoist = hoist)
       }
     } else if (inherits(inferred_var, Variable)) {
       var <- inferred_var
@@ -391,7 +391,7 @@ register_r2f_handler(
 
     host_var <- resolve_superassign_target(name, scope)
 
-    value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    value <- lower_r2f_operand_in_order(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
     check_assignment_compatible(
       name,
