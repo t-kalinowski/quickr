@@ -137,9 +137,10 @@ Elementwise arithmetic and comparisons, and the linear-algebra operations
 below, check operand conformability. Known incompatible dimensions produce
 compile-time errors. Symbolic dimensions that cannot be proven equal are
 checked at run time. Whole-variable reassignment rejects static extent
-mismatches and changes between scalar and array shapes. Supported symbolic
-dimension expressions get runtime checks; unknown or unspellable local
-extents remain outside these checks. Locals declared with `NA` dimensions
+mismatches and changes between scalar and array shapes. Symbolic dimensions
+are checked against stored array sizes, so shadowing or changing a dimension
+binding does not change the checked extent. Scalar fills with unresolved
+dimensions remain outside these checks. Locals declared with `NA` dimensions
 can reallocate on same-rank whole-array assignment.
 
 Keep other bindings' shapes stable and use valid, nonnegative constructor

@@ -65,6 +65,10 @@
       & supported")
             return
           end if
+          if ((size(weights, 1, kind=c_ptrdiff_t)) /= (size(((weights / sum(weights)) * size(weights)), 1, kind=c_ptrdiff_t))) then
+            call quickr_set_error_msg("reassignment must preserve the shape of `weights`")
+            return
+          end if
           weights = ((weights / sum(weights)) * size(weights))
         end if
         do i = 1, size(out)

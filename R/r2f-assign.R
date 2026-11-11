@@ -239,7 +239,7 @@ register_r2f_handler(
       check_assignment_compatible(
         name,
         var,
-        value@value,
+        value,
         hoist = hoist,
         scope = scope
       )
@@ -396,7 +396,7 @@ register_r2f_handler(
     check_assignment_compatible(
       name,
       host_var,
-      value@value,
+      value,
       hoist = hoist,
       scope = scope
     )

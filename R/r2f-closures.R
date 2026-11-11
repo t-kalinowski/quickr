@@ -167,7 +167,8 @@ compile_internal_subroutine <- function(
       mode = var@mode,
       dims = var@dims,
       name = fortran_name,
-      r_name = nm
+      r_name = nm,
+      is_arg = TRUE
     )
     if (logical_as_int(var)) {
       arg_var@logical_as_int <- TRUE

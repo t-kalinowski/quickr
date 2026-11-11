@@ -233,11 +233,6 @@ test_that("print.quickr_ordered_env outputs bindings", {
   expect_true(any(grepl("with bindings", out)))
 })
 
-test_that("check_assignment_compatible handles NULL value", {
-  target <- quickr:::Variable("double", list(1L))
-  expect_silent(quickr:::check_assignment_compatible("x", target, NULL))
-})
-
 test_that("r2size() warns, not crashes, on a deferred-mode Variable", {
   # mirrors R/r2f-assign.R's deferred-mode path: a binding can exist with
   # @mode still NULL while inference is in progress

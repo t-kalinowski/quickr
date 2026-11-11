@@ -21,9 +21,10 @@
   to every dimension: quickr cannot re-declare a Fortran variable the
   way R rebinds a symbol. A statically known mismatch (e.g.
   `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
-  supported symbolic dimension expressions get runtime checks when
-  equality cannot be proved. Unknown or unspellable local extents remain
-  outside these checks. Previously such reassignments silently kept the old shape or
+  symbolic dimensions are checked against stored array sizes, including
+  when a closure shadows a dimension binding or the binding changes after
+  allocation. Scalar fills with unresolved dimensions remain outside these
+  checks. Previously such reassignments silently kept the old shape or
   produced invalid Fortran. This also covers reassignment between a scalar
   and an array in either direction: `x <- numeric(n); x <- 0` used to
   broadcast the scalar across every element, and assigning an array to a

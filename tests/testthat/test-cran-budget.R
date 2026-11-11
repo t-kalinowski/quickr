@@ -13,6 +13,7 @@ test_that("CRAN smoke budget stays small", {
 
 test_that("non-smoke test files skip on CRAN", {
   always_run_files <- c(
+    "test-assignment-captured-dimensions.R",
     "test-assignment-shape.R",
     "test-bind.R",
     "test-blas-guards.R",

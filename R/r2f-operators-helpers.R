@@ -657,35 +657,33 @@ dim_guard_spellable <- function(dim, scope) {
 # compatible. Scalar/array reassignments are refused. A deferred-shape
 # local (declared with NA dims) reallocates extents on
 # same-rank whole-array assignment, matching R, so it is exempt. Per
-# axis, the conformability policy applies: a statically known mismatch
-# is a compile error, dims that cannot be compared statically get a
-# statement-level runtime guard through `hoist` (spelled from the dim
-# expressions, when spellable), and provably equal dims need nothing.
-# Callers with no statement context (no hoist) get the static checks
-# only.
-# Used by: r2f-assign.R, scope.R
+# axis, a statically known mismatch is a compile error. Otherwise compare
+# actual array extents: dimension bindings can be shadowed in a closure or
+# reassigned after allocation. Scalar fills have no array storage, so their
+# requested dimensions are evaluated in the assignment's scope.
+# Used by: r2f-assign.R
 check_assignment_compatible <- function(
   name,
   target,
   value,
-  hoist = NULL,
-  scope = NULL
+  hoist,
+  scope
 ) {
-  if (
-    is.null(value) ||
-      !inherits(target, Variable) ||
-      !inherits(value, Variable)
-  ) {
+  stopifnot(inherits(target, Variable), inherits(value, Fortran))
+  value_var <- value@value
+  if (is.null(value_var)) {
     return(invisible())
   }
   target_scalar <- passes_as_scalar(target)
-  value_scalar <- passes_as_scalar(value)
+  value_scalar <- passes_as_scalar(value_var)
   # Two length-1 values conform whatever their ranks (a declared `double(1)`
   # is rank 1; a literal is rank 0).
   if (target_scalar && value_scalar) {
     return(invisible())
   }
-  deferred_local <- !target@is_external && has_self_size_dims(target)
+  deferred_local <- !target@is_external &&
+    (has_self_size_dims(target) ||
+      any(vapply(target@dims, is_scalar_na, logical(1))))
   if (target_scalar || value_scalar) {
     # A deferred-shape local can genuinely take a new array shape.
     if (deferred_local && !value_scalar) {
@@ -710,12 +708,12 @@ check_assignment_compatible <- function(
       call. = FALSE
     )
   }
-  if (target@rank != value@rank) {
+  if (target@rank != value_var@rank) {
     stop(
       "cannot reassign `",
       name,
       "`: replacement rank (",
-      value@rank,
+      value_var@rank,
       ") differs from the declared rank (",
       target@rank,
       "); R would rebind `",
@@ -724,18 +722,14 @@ check_assignment_compatible <- function(
       call. = FALSE
     )
   }
-  if (deferred_local) {
-    # deferred-shape local: implicit (re)allocation matches R's rebind
+  if (deferred_local || value@writes_to_dest) {
+    # Deferred locals reallocate; BLAS destination reuse checks shape itself.
     return(invisible())
   }
   emitted <- character()
   for (axis in seq_len(target@rank)) {
     t_dim <- target@dims[[axis]]
-    v_dim <- value@dims[[axis]]
-    if (is_scalar_na(t_dim) || is_scalar_na(v_dim)) {
-      # Unknown extents need guards against actual stored arrays; deferred.
-      next
-    }
+    v_dim <- value_var@dims[[axis]]
     if (is_wholenumber(t_dim) && is_wholenumber(v_dim)) {
       if (!identical(as.integer(t_dim), as.integer(v_dim))) {
         stop(
@@ -755,30 +749,18 @@ check_assignment_compatible <- function(
       }
       next
     }
-    if (
-      identical(
-        fortranize_expr_symbols(t_dim),
-        fortranize_expr_symbols(v_dim)
-      )
-    ) {
-      next
-    }
-    if (
-      is.null(hoist) ||
-        !dim_guard_spellable(t_dim, scope) ||
-        !dim_guard_spellable(v_dim, scope)
-    ) {
-      # Local self-size expressions are not available here. Tracking their
-      # runtime extents and guarding context-free assignments is deferred.
-      next
-    }
-    target_dim <- dims2f(list(t_dim), scope)
-    value_dim <- dims2f(list(v_dim), scope)
-    if (!nzchar(target_dim)) {
-      target_dim <- "1"
-    }
-    if (!nzchar(value_dim)) {
-      value_dim <- "1"
+    target_dim <- dimension_guard_expr(t_dim, target@name, axis)
+    if (value@scalar_fill) {
+      if (is_scalar_na(v_dim) || !dim_guard_spellable(v_dim, scope)) {
+        # Fills without a resolvable requested extent remain unsupported.
+        next
+      }
+      value_dim <- dims2f(list(v_dim), scope)
+      if (!nzchar(value_dim)) {
+        value_dim <- "1"
+      }
+    } else {
+      value_dim <- dimension_guard_expr(v_dim, value, axis)
     }
     condition <- glue("({target_dim}) /= ({value_dim})")
     # Different axes can spell the same guard (e.g. a square dest vs a

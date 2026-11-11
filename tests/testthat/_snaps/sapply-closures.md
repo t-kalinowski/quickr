@@ -1400,7 +1400,7 @@
       cat(fsub)
     Output
       subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
         implicit none
       
         ! manifest start
@@ -1421,6 +1421,14 @@
       
       
         out = 0.0_c_double
+        if ((size(out, 1, kind=c_ptrdiff_t)) /= (size(x, 1, kind=c_ptrdiff_t))) then
+          call quickr_set_error_msg("reassignment must preserve the shape of `out`")
+          return
+        end if
+        if ((size(out, 2, kind=c_ptrdiff_t)) /= (size(x, 2, kind=c_ptrdiff_t))) then
+          call quickr_set_error_msg("reassignment must preserve the shape of `out`")
+          return
+        end if
         out = x
         block
           real(c_double), allocatable :: btmp1_(:, :)

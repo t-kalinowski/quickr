@@ -354,6 +354,8 @@ Fortran := new_class(
     # consistently propagated with the Fortran object.
     logical_booleanized = prop_bool(default = FALSE),
     writes_to_dest = prop_bool(default = FALSE),
+    # A scalar expression broadcast to the dimensions in @value.
+    scalar_fill = prop_bool(default = FALSE),
 
     r = new_property(
       # custom setter only to workaround https://github.com/RConsortium/S7/issues/511

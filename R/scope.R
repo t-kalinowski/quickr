@@ -140,17 +140,6 @@ new_scope <- function(closure, parent = emptyenv()) {
     child
   }
 
-  state$assign <- function(name, value) {
-    stopifnot(inherits(value, Variable), is.symbol(name) || is_string(name))
-    name <- as.character(name)
-    existing <- get0(name, scope)
-    if (inherits(existing, Variable)) {
-      check_assignment_compatible(name, existing, value)
-    }
-    value@name <- name
-    assign(name, value, scope)
-  }
-
   state$add_internal_proc <- function(proc) {
     stopifnot(is.list(proc), is_string(proc$name), is_string(proc$code))
     procs <- state$internal_procs %||% list()
