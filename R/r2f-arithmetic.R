@@ -22,8 +22,11 @@ r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
       hoist = hoist
     )
     .[left, right] <- promote_arith_pair(left, right, "+")
-    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-    Fortran(glue("({left} + {right})"), conform(left@value, right@value))
+    .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+    Fortran(
+      glue("({left} + {right})"),
+      infer_result_variable(left@value, right@value)
+    )
   }
 }
 
@@ -42,16 +45,22 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
       hoist = hoist
     )
     .[left, right] <- promote_arith_pair(left, right, "-")
-    .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-    Fortran(glue("({left} - {right})"), conform(left@value, right@value))
+    .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+    Fortran(
+      glue("({left} - {right})"),
+      infer_result_variable(left@value, right@value)
+    )
   }
 }
 
 r2f_handlers[["*"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "*")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  Fortran(glue("({left} * {right})"), conform(left@value, right@value))
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  Fortran(
+    glue("({left} * {right})"),
+    infer_result_variable(left@value, right@value)
+  )
 }
 
 r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
@@ -62,8 +71,11 @@ r2f_handlers[["/"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   # division at runtime, where zero produces Inf/NaN instead of a compiler
   # error, including when this expression is in a branch that will not run.
   right <- hoist_domain_operand(right, hoist)
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  Fortran(glue("({left} / {right})"), conform(left@value, right@value))
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  Fortran(
+    glue("({left} / {right})"),
+    infer_result_variable(left@value, right@value)
+  )
 }
 
 r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
@@ -79,7 +91,7 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   # Derived constants can have domain errors outside lazy branches too.
   left <- hoist_domain_operand(left, hoist)
   right <- hoist_domain_operand(right, hoist)
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
   mode <- reduce_promoted_mode(left, right)
   if (!identical(mode, "complex")) {
     mode <- "double"
@@ -87,7 +99,7 @@ r2f_handlers[["^"]] <- function(args, scope, ..., hoist = NULL) {
   # Parenthesizing the exponent avoids non-standard `** -1_c_int`.
   Fortran(
     glue("({left} ** ({right}))"),
-    conform(left@value, right@value, mode = mode)
+    infer_result_variable(left@value, right@value, mode = mode)
   )
 }
 
@@ -123,8 +135,8 @@ r2f_handlers[["%%"]] <- function(args, scope, ..., hoist = NULL) {
   }
   left <- cast_to_mode(left, mode, "%%")
   right <- cast_to_mode(right, mode, "%%")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  out_val <- conform(left@value, right@value)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  out_val <- infer_result_variable(left@value, right@value)
   # MODULO gives result with sign(right) - matches R %% behaviour
   Fortran(glue("modulo({left}, {right})"), out_val)
 }
@@ -138,8 +150,8 @@ r2f_handlers[["%/%"]] <- function(args, scope, ..., hoist = NULL) {
   }
   .[left, right] <- lower_elementwise_operands(args, scope, ..., hoist = hoist)
   .[left, right] <- promote_arith_pair(left, right, "%/%")
-  .[left, right] <- maybe_reshape_vector_matrix(left, right, hoist, scope)
-  out_val <- conform(left@value, right@value)
+  .[left, right] <- conform_elementwise_operands(left, right, hoist, scope)
+  out_val <- infer_result_variable(left@value, right@value)
 
   expr <- switch(
     out_val@mode,

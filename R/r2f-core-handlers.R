@@ -106,6 +106,7 @@ r2f_handlers[["$"]] <- function(args, scope, ..., hoist = NULL) {
             call. = FALSE
           )
         }
+        out_var <- scope_read_variable(base_name, scope, out_var)
         return(Fortran(out_var@name, out_var))
       }
     }

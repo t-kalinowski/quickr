@@ -94,6 +94,17 @@ test_that("matrix multiplication handles transposed operands", {
   expect_quick_equal(matmul_t_both, list(x = x, y = y_both))
 })
 
+test_that("matrix multiplication transposes singleton concatenations", {
+  for (expr in list(
+    quote(t(c(2L)) %*% 3),
+    quote(2 %*% t(c(3))),
+    quote(t(c(TRUE)) %*% 3)
+  )) {
+    fn <- as.function(list(call("{", expr)))
+    expect_quick_identical(fn, list())
+  }
+})
+
 test_that("matrix multiplication handles chained mixes", {
   chain_mix <- function(a, b, c) {
     declare(
@@ -225,7 +236,13 @@ test_that("matrix multiplication rejects incompatible destinations", {
     x
   }
 
-  expect_error(quick(dest_mismatch), "incompatible rank for %\\*%")
+  # The destination's declared rank no longer matches the result; the
+  # reassignment shape check rejects it (routing through a temp first).
+  expect_error(
+    quick(dest_mismatch),
+    "replacement rank (2) differs",
+    fixed = TRUE
+  )
 })
 
 test_that("BLAS matrix ops coerce integer and logical inputs to double", {
@@ -515,7 +532,29 @@ test_that("crossprod rejects incompatible destination dimensions", {
 
   expect_error(
     quick(crossprod_bad_dest),
-    "assignment target has incompatible dimensions"
+    "dimension 1 would change from 2 to 3",
+    fixed = TRUE
+  )
+})
+
+test_that("BLAS output routes through a temp when the dest shape is unproven", {
+  # A pre-declared destination whose symbolic dims are not *proven* equal
+  # to the BLAS result shape must not be written directly (that passed the
+  # wrong leading dimensions to dsyrk and could corrupt or overflow the
+  # output). crossprod(x) here is 3x3; the (m, m) dest gets a runtime
+  # shape guard instead of a silent direct write.
+  fn <- function(x, m) {
+    declare(type(x = double(n, 3)), type(m = integer(1)))
+    out <- matrix(0, m, m)
+    out <- crossprod(x)
+    out
+  }
+  qfn := quick(fn)
+  x <- matrix(as.double(1:6), nrow = 2L)
+  expect_equal(qfn(x, 3L), crossprod(x))
+  expect_error(
+    qfn(x, 4L),
+    "reassignment must preserve the shape of `out`"
   )
 })
 

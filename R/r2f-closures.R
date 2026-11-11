@@ -167,7 +167,8 @@ compile_internal_subroutine <- function(
       mode = var@mode,
       dims = var@dims,
       name = fortran_name,
-      r_name = nm
+      r_name = nm,
+      is_arg = TRUE
     )
     if (logical_as_int(var)) {
       arg_var@logical_as_int <- TRUE
@@ -260,7 +261,7 @@ compile_internal_subroutine <- function(
     expr_error <- prefix$error
     expr <- if (is.null(expr_error)) {
       tryCatch(
-        r2f(last_expr, proc_scope, hoist = h),
+        lower_r2f_operand_in_order(last_expr, proc_scope, hoist = h),
         error = function(e) {
           expr_error <<- e
           NULL
@@ -322,7 +323,7 @@ compile_internal_subroutine <- function(
     } else if (!is.null(res_var)) {
       if (is.null(res_var@mode)) {
         res_var@mode <- expr@value@mode
-        res_var@dims <- expr@value@dims
+        res_var@dims <- lapply(expr@value@dims, declared_dim)
         proc_scope[[res_name]] <- res_var
       }
       if (!identical(expr@value@mode, res_var@mode)) {
@@ -345,13 +346,19 @@ compile_internal_subroutine <- function(
         if (expr@value@rank != res_var@rank) {
           stop("closure result rank does not match output rank")
         }
-        if (
-          !identical(
-            dims2f(expr@value@dims, proc_scope),
-            dims2f(res_var@dims, proc_scope)
+        for (axis in seq_len(res_var@rank)) {
+          guard_conformable_dims(
+            expr@value@dims[[axis]],
+            res_var@dims[[axis]],
+            "closure result shape does not match output shape",
+            h,
+            proc_scope,
+            left = expr,
+            right = res_name,
+            left_axis = axis,
+            right_axis = axis,
+            checker = check_equal_dims
           )
-        ) {
-          stop("closure result shape does not match output shape")
         }
       }
       assign_code <- h$render(glue("{res_name} = {expr}"))
@@ -360,6 +367,34 @@ compile_internal_subroutine <- function(
 
   if (length(optional_locals)) {
     for (nm in names(optional_locals)) {
+      inherited <- optional_locals[[nm]]
+      if (!is.null(inherited@mode) && !passes_as_scalar(inherited)) {
+        visible <- map_chr(scope_procedure_vars(proc_scope), \(var) var@name)
+        dims <- resolve_storage_dims(inherited@dims, visible)
+        symbols <- unique(unlist(lapply(dims, dimension_symbols)))
+        shadowed <- symbols[vapply(
+          symbols,
+          function(symbol) {
+            exists(symbol, proc_scope, inherits = FALSE) ||
+              exists(symbol, formal_scope, inherits = FALSE) ||
+              !is.null(scope_var_by_fortran_name(proc_scope, symbol)) ||
+              !is.null(scope_var_by_fortran_name(formal_scope, symbol))
+          },
+          logical(1L)
+        )]
+        if (length(shadowed)) {
+          # Optional arrays are copied to automatic locals before the body.
+          # SIZE(optional_dummy) is not a valid specification expression;
+          # supporting these shadows needs allocation inside present().
+          stop(
+            "optional array argument `",
+            nm,
+            "` has dimensions shadowed by closure bindings: ",
+            str_flatten_commas(shadowed),
+            call. = FALSE
+          )
+        }
+      }
       dummy_var <- formal_scope[[nm]]
       local_var <- proc_scope[[nm]]
       if (is.null(local_var@mode) && !is.null(dummy_var@mode)) {
@@ -1469,38 +1504,16 @@ compile_subset_designator <- function(
   # silent out-of-bounds Fortran writes.
   check_subscript_exprs(base_var, idx_args)
 
-  idxs <- whole_doubles_to_ints(idx_args)
-  idxs <- imap(idxs, function(idx, i) {
-    if (is_missing(idx)) {
-      Fortran(":", Variable("integer", base_var@dims[[i]]))
-    } else {
-      sub <- r2f(idx, scope, ..., hoist = hoist)
-      if (sub@value@mode == "double") {
-        Fortran(
-          glue("int({sub}, kind=c_ptrdiff_t)"),
-          Variable("integer", sub@value@dims)
-        )
-      } else {
-        sub
-      }
-    }
-  })
+  idxs <- lower_subscript_args(
+    idx_args,
+    base_var@dims,
+    scope,
+    ...,
+    hoist = hoist
+  )
 
-  # Indexing a scalar (rank-1 length-1) with `[1]` is valid in R, but Fortran
-  # scalars cannot be subscripted. Treat it as a no-op.
-  if (
-    passes_as_scalar(base_var) &&
-      length(idxs) == 1 &&
-      idxs[[1]]@value@mode == "integer" &&
-      passes_as_scalar(idxs[[1]]@value)
-  ) {
-    idx_r <- attr(idxs[[1]], "r", exact = TRUE)
-    if (identical(idx_r, 1L) || identical(idx_r, 1)) {
-      return(base_name)
-    }
-    if (isTRUE(idxs[[1]]@value@loop_is_singleton)) {
-      return(base_name)
-    }
+  if (subscript_is_scalar_noop(base_var, idxs)) {
+    return(base_name)
   }
 
   # R-style linear indexing for rank>1 arrays: x[i]
@@ -1532,18 +1545,13 @@ compile_subset_designator <- function(
           stop("logical subscript vectors are not supported for assignment")
         }
 
-        # Convert logical vectors to integer vector subscripts (R's `which()`).
-        # Fortran array designators do not accept logical vectors directly.
-        mask <- booleanize_logical_as_int(subscript)
-        it <- scope_unique_var(scope, "integer")
-        f <- glue("pack([({it}, {it}=1, size({mask}))], {mask})")
-        Fortran(f, Variable("int", NA))
+        logical_subscript_positions(subscript, scope)
       },
       integer0 = {
         if (drop) {
           subscript
         } else {
-          Fortran(glue("{subscript}:{subscript}"), Variable("int", 1))
+          Fortran(glue("{subscript}:{subscript}"), Variable("integer", 1))
         }
       },
       integer1 = {
@@ -1581,7 +1589,7 @@ compile_subscript_lhs <- function(
     if (scope_is_closure(scope)) {
       local_base <- get0(base_name, scope, inherits = FALSE)
       if (is.null(local_base) || !inherits(local_base, Variable)) {
-        parent_base <- get0(base_name, scope)
+        parent_base <- scope_read_variable(base_name, scope)
         if (!inherits(parent_base, Variable)) {
           stop("could not resolve symbol: ", base_name)
         }
@@ -1645,15 +1653,7 @@ compile_subscript_lhs <- function(
   }
   name <- as.character(base)
 
-  host_scope <- scope_host_scope(scope) %||%
-    stop("internal error: missing host scope")
-  host_var <- get0(name, host_scope)
-  if (!inherits(host_var, Variable)) {
-    stop(
-      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-      name
-    )
-  }
+  host_var <- resolve_superassign_target(name, scope)
 
   idx_args <- as.list(subset_call)[-1L]
   idx_args <- idx_args[-1L]

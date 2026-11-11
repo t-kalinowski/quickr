@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- Local closures retain array extents when a formal or local shadows a
+  dimension binding. Captured arrays, ordinary array arguments, matrix
+  operations, and shape queries use stored dimensions. Supplied optional
+  array arguments report an error when their inherited dimensions are shadowed.
+
 - Unsupported-type errors are more specific: character declarations are
   rejected at `declare()`, complex ordering uses R's error message, and
   non-logical operands to `&` and `|` report the operator name.
@@ -10,6 +15,40 @@
 
 * Successful flang availability checks are now reused for the rest of the R
   session. Restart R after changing the flang toolchain.
+- `c()` now accepts matrix and array arguments, flattening them in
+  column-major order like R (previously `c(m)` for a matrix `m` errored
+  with "all args passed to c() must be scalars or 1-d arrays"). `as.vector()`
+  is now supported: it drops dimensions (mode `"any"`, the default,
+  preserves the type; `mode = "double"`/`"integer"`/`"numeric"` coerce).
+
+- Reassigning a variable now requires the new value's shape to be
+  compatible with the declared shape, extending the existing rank check
+  to every dimension: quickr cannot re-declare a Fortran variable the
+  way R rebinds a symbol. A statically known mismatch (e.g.
+  `x <- numeric(2); x <- numeric(3)`) is a compile-time error;
+  symbolic dimensions are checked against stored array sizes, including
+  when a closure shadows a dimension binding or the binding changes after
+  allocation. Scalar fills with unresolved dimensions remain outside these
+  checks. Previously such reassignments silently kept the old shape or
+  produced invalid Fortran. This also covers reassignment between a scalar
+  and an array in either direction: `x <- numeric(n); x <- 0` used to
+  broadcast the scalar across every element, and assigning an array to a
+  scalar variable used to keep only its first element, where R rebinds the
+  symbol in both cases. Locals declared with unknown (`NA`) dims still
+  reallocate on assignment, like R.
+
+- `diag(x)` with a length-1 `x` as the only argument now builds the
+  identity matrix of size `x`, matching R. Previously only a *literal*
+  size took that path, so `diag(n)` with `n` declared `integer(1)`
+  returned a 1x1 matrix containing `n` instead of the n-by-n identity —
+  a silent divergence in both shape and values. As in R the size is
+  `as.integer(x)`, so a `double` or `logical` `x` works and truncates
+  toward zero (`diag(3.7)` is the 3x3 identity, as in R). Use
+  `diag(x, nrow = 1L)` for a 1x1 matrix holding `x`. Supplying `names`
+  explicitly also selects diagonal construction, matching R.
+
+- `declare()` size expressions now accept `as.integer()`, which lowers to
+  Fortran's `INT()` and to an integer cast in the generated C bridge.
 
 - Elementwise operations (arithmetic, comparisons, `&`, `|`) now require
   operand lengths to match, unless one operand is a scalar or a vector is

@@ -136,10 +136,16 @@ to whole-variable superassignment (`x <<- 1L`).
 Elementwise arithmetic and comparisons, and the linear-algebra operations
 below, check operand conformability. Known incompatible dimensions produce
 compile-time errors. Symbolic dimensions that cannot be proven equal are
-checked at run time. These checks do not cover every assignment or
-constructor: keep a binding's shape stable, and use valid, nonnegative
-constructor sizes. Do not rely on mismatched section replacements being
-rejected before a write.
+checked at run time. Whole-variable reassignment rejects static extent
+mismatches and changes between scalar and array shapes. Symbolic dimensions
+are checked against stored array sizes, so shadowing or changing a dimension
+binding does not change the checked extent. Scalar fills with unresolved
+dimensions remain outside these checks. Locals declared with `NA` dimensions
+can reallocate on same-rank whole-array assignment.
+
+Keep other bindings' shapes stable and use valid, nonnegative constructor
+sizes. Do not rely on mismatched section replacements being rejected before
+a write.
 
 Returned arrays are allocated before the generated function body runs.
 Use dimensions determined by unchanged inputs or constants. Body-dependent
@@ -345,8 +351,9 @@ Do not rely on preserving their `dim` attribute through compiled operations.
 `matrix(data, nrow, ncol)` requires both dimensions and refuses
 `byrow = TRUE`; R can infer an omitted dimension and supports row-wise filling.
 
-`c()` accepts scalars and vectors only; it refuses matrix arguments instead of
-flattening them as R does.
+`c()` flattens matrix and array arguments in column-major order, as R does.
+`as.vector()` also drops dimensions and preserves the input type by default;
+its `"double"`, `"numeric"`, and `"integer"` modes coerce the result.
 
 ### Zero-length operands do not recycle to zero-length results
 
@@ -460,12 +467,16 @@ are separate from the supported vector and matrix transpose forms.
 
 ### Length-one `diag()` arguments {#length-one-diag}
 
-Literal identity forms such as `diag(3L)` produce a double identity matrix.
-An argument declared as a length-one vector instead follows the diagonal-value
-form: `diag(n)` for `n = 3L` declared as `integer(1)` currently returns an
-integer `1x1` matrix containing `3`, where R returns a `3x3` identity matrix.
-Use an explicit identity form such as `diag(nrow = n)` when the size is an
-argument.
+With `x` as the only argument and a declared length of one, `diag(x)` builds
+a double identity matrix of size `as.integer(x)`, matching R. For example,
+`diag(n)` with `n = 3L` declared as `integer(1)` returns a `3x3` identity,
+and `diag(3.7)` truncates the size to three. Use `diag(x, nrow = 1L)` to put
+`x` in a `1x1` matrix. Supplying `names` explicitly also selects diagonal
+construction, matching R.
+
+The declaration must establish that `x` has length one. An unknown-length
+vector does not switch between identity and diagonal-value forms based on
+its runtime length.
 
 ### Subscript bounds are only partially checked
 
@@ -505,6 +516,12 @@ use generated procedures and host association; general R environment lookup,
 runtime rebinding of function names, and mutation-sensitive argument/default
 evaluation are not fully implemented. Prefer distinct local names, simple
 captures, and arguments that do not depend on state changed by the callee.
+
+Captured arrays and ordinary array arguments retain their stored dimensions
+when a closure shadows a dimension binding. A supplied optional array argument
+cannot have inherited dimensions shadowed by a closure formal or local;
+quickr reports a compile-time error because its local copy is allocated before
+the closure body runs. Use distinct names for those dimension bindings.
 
 ### `ifelse()` {#ifelse}
 
