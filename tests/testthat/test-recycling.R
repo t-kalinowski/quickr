@@ -738,6 +738,33 @@ test_that("scalar matrix broadcasting preserves operand order and dimensions", {
   expect_quick_identical(logical_data, list(matrix(as.double(1:4), 2, 2), TRUE))
 })
 
+for (initial in list(1, 1L, TRUE, 1 + 1i)) {
+  for (expr in alist(x + matrix(s, 2, 2), matrix(s, 2, 2) + x)) {
+    test_that(
+      paste("scalar matrix fills snapshot", typeof(initial), deparse1(expr)),
+      {
+        updated <- switch(
+          typeof(initial),
+          double = 2,
+          integer = 2L,
+          logical = FALSE,
+          complex = 2 + 2i
+        )
+        fn <- eval(bquote(function(x) {
+          declare(type(x = double(2, 2)))
+          s <- .(initial)
+          bump <- function() {
+            s <<- .(updated)
+            0
+          }
+          (.(expr)) + bump()
+        }))
+        expect_quick_identical(fn, list(matrix(as.double(1:4), 2, 2)))
+      }
+    )
+  }
+}
+
 test_that("scalar matrix broadcasting leaves other expressions to matrix()", {
   shadowed <- function(x) {
     declare(type(x = double(2, 2)))

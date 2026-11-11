@@ -62,11 +62,8 @@ register_r2f_handler <- function(
 #
 # `expr` is the unevaluated `fun` argument and `fun` its value. A name is only
 # usable if `expr` is a symbol *and* it names this same function in a namespace
-# -- the only environment covr rebinds into. That rules out the two non-literal
-# registrations that are not namespace-level functions: the local `handler`
-# closure built by register_unary_intrinsic() (a symbol, but bound in a call
-# frame, where the name would mean something else on a later call) and
-# `r2f_handlers[["<-"]]` (not a symbol at all).
+# -- the only environment covr rebinds into. Local closures cannot be resolved
+# this way, nor can expressions such as `r2f_handlers[["<-"]]`.
 registered_fun_name <- function(expr, fun) {
   if (!is.symbol(expr)) {
     return(NULL)
