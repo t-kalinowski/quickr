@@ -78,9 +78,6 @@ register_r2f_handler(
       return(out)
     }
 
-    # It sure seems like it's be nice if the Fortran() constructor
-    # took mode and dims as args directly,
-    # without needing to go through Variable...
     stopifnot(is.symbol(target))
     name <- as.character(target)
 
@@ -239,7 +236,13 @@ register_r2f_handler(
         var@dims <- value@value@dims
       }
       check_reassignment_narrowing(name, var, value@value)
-      check_assignment_compatible(var, value@value)
+      check_assignment_compatible(
+        name,
+        var,
+        value@value,
+        hoist = hoist,
+        scope = scope
+      )
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track
       # if the var populated by declare is identical at the end (e.g., perhaps by
@@ -256,9 +259,39 @@ register_r2f_handler(
   }
 )
 
+# R evaluates the replacement before subscript effects. Snapshot it before
+# replaying hoisted indices, including when an index mutates its binding.
+# Singleton sequence replacements such as 1:1 still have array storage;
+# assigning them to scalar targets remains deferred.
+replacement_value_before_indices <- function(
+  value,
+  indices_hoist,
+  hoist,
+  scope
+) {
+  if (indices_hoist$has_code()) {
+    dims <- lapply(value@value@dims, function(dim) {
+      if (dim_guard_spellable(dim, scope)) dim else NA_integer_
+    })
+    value <- materialize_via_hoist(
+      value,
+      mode = value@value@mode,
+      dims = dims,
+      hoist = hoist,
+      logical_as_int = logical_as_int(value@value) &&
+        !isTRUE(value@logical_booleanized)
+    )
+    if (indices_hoist$contains_runtime_guard()) {
+      hoist$mark_runtime_guard()
+    }
+    hoist$emit(indices_hoist$render(character()))
+  }
+  value
+}
+
 register_r2f_handler(
   "[<-",
-  function(args, scope = NULL, ...) {
+  function(args, scope = NULL, ..., hoist = NULL) {
     # TODO: handle logical subsetting here, which must become a where a construct like:
     #   x[lgl] <- val
     # becomes
@@ -273,8 +306,21 @@ register_r2f_handler(
 
     stopifnot(is_call(target_call <- args[[1L]], "["))
 
-    lhs <- compile_subscript_lhs(target_call, scope, ..., target = "local")
-    value <- r2f(args[[2L]], scope, ...)
+    value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    indices_hoist <- capture_inheriting_deferred_errors(hoist)
+    lhs <- compile_subscript_lhs(
+      target_call,
+      scope,
+      ...,
+      hoist = indices_hoist,
+      target = "local"
+    )
+    value <- replacement_value_before_indices(
+      value,
+      indices_hoist,
+      hoist,
+      scope
+    )
 
     # Subassignment cannot re-type the base variable any more than
     # whole-variable reassignment can: `x[1L] <- 2.5` on an integer `x`
@@ -285,6 +331,37 @@ register_r2f_handler(
     Fortran(str_flatten_lines(lhs$pre, glue("{lhs$lhs} = {value}")))
   }
 )
+
+# Validate and resolve the target of a superassignment (`x <<- v`,
+# `x[i] <<- v`) to its host-scope Variable: the name must not shadow a
+# closure formal or the closure's output variable, and must already exist
+# in the enclosing quick() scope. Marks the host variable modified.
+# Used by: `<<-`, `[<<-`, compile_subscript_lhs() (r2f-closures.R)
+resolve_superassign_target <- function(name, scope) {
+  formal_names <- names(formals(scope_closure(scope))) %||% character()
+  if (name %in% formal_names) {
+    stop("<<- targets must not shadow closure formals: ", name)
+  }
+
+  forbidden <- scope_forbid_superassign(scope)
+  if (name %in% forbidden) {
+    stop("closure must not superassign to its output variable: ", name)
+  }
+
+  host_scope <- scope_host_scope(scope) %||%
+    stop("internal error: missing host scope")
+  host_var <- get0(name, host_scope)
+  if (!inherits(host_var, Variable)) {
+    stop(
+      "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
+      name
+    )
+  }
+
+  host_var@modified <- TRUE
+  host_scope[[name]] <- host_var
+  host_var
+}
 
 register_r2f_handler(
   "<<-",
@@ -312,32 +389,17 @@ register_r2f_handler(
     stopifnot(is.symbol(target))
     name <- as.character(target)
 
-    formal_names <- names(formals(scope_closure(scope))) %||% character()
-    if (name %in% formal_names) {
-      stop("<<- targets must not shadow closure formals: ", name)
-    }
-
-    forbidden <- scope_forbid_superassign(scope)
-    if (name %in% forbidden) {
-      stop("closure must not superassign to its output variable: ", name)
-    }
-
-    host_scope <- scope_host_scope(scope) %||%
-      stop("internal error: missing host scope")
-    host_var <- get0(name, host_scope)
-    if (!inherits(host_var, Variable)) {
-      stop(
-        "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-        name
-      )
-    }
-
-    host_var@modified <- TRUE
-    host_scope[[name]] <- host_var
+    host_var <- resolve_superassign_target(name, scope)
 
     value <- r2f(args[[2L]], scope, ..., hoist = hoist)
     check_reassignment_narrowing(name, host_var, value@value)
-    check_assignment_compatible(host_var, value@value)
+    check_assignment_compatible(
+      name,
+      host_var,
+      value@value,
+      hoist = hoist,
+      scope = scope
+    )
 
     Fortran(glue("{host_var@name} = {value}"))
   }
@@ -359,37 +421,23 @@ register_r2f_handler(
     }
     name <- as.character(base)
 
-    formal_names <- names(formals(scope_closure(scope))) %||% character()
-    if (name %in% formal_names) {
-      stop("<<- targets must not shadow closure formals: ", name)
-    }
+    host_var <- resolve_superassign_target(name, scope)
 
-    forbidden <- scope_forbid_superassign(scope)
-    if (name %in% forbidden) {
-      stop("closure must not superassign to its output variable: ", name)
-    }
-
-    host_scope <- scope_host_scope(scope) %||%
-      stop("internal error: missing host scope")
-    host_var <- get0(name, host_scope)
-    if (!inherits(host_var, Variable)) {
-      stop(
-        "<<- targets must resolve to an existing variable in the enclosing quick() scope: ",
-        name
-      )
-    }
-
-    host_var@modified <- TRUE
-    host_scope[[name]] <- host_var
-
+    value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    indices_hoist <- capture_inheriting_deferred_errors(hoist)
     lhs <- compile_subscript_lhs(
       subset_call,
       scope,
       ...,
-      hoist = hoist,
+      hoist = indices_hoist,
       target = "host"
     )
-    value <- r2f(args[[2L]], scope, ..., hoist = hoist)
+    value <- replacement_value_before_indices(
+      value,
+      indices_hoist,
+      hoist,
+      scope
+    )
     check_reassignment_narrowing(name, host_var, value@value)
     Fortran(glue("{lhs$lhs} = {value}"))
   }

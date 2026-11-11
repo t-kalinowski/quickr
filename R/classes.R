@@ -4,10 +4,9 @@ NULL
 new_setter <- function(
   coerce = NULL,
   coerce_null = FALSE,
-  set_once = FALSE,
   env = parent.frame(2L)
 ) {
-  if (is.null(coerce) || isFALSE(coerce) && isFALSE(set_once)) {
+  if (is.null(coerce) || isFALSE(coerce)) {
     return()
   }
 
@@ -15,18 +14,8 @@ new_setter <- function(
     name <- as.character(last(attr(self, ".setting_prop", TRUE)))
   )
 
-  check_set_once <- if (set_once) {
-    quote(
-      if (!is.null(prop(self, name))) {
-        stop(name, " can only be set once")
-      }
-    )
-  }
-
   rebind_coerced_value <-
-    if (is.null(coerce) || isFALSE(coerce)) {
-      NULL
-    } else if (isTRUE(coerce)) {
+    if (isTRUE(coerce)) {
       quote(
         value <- convert(
           from = value,
@@ -57,7 +46,6 @@ new_setter <- function(
     body = as.call(c(
       quote(`{`),
       bind_name,
-      check_set_once,
       rebind_coerced_value,
       set
     )),
@@ -68,14 +56,12 @@ new_setter <- function(
 
 new_scalar_validator <- function(
   allow_null = FALSE,
-  allow_na = FALSE,
-  additional_checks = NULL,
-  env = parent.frame(2L)
+  additional_checks = NULL
 ) {
   checks <- c(
     if (allow_null) quote(if (is.null(value)) return()),
     quote(if (length(value) != 1L) return("must be a scalar")),
-    if (!allow_na) quote(if (anyNA(value)) return("must not be NA")),
+    quote(if (anyNA(value)) return("must not be NA")),
     additional_checks
   )
 
@@ -89,19 +75,13 @@ new_scalar_validator <- function(
 
 prop_bool <- function(
   default,
-  allow_null = FALSE,
-  allow_na = FALSE,
-  set_once = FALSE
+  allow_null = FALSE
 ) {
-  stopifnot(is_bool(set_once), is_bool(allow_null), is_bool(allow_na))
+  stopifnot(is_bool(allow_null))
 
   new_property(
     class = if (allow_null) NULL | class_logical else class_logical,
-    setter = new_setter(set_once = set_once),
-    validator = new_scalar_validator(
-      allow_null = allow_null,
-      allow_na = allow_na
-    ),
+    validator = new_scalar_validator(allow_null = allow_null),
     default = default
   )
 }
@@ -110,11 +90,9 @@ prop_bool <- function(
 prop_string <- function(
   default = NULL,
   allow_null = FALSE,
-  allow_na = FALSE,
-  coerce = FALSE,
-  set_once = FALSE
+  coerce = FALSE
 ) {
-  stopifnot(is_bool(set_once), is_bool(allow_null), is_bool(allow_na))
+  stopifnot(is_bool(allow_null))
 
   if (isTRUE(coerce)) {
     coerce <- quote(as.character)
@@ -126,8 +104,7 @@ prop_string <- function(
     validator = new_scalar_validator(allow_null = allow_null),
     setter = new_setter(
       coerce = coerce,
-      coerce_null = !allow_null,
-      set_once = set_once
+      coerce_null = !allow_null
     )
   )
 }
@@ -136,11 +113,9 @@ prop_string <- function(
 prop_wholenumber <- function(
   default = NULL,
   allow_null = FALSE,
-  allow_na = FALSE,
-  coerce = TRUE,
-  set_once = FALSE
+  coerce = TRUE
 ) {
-  stopifnot(is_bool(set_once), is_bool(allow_null), is_bool(allow_na))
+  stopifnot(is_bool(allow_null))
 
   if (isTRUE(coerce)) {
     coerce <- quote(
@@ -157,8 +132,7 @@ prop_wholenumber <- function(
     default = as.integer(default),
     setter = new_setter(
       coerce = coerce,
-      coerce_null = !allow_null,
-      set_once = set_once
+      coerce_null = !allow_null
     ),
     validator = new_scalar_validator(allow_null = allow_null)
   )
@@ -169,8 +143,7 @@ prop_enum <- function(
   values,
   nullable = FALSE,
   default = if (nullable) NULL else values[1],
-  exact = FALSE,
-  set_once = FALSE
+  exact = FALSE
 ) {
   stopifnot(
     "values must be a character vector of length >= 2 without any NA" = is.character(
@@ -211,8 +184,7 @@ prop_enum <- function(
     class = if (nullable) NULL | class_character else class_character,
     setter = new_setter(
       coerce = coerce,
-      coerce_null = !nullable,
-      set_once = set_once
+      coerce_null = !nullable
     ),
     validator = validator,
     default = default
@@ -233,7 +205,7 @@ prop_enum <- function(
 # the print method for this should only print non-null values
 Variable := new_class(
   properties = list(
-    mode = prop_enum(.atomic_type_names, nullable = TRUE, set_once = FALSE),
+    mode = prop_enum(.atomic_type_names, nullable = TRUE),
 
     dims = new_property(
       # NULL means scalar
@@ -282,8 +254,7 @@ Variable := new_class(
         typeof(value),
         symbol = as.character(value),
         value
-      )),
-      set_once = FALSE #TRUE
+      ))
     ),
 
     r_name = prop_string(
@@ -292,8 +263,7 @@ Variable := new_class(
         typeof(value),
         symbol = as.character(value),
         value
-      )),
-      set_once = FALSE
+      ))
     ),
 
     rank = new_property(

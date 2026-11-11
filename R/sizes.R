@@ -6,8 +6,22 @@ check_type_call <- function(cl) {
   if (length(names(args)) != 1) {
     stop("name must be provided as: type(<name> = <mode>(<<dims>>)")
   }
-  if (!is.call(args[[1]]) && as.character(args[[1]]) %in% .atomic_type_names) {
-    stop("only atomic modes are supported")
+  mode_expr <- args[[1]]
+  mode_sym <- if (is.call(mode_expr)) mode_expr[[1L]] else mode_expr
+  if (
+    !is.symbol(mode_sym) ||
+      !as.character(mode_sym) %in% .atomic_type_names
+  ) {
+    stop("only atomic modes are supported, not: ", deparse1(mode_sym))
+  }
+  if (!is.call(mode_expr)) {
+    stop(
+      "the mode must be a call with dimensions, as in: type(",
+      names(args),
+      " = ",
+      as.character(mode_sym),
+      "(<dims>))"
+    )
   }
 }
 
@@ -199,6 +213,18 @@ r2size <- function(r, scope) {
       language = {
         op <- as.character(r[[1]])
 
+        if (identical(op, "as.integer")) {
+          if (inherits(scope[["as.integer"]], LocalClosure)) {
+            stop(
+              "local as.integer() functions are not supported in size expressions",
+              call. = FALSE
+            )
+          }
+          # Record built-in coercion semantics so reparsing stored dimensions
+          # and diag()'s implicit coercion do not consult local bindings.
+          op <- "quickr_as_integer"
+        }
+
         if (op %in% c("+", "-", "/", "*", "^", "%/%", "%%")) {
           args <- as.list(r)[-1]
           args <- lapply(args, r2size, scope)
@@ -214,6 +240,44 @@ r2size <- function(r, scope) {
 
         switch(
           op,
+          quickr_as_integer = {
+            if (length(r) != 2L) {
+              stop("as.integer() in a size expression expects one argument")
+            }
+            # A numeric literal is coerced here rather than recursed into:
+            # r2size() rejects a non-whole double, which is exactly the
+            # case as.integer() exists to handle.
+            if (is.numeric(r[[2L]]) && length(r[[2L]]) == 1L) {
+              return(as.integer(r[[2L]]))
+            }
+            # An explicit coercion is exactly what the "not an integer"
+            # warning asks for, so don't also warn about the operand.
+            # Compound operands still follow the existing size-expression
+            # rules: e.g. as.integer(x + 0.5) rejects the fractional literal.
+            # General real-valued size-expression parsing is deferred.
+            inner <- withCallingHandlers(
+              r2size(r[[2L]], scope),
+              warning = function(w) {
+                if (
+                  grepl(
+                    "size is not an integer",
+                    conditionMessage(w),
+                    fixed = TRUE
+                  )
+                ) {
+                  invokeRestart("muffleWarning")
+                }
+              }
+            )
+            if (is.atomic(inner) && length(inner) == 1L) {
+              if (is.na(inner)) {
+                return(NA_integer_)
+              }
+              # truncates toward zero, as as.integer() does in R
+              return(as.integer(inner))
+            }
+            call("quickr_as_integer", inner)
+          },
           length = {
             var <- get0(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
@@ -280,6 +344,26 @@ get_size_name <- function(var, axis = NULL, name = var@name, rank = var@rank) {
     }
     sprintf("%s__dim_%i_", name, axis)
   }
+}
+
+# TRUE when any of `var`'s dims is its own self-size symbol
+# (`a__dim_1_`, `a__len_`), i.e. the variable was declared with unknown
+# (NA) sizes that substitute_declared_sizes() rewrote. External
+# variables receive those sizes as dummies; for locals they are
+# phantoms, so the manifest declares such locals deferred-shape and
+# relies on implicit allocation.
+# Used by: manifest.R, check_assignment_compatible()
+has_self_size_dims <- function(var) {
+  stopifnot(inherits(var, Variable))
+  any(vapply(
+    seq_along(var@dims),
+    function(i) {
+      d <- var@dims[[i]]
+      is.symbol(d) &&
+        identical(as.character(d), get_size_name(var, axis = i))
+    },
+    logical(1)
+  ))
 }
 
 # TODO: allow syntax like:
