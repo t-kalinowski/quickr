@@ -369,7 +369,9 @@ compile_internal_subroutine <- function(
     for (nm in names(optional_locals)) {
       inherited <- optional_locals[[nm]]
       if (!is.null(inherited@mode) && !passes_as_scalar(inherited)) {
-        symbols <- unique(unlist(lapply(inherited@dims, dimension_symbols)))
+        visible <- map_chr(scope_procedure_vars(proc_scope), \(var) var@name)
+        dims <- resolve_storage_dims(inherited@dims, visible)
+        symbols <- unique(unlist(lapply(dims, dimension_symbols)))
         shadowed <- symbols[vapply(
           symbols,
           function(symbol) {

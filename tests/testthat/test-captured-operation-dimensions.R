@@ -290,3 +290,61 @@ test_that("optional arrays diagnose shadowed inherited dimensions", {
   expect_quick_identical(supplied, list(2L, matrix(1, 2, 2)))
   expect_quick_identical(omitted, list(2L, matrix(1, 2, 2)))
 })
+
+test_that("nested optional array copies use visible declaration dimensions", {
+  fn <- function(n, x) {
+    declare(type(n = integer(1)), type(x = double(n, n)))
+    h <- function() {
+      y <- x + 1
+      f <- function(a = NULL) {
+        if (is.null(a)) {
+          a <- x
+        }
+        sum(a %*% a)
+      }
+      f(y)
+    }
+    h()
+  }
+  through_formal <- function(n, x) {
+    declare(type(n = integer(1)), type(x = double(n, n)))
+    h <- function(b) {
+      n <- 1L
+      y <- b + 1
+      f <- function(a = NULL) {
+        if (is.null(a)) {
+          a <- x
+        }
+        sum(a %*% a)
+      }
+      f(y)
+    }
+    h(x)
+  }
+
+  expect_quick_identical(fn, list(2L, matrix(1, 2, 2)))
+  expect_quick_identical(through_formal, list(2L, matrix(1, 2, 2)))
+})
+
+test_that("nested optional arrays diagnose shadowed declaration fallbacks", {
+  fn <- function(n, x) {
+    declare(type(n = integer(1)), type(x = double(n, n)))
+    h <- function(b) {
+      y <- b + 1
+      f <- function(a = NULL, n) {
+        if (is.null(a)) {
+          a <- matrix(1, n, n)
+        }
+        sum(a %*% a)
+      }
+      f(y, 1L)
+    }
+    h(x)
+  }
+
+  expect_error(
+    quick(fn),
+    "optional array argument `a` has dimensions shadowed by closure bindings: n",
+    fixed = TRUE
+  )
+})

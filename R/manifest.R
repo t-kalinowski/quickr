@@ -566,6 +566,26 @@ dims2f_eval_base_env[["max"]] <- function(...) {
 }
 
 
+resolve_storage_dims <- function(dims, visible) {
+  stopifnot(is.list(dims), is.character(visible))
+  visible <- tolower(visible)
+  in_scope <- function(dim) {
+    if (
+      is_call(dim, "quickr_storage_dim") &&
+        !tolower(dim[[2L]]) %in% visible
+    ) {
+      # A result can outlive the block or procedure storage that computed it.
+      # Its declaration keeps the nearest dimension visible to its new owner.
+      return(in_scope(dim[[4L]]))
+    }
+    if (is.call(dim)) {
+      return(as.call(lapply(as.list(dim), in_scope)))
+    }
+    dim
+  }
+  lapply(dims, in_scope)
+}
+
 dims2f <- function(dims, scope) {
   if (
     !is.null(scope) &&
@@ -575,22 +595,9 @@ dims2f <- function(dims, scope) {
         logical(1L)
       ))
   ) {
-    visible <- tolower(scope_fortran_names(scope))
-    in_scope <- function(dim) {
-      if (
-        is_call(dim, "quickr_storage_dim") &&
-          !tolower(dim[[2L]]) %in% visible
-      ) {
-        # A result can outlive the block temporary used to compute it.
-        # Its declaration keeps the dimension from the enclosing scope.
-        return(in_scope(dim[[4L]]))
-      }
-      if (is.call(dim)) {
-        return(as.call(lapply(as.list(dim), in_scope)))
-      }
-      dim
-    }
-    dims <- lapply(dims, in_scope)
+    vars <- scope_procedure_vars(scope)
+    dims <- resolve_storage_dims(dims, map_chr(vars, \(var) var@name %||% ""))
+    scope <- list2env(vars[!duplicated(names(vars))], parent = emptyenv())
   }
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
   vars <- lapply(syms, function(sym) {

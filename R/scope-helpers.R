@@ -82,6 +82,22 @@ scope_host_scope <- function(scope) {
   scope_get(scope, "host_scope")
 }
 
+# Generated closures are sibling procedures in the root subroutine. Their
+# lexical ancestors' locals and formals are not native host-associated storage.
+scope_procedure_vars <- function(scope) {
+  stopifnot(inherits(scope, "quickr_scope"))
+  vars <- list()
+  while (inherits(scope, "quickr_scope")) {
+    vars <- c(vars, scope_vars(scope))
+    scope <- if (identical(scope_kind(scope), "closure_formals")) {
+      scope_root(scope)
+    } else {
+      parent.env(scope)
+    }
+  }
+  vars
+}
+
 # Resolve dimensions against this variable's storage, retaining the previous
 # expression for declarations outside its scope and the C bridge. Each stored
 # copy gets its own size inquiry, even if its source later changes shape.
