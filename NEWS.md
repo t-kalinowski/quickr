@@ -1,5 +1,7 @@
 # quickr (development version)
 
+- quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
+
 - Local closures retain array extents when a formal or local shadows a
   dimension binding. Captured arrays, ordinary array arguments, matrix
   operations, and shape queries use stored dimensions. Supplied optional

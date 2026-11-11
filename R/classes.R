@@ -1,143 +1,39 @@
 #' @import S7
 NULL
 
-new_setter <- function(
-  coerce = NULL,
-  coerce_null = FALSE,
-  env = parent.frame(2L)
-) {
-  if (is.null(coerce) || isFALSE(coerce)) {
+validate_scalar <- function(value) {
+  if (is.null(value)) {
     return()
   }
-
-  bind_name <- quote(
-    name <- as.character(last(attr(self, ".setting_prop", TRUE)))
-  )
-
-  rebind_coerced_value <-
-    if (isTRUE(coerce)) {
-      quote(
-        value <- convert(
-          from = value,
-          to = S7_class(self)@properties[[as.character(name)]]$class
-        )
-      )
-    } else if (is.function(coerce) || is.symbol(coerce)) {
-      bquote(value <- .(coerce)(value))
-    } else if (is.language(coerce)) {
-      bquote(value <- .(coerce))
-    } else {
-      stop("coerce must be TRUE, FALSE, NULL, a function, a symbol, or a call")
-    }
-
-  if (!coerce_null && !is.null(rebind_coerced_value)) {
-    rebind_coerced_value <- bquote(if (!is.null(value)) .(rebind_coerced_value))
+  if (length(value) != 1L) {
+    return("must be a scalar")
   }
-
-  set <- quote(`prop<-`(
-    object = self,
-    name = name,
-    check = FALSE,
-    value = value
-  ))
-
-  new_function(
-    args = alist(self = , value = ),
-    body = as.call(c(
-      quote(`{`),
-      bind_name,
-      rebind_coerced_value,
-      set
-    )),
-    env = env
-  )
+  if (anyNA(value)) {
+    "must not be NA"
+  }
 }
 
-
-new_scalar_validator <- function(
-  allow_null = FALSE,
-  additional_checks = NULL
-) {
-  checks <- c(
-    if (allow_null) quote(if (is.null(value)) return()),
-    quote(if (length(value) != 1L) return("must be a scalar")),
-    quote(if (anyNA(value)) return("must not be NA")),
-    additional_checks
-  )
-
-  new_function(
-    args = alist(value = ),
-    body = as.call(c(quote(`{`), checks)),
-    env = parent.frame(2L)
-  )
-}
-
-
-prop_bool <- function(
-  default,
-  allow_null = FALSE
-) {
-  stopifnot(is_bool(allow_null))
-
+prop_bool <- function(default) {
   new_property(
-    class = if (allow_null) NULL | class_logical else class_logical,
-    validator = new_scalar_validator(allow_null = allow_null),
+    class_logical,
+    validator = validate_scalar,
     default = default
   )
 }
 
-
-prop_string <- function(
-  default = NULL,
-  allow_null = FALSE,
-  coerce = FALSE
-) {
-  stopifnot(is_bool(allow_null))
-
-  if (isTRUE(coerce)) {
-    coerce <- quote(as.character)
-  }
-
+prop_string <- function(allow_null = FALSE) {
   new_property(
-    class = if (allow_null) NULL | class_character else class_character,
-    default = default,
-    validator = new_scalar_validator(allow_null = allow_null),
-    setter = new_setter(
-      coerce = coerce,
-      coerce_null = !allow_null
-    )
-  )
-}
-
-
-prop_wholenumber <- function(
-  default = NULL,
-  allow_null = FALSE,
-  coerce = TRUE
-) {
-  stopifnot(is_bool(allow_null))
-
-  if (isTRUE(coerce)) {
-    coerce <- quote(
-      if (is_wholenumber(value)) {
-        as.integer(value)
-      } else {
-        stop("@", name, " must be a whole number, but received: ", value)
+    if (allow_null) NULL | class_character else class_character,
+    validator = validate_scalar,
+    setter = function(self, name, value) {
+      if (is.symbol(value)) {
+        value <- as.character(value)
       }
-    )
-  }
-
-  new_property(
-    class = if (allow_null) NULL | class_integer else class_integer,
-    default = as.integer(default),
-    setter = new_setter(
-      coerce = coerce,
-      coerce_null = !allow_null
-    ),
-    validator = new_scalar_validator(allow_null = allow_null)
+      prop(self, name) <- value
+      self
+    }
   )
 }
-
 
 prop_enum <- function(
   values,
@@ -145,50 +41,43 @@ prop_enum <- function(
   default = if (nullable) NULL else values[1],
   exact = FALSE
 ) {
-  stopifnot(
-    "values must be a character vector of length >= 2 without any NA" = is.character(
-      values
-    ) &&
-      length(values) >= 2 &&
-      !anyNA(values)
-  )
-
-  coerce <- if (exact) {
-    NULL
-  } else {
-    bquote(
-      if (length(value) == 1L && !anyNA(i <- charmatch(value, .(values)))) {
-        .(values)[i]
-      } else {
-        value
-      }
-    )
-  }
-
-  display_values <- glue_collapse(
-    single_quote(values),
-    sep = ", ",
-    last = ", or "
-  )
-  msg <- sprintf("must be either %s, not '", display_values)
-  validator <- new_scalar_validator(
-    allow_null = nullable,
-    additional_checks = bquote(
-      if (!match(value, .(values), nomatch = 0L)) {
-        return(paste0(.(msg), value, "'."))
-      }
-    )
-  )
-
   new_property(
-    class = if (nullable) NULL | class_character else class_character,
-    setter = new_setter(
-      coerce = coerce,
-      coerce_null = !nullable
-    ),
-    validator = validator,
+    if (nullable) NULL | class_character else class_character,
+    setter = if (!exact) {
+      function(self, name, value) {
+        if (length(value) == 1L && !anyNA(i <- charmatch(value, values))) {
+          value <- values[i]
+        }
+        prop(self, name) <- value
+        self
+      }
+    },
+    validator = function(value) {
+      if (is.null(value)) {
+        return()
+      }
+      error <- validate_scalar(value)
+      if (!is.null(error)) {
+        return(error)
+      }
+      if (!value %in% values) {
+        sprintf(
+          "must be either %s, not '%s'.",
+          glue_collapse(single_quote(values), sep = ", ", last = ", or "),
+          value
+        )
+      }
+    },
     default = default
   )
+}
+
+# S7's property assignment still evaluates calls and symbols when checking a
+# typed property (src/prop.c: prop_validate()). Keep ASTs unevaluated here until
+# that part of https://github.com/RConsortium/S7/issues/511 is fixed.
+set_r <- function(self, value) {
+  prop(self, "r", check = FALSE) <- value
+  self
 }
 
 
@@ -212,9 +101,7 @@ Variable := new_class(
       NULL | class_list,
       setter = function(self, value) {
         if (!length(value)) {
-          # reset to scalar (NULL means scalar); assign the attribute
-          # directly to avoid recursing through this setter
-          attr(self, "dims") <- NULL
+          self@dims <- NULL
           return(self)
         }
 
@@ -248,23 +135,9 @@ Variable := new_class(
       } # dims$setter
     ), # dims = new_property()
 
-    name = prop_string(
-      allow_null = TRUE,
-      coerce = quote(switch(
-        typeof(value),
-        symbol = as.character(value),
-        value
-      ))
-    ),
+    name = prop_string(allow_null = TRUE),
 
-    r_name = prop_string(
-      allow_null = TRUE,
-      coerce = quote(switch(
-        typeof(value),
-        symbol = as.character(value),
-        value
-      ))
-    ),
+    r_name = prop_string(allow_null = TRUE),
 
     rank = new_property(
       class_integer,
@@ -277,14 +150,7 @@ Variable := new_class(
 
     loop_is_singleton = prop_bool(default = FALSE),
 
-    r = new_property(
-      NULL | class_language | class_atomic,
-      setter = function(self, value) {
-        # custom setter to workaround https://github.com/RConsortium/S7/issues/511
-        attr(self, "r") <- value
-        self
-      }
-    ),
+    r = new_property(NULL | class_language | class_atomic, setter = set_r),
 
     is_arg = prop_bool(default = FALSE),
 
@@ -323,7 +189,7 @@ Variable := new_class(
 
     # When set, references to this variable should treat the named dummy
     # argument as an optional input (e.g., is.null() -> .not. present()).
-    optional_dummy = prop_string(default = NULL, allow_null = TRUE)
+    optional_dummy = prop_string(allow_null = TRUE)
   ),
 
   validator = function(self) {
@@ -338,10 +204,6 @@ Variable := new_class(
     }
   }
 )
-
-# method(print, Variable) <- function(x, ...) {
-#
-# }
 
 Fortran := new_class(
   class_character,
@@ -358,12 +220,8 @@ Fortran := new_class(
     scalar_fill = prop_bool(default = FALSE),
 
     r = new_property(
-      # custom setter only to workaround https://github.com/RConsortium/S7/issues/511
-      NULL | class_language | class_atomic,
-      setter = function(self, value) {
-        attr(self, "r") <- value
-        self
-      }
+      NULL | class_language | class_atomic | class_function,
+      setter = set_r
     )
   ),
 
@@ -384,7 +242,7 @@ SvdResult := new_class(
 
 LocalClosure := new_class(
   properties = list(
-    name = prop_string(default = NULL, allow_null = TRUE),
+    name = prop_string(allow_null = TRUE),
     fun = class_function
   )
 )
@@ -397,7 +255,7 @@ FortranSubroutine := new_class(
     signature = class_character,
     closure = class_function,
     scope = NULL | class_environment,
-    c_bridge = S7::new_property(
+    c_bridge = new_property(
       NULL | class_character,
       getter = function(self) {
         make_c_bridge(self) %error% NULL
@@ -411,10 +269,10 @@ R2FHandler := new_class(
   properties = list(
     dest_supported = prop_bool(default = FALSE),
     dest_infer = new_property(NULL | class_function),
-    dest_infer_name = prop_string(default = NULL, allow_null = TRUE),
+    dest_infer_name = prop_string(allow_null = TRUE),
     # Set when the handler was registered as a namespace-level named function,
     # so dispatch can re-resolve it by name. See register_r2f_handler().
-    fun_name = prop_string(default = NULL, allow_null = TRUE),
+    fun_name = prop_string(allow_null = TRUE),
     # When NULL, r2f will resolve the callable by name and use match.call().
     # When FALSE, r2f will not attempt match.call().
     match_fun = new_property(

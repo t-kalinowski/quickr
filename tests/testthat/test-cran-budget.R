@@ -41,6 +41,7 @@ test_that("non-smoke test files skip on CRAN", {
     "test-reduction-scalars.R",
     "test-recycling.R",
     "test-r2f-registry.R",
+    "test-s7.R",
     "test-sapply-closures.R",
     "test-subset-reduction.R"
   )
