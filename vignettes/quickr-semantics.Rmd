@@ -517,6 +517,12 @@ runtime rebinding of function names, and mutation-sensitive argument/default
 evaluation are not fully implemented. Prefer distinct local names, simple
 captures, and arguments that do not depend on state changed by the callee.
 
+Captured arrays and ordinary array arguments retain their stored dimensions
+when a closure shadows a dimension binding. A supplied optional array argument
+cannot have inherited dimensions shadowed by a closure formal or local;
+quickr reports a compile-time error because its local copy is allocated before
+the closure body runs. Use distinct names for those dimension bindings.
+
 ### `ifelse()` {#ifelse}
 
 Differences include:

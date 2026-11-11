@@ -498,7 +498,7 @@ lang2fortran <- r2f <- function(
 
       symbol = {
         r_name <- as.character(e)
-        val <- if (is.null(scope)) NULL else get0(r_name, scope)
+        val <- if (is.null(scope)) NULL else scope_read_variable(r_name, scope)
         if (inherits(val, SvdResult)) {
           stop(
             "svd() results must be accessed with $d, $u, or $v",

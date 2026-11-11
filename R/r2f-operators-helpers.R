@@ -232,15 +232,20 @@ is_one_by_one <- function(x) {
     dim_is_one(x@value@dims[[2L]])
 }
 
-# Check if two dimension expressions provably match (both known and
-# equal, or the identical symbolic expression). Weaker than
-# check_elementwise_lengths(): no zero-length policy, no symbol
-# normalization -- callers use it for routing/declaration decisions, not
-# for the conformability contract.
+# Compare declared common dimensions when planning bind outputs. Captured
+# dimensions retain their original declaration for this comparison; the bind
+# handler separately checks the stored extents before combining the inputs.
 # Used by: r2f-matrix.R (bind_common_dim)
 dims_match <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     return(identical(as.integer(left), as.integer(right)))
+  }
+  if (
+    "quickr_storage_dim" %in%
+      all.names(left) &&
+      "quickr_storage_dim" %in% all.names(right)
+  ) {
+    return(identical(declared_dim(left), declared_dim(right)))
   }
   identical(left, right)
 }
@@ -255,13 +260,6 @@ check_equal_dims <- function(left, right) {
       unknown = FALSE,
       reject_zero = FALSE
     ))
-  }
-  if (!is_scalar_na(left) && !is_scalar_na(right)) {
-    left_norm <- fortranize_expr_symbols(left)
-    right_norm <- fortranize_expr_symbols(right)
-    if (identical(left_norm, right_norm)) {
-      return(list(ok = TRUE, unknown = FALSE, reject_zero = FALSE))
-    }
   }
   list(ok = TRUE, unknown = TRUE, reject_zero = FALSE)
 }
@@ -636,7 +634,7 @@ dim_guard_spellable <- function(dim, scope) {
     return(FALSE)
   }
   matches <- regmatches(
-    syms <- all.vars(dim),
+    syms <- dimension_symbols(dim),
     regexec("^(.*)__(dim_[0-9]+|len)_$", syms)
   )
   all(vapply(

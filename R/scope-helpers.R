@@ -82,6 +82,59 @@ scope_host_scope <- function(scope) {
   scope_get(scope, "host_scope")
 }
 
+# Resolve dimensions against this variable's storage, retaining the previous
+# expression for declarations outside its scope and the C bridge. Each stored
+# copy gets its own size inquiry, even if its source later changes shape.
+storage_dimension_view <- function(var) {
+  stopifnot(inherits(var, Variable), !is.null(var@name))
+  var@dims <- lapply(seq_along(var@dims), function(axis) {
+    dim <- var@dims[[axis]]
+    if (
+      is_wholenumber(dim) ||
+        (is_call(dim, "quickr_storage_dim") &&
+          identical(dim[[2L]], var@name) &&
+          identical(dim[[3L]], axis))
+    ) {
+      dim
+    } else {
+      call("quickr_storage_dim", var@name, as.integer(axis), dim)
+    }
+  })
+  var
+}
+
+has_storage_dims <- function(var) {
+  any(vapply(
+    var@dims,
+    function(dim) "quickr_storage_dim" %in% all.names(dim),
+    logical(1L)
+  ))
+}
+
+# A closure's captured arrays and array formals keep dimensions from their
+# original scope. Reading their scalar names in the closure could find shadows.
+scope_read_variable <- function(name, scope, var = get0(name, scope)) {
+  if (!inherits(var, Variable) || passes_as_scalar(var)) {
+    return(var)
+  }
+  owner <- scope
+  while (inherits(owner, "quickr_scope")) {
+    if (exists(name, owner, inherits = FALSE)) {
+      if (
+        identical(scope_kind(owner), "closure_formals") || has_storage_dims(var)
+      ) {
+        return(storage_dimension_view(var))
+      }
+      return(var)
+    }
+    if (identical(scope_kind(owner), "closure_formals")) {
+      return(storage_dimension_view(var))
+    }
+    owner <- parent.env(owner)
+  }
+  var
+}
+
 scope_new_child <- function(scope, kind) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(kind))
   f <- scope_get(scope, "new_child")

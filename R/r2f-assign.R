@@ -222,6 +222,9 @@ register_r2f_handler(
         error = function(e) NULL
       )
       scope[[name]] <- var
+      if (inherits(inferred_var, Variable) && !value@writes_to_dest) {
+        allocate_reusable_local_output_at_point(var, scope, hoist)
+      }
     } else {
       # The var already exists, this assignment is a modification / reassignment
       if (is.null(var@r_name)) {

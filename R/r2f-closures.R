@@ -261,7 +261,7 @@ compile_internal_subroutine <- function(
     expr_error <- prefix$error
     expr <- if (is.null(expr_error)) {
       tryCatch(
-        r2f(last_expr, proc_scope, hoist = h),
+        lower_r2f_operand_in_order(last_expr, proc_scope, hoist = h),
         error = function(e) {
           expr_error <<- e
           NULL
@@ -323,7 +323,7 @@ compile_internal_subroutine <- function(
     } else if (!is.null(res_var)) {
       if (is.null(res_var@mode)) {
         res_var@mode <- expr@value@mode
-        res_var@dims <- expr@value@dims
+        res_var@dims <- lapply(expr@value@dims, declared_dim)
         proc_scope[[res_name]] <- res_var
       }
       if (!identical(expr@value@mode, res_var@mode)) {
@@ -346,13 +346,19 @@ compile_internal_subroutine <- function(
         if (expr@value@rank != res_var@rank) {
           stop("closure result rank does not match output rank")
         }
-        if (
-          !identical(
-            dims2f(expr@value@dims, proc_scope),
-            dims2f(res_var@dims, proc_scope)
+        for (axis in seq_len(res_var@rank)) {
+          guard_conformable_dims(
+            expr@value@dims[[axis]],
+            res_var@dims[[axis]],
+            "closure result shape does not match output shape",
+            h,
+            proc_scope,
+            left = expr,
+            right = res_name,
+            left_axis = axis,
+            right_axis = axis,
+            checker = check_equal_dims
           )
-        ) {
-          stop("closure result shape does not match output shape")
         }
       }
       assign_code <- h$render(glue("{res_name} = {expr}"))
@@ -361,6 +367,32 @@ compile_internal_subroutine <- function(
 
   if (length(optional_locals)) {
     for (nm in names(optional_locals)) {
+      inherited <- optional_locals[[nm]]
+      if (!is.null(inherited@mode) && !passes_as_scalar(inherited)) {
+        symbols <- unique(unlist(lapply(inherited@dims, dimension_symbols)))
+        shadowed <- symbols[vapply(
+          symbols,
+          function(symbol) {
+            exists(symbol, proc_scope, inherits = FALSE) ||
+              exists(symbol, formal_scope, inherits = FALSE) ||
+              !is.null(scope_var_by_fortran_name(proc_scope, symbol)) ||
+              !is.null(scope_var_by_fortran_name(formal_scope, symbol))
+          },
+          logical(1L)
+        )]
+        if (length(shadowed)) {
+          # Optional arrays are copied to automatic locals before the body.
+          # SIZE(optional_dummy) is not a valid specification expression;
+          # supporting these shadows needs allocation inside present().
+          stop(
+            "optional array argument `",
+            nm,
+            "` has dimensions shadowed by closure bindings: ",
+            str_flatten_commas(shadowed),
+            call. = FALSE
+          )
+        }
+      }
       dummy_var <- formal_scope[[nm]]
       local_var <- proc_scope[[nm]]
       if (is.null(local_var@mode) && !is.null(dummy_var@mode)) {
@@ -1555,7 +1587,7 @@ compile_subscript_lhs <- function(
     if (scope_is_closure(scope)) {
       local_base <- get0(base_name, scope, inherits = FALSE)
       if (is.null(local_base) || !inherits(local_base, Variable)) {
-        parent_base <- get0(base_name, scope)
+        parent_base <- scope_read_variable(base_name, scope)
         if (!inherits(parent_base, Variable)) {
           stop("could not resolve symbol: ", base_name)
         }

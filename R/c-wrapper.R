@@ -575,6 +575,10 @@ dims2c_expr <- function(e, scope, c_hoist = NULL) {
   op <- as.character(e[[1L]])
   args <- as.list(e)[-1L]
 
+  if (identical(op, "quickr_storage_dim")) {
+    return(dims2c_expr(args[[3L]], scope, c_hoist = c_hoist))
+  }
+
   if (identical(op, "(")) {
     if (length(args) != 1L) {
       stop("unsupported size expression: ", deparse1(e))

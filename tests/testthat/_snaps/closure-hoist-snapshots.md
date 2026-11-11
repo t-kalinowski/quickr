@@ -60,7 +60,7 @@
             block
               real(c_double), allocatable :: btmp1_(:)
       
-              allocate(btmp1_(x__len_))
+              allocate(btmp1_(size(x, 1, kind=c_ptrdiff_t)))
               if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
           call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
           & supported")
@@ -182,7 +182,7 @@
             block
               real(c_double), allocatable :: btmp1_(:, :)
       
-              allocate(btmp1_(nx, ny))
+              allocate(btmp1_(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t)))
               if (size(temp, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
                 call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
                 return
@@ -197,7 +197,7 @@
             block
               real(c_double), allocatable :: btmp1_(:, :)
       
-              allocate(btmp1_(nx, ny))
+              allocate(btmp1_(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t)))
               if (size(temp, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
                 call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
                 return

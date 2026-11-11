@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- Local closures retain array extents when a formal or local shadows a
+  dimension binding. Captured arrays, ordinary array arguments, matrix
+  operations, and shape queries use stored dimensions. Supplied optional
+  array arguments report an error when their inherited dimensions are shadowed.
+
 - Unsupported-type errors are more specific: character declarations are
   rejected at `declare()`, complex ordering uses R's error message, and
   non-logical operands to `&` and `|` report the operator name.

@@ -198,6 +198,7 @@ iso_c_binding_symbols <- function(
         lapply(var@dims, function(size) {
           syms <- all.vars(size)
           c(
+            if ("quickr_storage_dim" %in% all.names(size)) "c_ptrdiff_t",
             if (any(grepl("__len_$", syms))) "c_ptrdiff_t",
             if (any(grepl("__dim_[0-9]+_$", syms))) "c_int"
           )
@@ -516,6 +517,9 @@ dims2f_eval_base_env[["as.integer"]] <- function(x) glue("int({x})")
 dims2f_eval_base_env[["quickr_as_integer"]] <- dims2f_eval_base_env[[
   "as.integer"
 ]]
+dims2f_eval_base_env[["quickr_storage_dim"]] <- function(name, axis, declared) {
+  glue("size({name}, {axis}, kind=c_ptrdiff_t)")
+}
 dims2f_eval_base_env[["quickr_seq_length"]] <- function(from, to, by) {
   safe_by <- glue("merge(int({by}), 1, int({by}) /= 0)")
   glue("(abs((int({to}) - int({from})) / {safe_by}) + 1)")
@@ -563,6 +567,31 @@ dims2f_eval_base_env[["max"]] <- function(...) {
 
 
 dims2f <- function(dims, scope) {
+  if (
+    !is.null(scope) &&
+      any(vapply(
+        dims,
+        function(dim) "quickr_storage_dim" %in% all.names(dim),
+        logical(1L)
+      ))
+  ) {
+    visible <- tolower(scope_fortran_names(scope))
+    in_scope <- function(dim) {
+      if (
+        is_call(dim, "quickr_storage_dim") &&
+          !tolower(dim[[2L]]) %in% visible
+      ) {
+        # A result can outlive the block temporary used to compute it.
+        # Its declaration keeps the dimension from the enclosing scope.
+        return(in_scope(dim[[4L]]))
+      }
+      if (is.call(dim)) {
+        return(as.call(lapply(as.list(dim), in_scope)))
+      }
+      dim
+    }
+    dims <- lapply(dims, in_scope)
+  }
   syms <- unique(unlist(lapply(dims, \(d) if (is.language(d)) all.vars(d))))
   vars <- lapply(syms, function(sym) {
     scope_fortran_symbol(as.symbol(sym), scope)

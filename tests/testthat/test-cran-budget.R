@@ -18,6 +18,8 @@ test_that("non-smoke test files skip on CRAN", {
     "test-bind.R",
     "test-blas-guards.R",
     "test-block-scopes.R",
+    "test-captured-operation-dimensions.R",
+    "test-captured-storage-lifetimes.R",
     "test-closure-deferred-errors.R",
     "test-complex-ordering.R",
     "test-conformability-grid.R",

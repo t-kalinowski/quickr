@@ -190,11 +190,10 @@ r2f_handlers[["t"]] <- function(args, scope, ..., hoist = NULL) {
     val <- Variable(x@value@mode, list(x@value@dims[[2]], x@value@dims[[1]]))
     return(Fortran(glue("transpose({x})"), val))
   } else if (x@value@rank == 1) {
-    # Lowering compound vector-length expressions here remains deferred.
     len <- x@value@dims[[1]]
     val <- Variable(x@value@mode, list(1L, len))
     source <- if (passes_as_scalar(x@value)) glue("[{x}]") else x
-    return(Fortran(glue("reshape({source}, [1, int({len})])"), val))
+    return(Fortran(glue("reshape({source}, [1, {bind_dim_int(len)}])"), val))
   } else if (x@value@rank == 0) {
     return(x)
   } else {
@@ -421,6 +420,26 @@ compile_bind <- function(args, scope, ..., hoist = NULL) {
     common <- bind_common_dim(col_sizes, scalar_flags, context, "column")
     cols <- common
     rows <- bind_dim_sum(row_sizes, context, "row")
+  }
+
+  non_scalar <- which(!scalar_flags)
+  common_axis <- if (direction == "cbind") 1L else 2L
+  if (length(non_scalar) > 1L) {
+    first <- non_scalar[[1L]]
+    for (i in non_scalar[-1L]) {
+      guard_conformable_dims(
+        common,
+        if (direction == "cbind") row_sizes[[i]] else col_sizes[[i]],
+        paste0(context, " requires inputs with matching dimensions"),
+        hoist,
+        scope,
+        left = values[[first]],
+        right = values[[i]],
+        left_axis = if (values[[first]]@value@rank == 1L) NULL else common_axis,
+        right_axis = if (values[[i]]@value@rank == 1L) NULL else common_axis,
+        checker = check_equal_dims
+      )
+    }
   }
 
   pieces <- vector("list", length(values))

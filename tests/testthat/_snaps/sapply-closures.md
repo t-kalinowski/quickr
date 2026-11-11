@@ -427,6 +427,10 @@
           & supported")
               return
             end if
+            if (size((x(:, j) * 2.0_c_double), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = (x(:, j) * 2.0_c_double)
           end subroutine
           subroutine quickr_set_error_msg(msg)
@@ -561,6 +565,10 @@
             if (size(x(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
           call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
           & supported")
+              return
+            end if
+            if (size((x(:, j) > thresh), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
               return
             end if
             res = (x(:, j) > thresh)
@@ -714,6 +722,14 @@
             end if
             if (size(x, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
               call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size((x + real(t, kind=c_double)), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x + real(t, kind=c_double)), 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
               return
             end if
             res = (x + real(t, kind=c_double))
@@ -880,6 +896,14 @@
               call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
               return
             end if
+            if (size((x(:, :, t) + 1.0_c_double), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x(:, :, t) + 1.0_c_double), 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = (x(:, :, t) + 1.0_c_double)
           end subroutine
           subroutine quickr_set_error_msg(msg)
@@ -1037,6 +1061,18 @@
               call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
               return
             end if
+            if (size((x(:, :, :, t) * 2.0_c_double), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x(:, :, :, t) * 2.0_c_double), 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x(:, :, :, t) * 2.0_c_double), 3, kind=c_ptrdiff_t) /= size(res, 3, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
             res = (x(:, :, :, t) * 2.0_c_double)
           end subroutine
           subroutine quickr_set_error_msg(msg)
@@ -1187,6 +1223,18 @@
             end if
             if (size(x, 3, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
               call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
+              return
+            end if
+            if (size((x + real(t, kind=c_double)), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x + real(t, kind=c_double)), 2, kind=c_ptrdiff_t) /= size(res, 2, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
+              return
+            end if
+            if (size((x + real(t, kind=c_double)), 3, kind=c_ptrdiff_t) /= size(res, 3, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
               return
             end if
             res = (x + real(t, kind=c_double))
@@ -1455,6 +1503,10 @@
             if (size(out(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
           call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
           & supported")
+              return
+            end if
+            if (size((out(:, j) + 1.0_c_double), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
+              call quickr_set_error_msg("closure result shape does not match output shape")
               return
             end if
             res = (out(:, j) + 1.0_c_double)

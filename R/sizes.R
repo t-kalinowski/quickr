@@ -156,6 +156,29 @@ substitute_declared_sizes <- function(e) {
 }
 
 
+# Caller declarations and the C bridge retain the original dimension contract.
+declared_dim <- function(dim) {
+  if (is_call(dim, "quickr_storage_dim")) {
+    return(declared_dim(dim[[4L]]))
+  }
+  if (is.call(dim)) {
+    return(as.call(lapply(as.list(dim), declared_dim)))
+  }
+  dim
+}
+
+dimension_symbols <- function(dim) {
+  if (is_call(dim, "quickr_storage_dim")) {
+    character()
+  } else if (is.call(dim)) {
+    unlist(lapply(as.list(dim)[-1L], dimension_symbols), use.names = FALSE)
+  } else if (is.symbol(dim)) {
+    as.character(dim)
+  } else {
+    character()
+  }
+}
+
 r2size <- function(r, scope) {
   sanitize_dim <- function(dim) {
     if (is.symbol(dim) || is.call(dim)) {
@@ -165,7 +188,7 @@ r2size <- function(r, scope) {
   }
 
   resolve_var_dim <- function(var_expr, axis, expr = var_expr) {
-    var <- get0(as.character(var_expr), scope)
+    var <- scope_read_variable(as.character(var_expr), scope)
     if (!inherits(var, Variable)) {
       stop("could not resolve size: ", deparse1(expr))
     }
@@ -212,6 +235,10 @@ r2size <- function(r, scope) {
       },
       language = {
         op <- as.character(r[[1]])
+
+        if (identical(op, "quickr_storage_dim")) {
+          return(r)
+        }
 
         if (identical(op, "as.integer")) {
           if (inherits(scope[["as.integer"]], LocalClosure)) {
@@ -279,7 +306,7 @@ r2size <- function(r, scope) {
             call("quickr_as_integer", inner)
           },
           length = {
-            var <- get0(as.character(r[[2L]]), scope)
+            var <- scope_read_variable(as.character(r[[2L]]), scope)
             if (!inherits(var, Variable)) {
               stop("could not resolve size: ", deparse1(r))
             }
@@ -317,7 +344,7 @@ r2dims <- function(r, scope) {
     as.character(r[[1]]) |>
       switch(
         dim = {
-          var <- get0(as.character(r[[2L]]), scope)
+          var <- scope_read_variable(as.character(r[[2L]]), scope)
           if (!inherits(var, Variable)) {
             stop("could not resolve dims: ", deparse1(r))
           }
