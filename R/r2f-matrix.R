@@ -295,9 +295,8 @@ bind_dim_sum <- function(values, context, label) {
   reduce(values, \(a, b) call("+", a, b))
 }
 
-# Unlike the BLAS conformability checks, unknown dims here stay a compile
-# error: the common dim is needed to declare the cbind/rbind output, and a
-# runtime guard cannot conjure a declaration.
+# Bind outputs require a known, common declared dimension. Matching declaration
+# expressions still require a runtime check against the inputs' stored extents.
 bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   non_scalar <- which(!scalar_flags)
   if (!length(non_scalar)) {
@@ -315,9 +314,8 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   }
   if (length(non_scalar) > 1L) {
     for (idx in non_scalar[-1L]) {
-      # A dim that is not provably equal to the common one is an error
-      # either way: the declaration needs the dim, so "unknown" cannot be
-      # deferred to a runtime guard here.
+      # Distinct declaration expressions remain unsupported even though
+      # matching declarations are checked against stored extents below.
       if (!dims_match(target, dim_list[[idx]])) {
         stop(
           context,

@@ -240,14 +240,7 @@ dims_match <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     return(identical(as.integer(left), as.integer(right)))
   }
-  if (
-    "quickr_storage_dim" %in%
-      all.names(left) &&
-      "quickr_storage_dim" %in% all.names(right)
-  ) {
-    return(identical(declared_dim(left), declared_dim(right)))
-  }
-  identical(left, right)
+  identical(declared_dim(left), declared_dim(right))
 }
 
 # Equality-only dimension checks permit matching zero extents. This is the

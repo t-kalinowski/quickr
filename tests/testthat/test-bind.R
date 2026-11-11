@@ -317,3 +317,71 @@ test_that("cbind requires inferred dimensions to match", {
 
   expect_null(q_unknown_rows)
 })
+
+for (rank in c("vector", "matrix")) {
+  for (bind in list(
+    quote(cbind(x, y)),
+    quote(cbind(y, x)),
+    quote(rbind(x, y)),
+    quote(rbind(y, x))
+  )) {
+    test_that(
+      paste(deparse1(bind), "accepts captured and local", rank, "dimensions"),
+      {
+        declaration <- if (rank == "vector") {
+          quote(double(n))
+        } else {
+          quote(double(n, n))
+        }
+        constructor <- if (rank == "vector") {
+          quote(numeric(n) + 1)
+        } else {
+          quote(matrix(1, n, n))
+        }
+        fn <- eval(substitute(
+          function(n, x) {
+            declare(type(n = integer(1)), type(x = DECLARATION))
+            f <- function() {
+              y <- CONSTRUCTOR
+              sum(BIND)
+            }
+            f()
+          },
+          list(
+            DECLARATION = declaration,
+            CONSTRUCTOR = constructor,
+            BIND = bind
+          )
+        ))
+        shadowed <- eval(substitute(
+          function(n, x, local_n) {
+            declare(
+              type(n = integer(1)),
+              type(x = DECLARATION),
+              type(local_n = integer(1))
+            )
+            f <- function(n) {
+              y <- CONSTRUCTOR
+              sum(BIND)
+            }
+            f(local_n)
+          },
+          list(
+            DECLARATION = declaration,
+            CONSTRUCTOR = constructor,
+            BIND = bind
+          )
+        ))
+        x <- if (rank == "vector") rep(2, 3) else matrix(2, 3, 3)
+        expect_quick_identical(fn, list(3L, x))
+        qfn <- quick(shadowed)
+        expect_identical(qfn(3L, x, 3L), shadowed(3L, x, 3L))
+        expect_error(
+          qfn(3L, x, 2L),
+          paste0(bind[[1L]], "() requires inputs with matching dimensions"),
+          fixed = TRUE
+        )
+      }
+    )
+  }
+}
