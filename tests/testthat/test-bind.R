@@ -368,6 +368,35 @@ test_that("cbind and rbind check independently inferred dimensions at runtime", 
   )
 })
 
+test_that("binding ignores NULL alongside nonempty dynamic inputs", {
+  columns <- function(x, y) {
+    declare(type(x = double(n)), type(y = double(m)))
+    cbind(NULL, x, y, NULL)
+  }
+  rows <- function(x, y) {
+    declare(type(x = double(n)), type(y = double(m)))
+    rbind(NULL, x, y, NULL)
+  }
+
+  for (fn in list(columns, rows)) {
+    expect_bind_equal(fn, list(c(1, 2), c(3, 4)))
+    expect_error(quick(fn)(c(1, 2), c(3, 4, 5)), "matching dimensions")
+  }
+})
+
+test_that("binding requires an input after ignoring NULL arguments", {
+  columns <- function() {
+    cbind(NULL, NULL)
+  }
+  rows <- function() {
+    rbind(NULL, NULL)
+  }
+
+  for (fn in list(columns, rows)) {
+    expect_error(quick(fn), "requires at least one argument", fixed = TRUE)
+  }
+})
+
 test_that("binding accepts distinct symbolic dimensions and scalar inputs", {
   columns <- function(x, y) {
     declare(type(x = double(n)), type(y = double(m)))
