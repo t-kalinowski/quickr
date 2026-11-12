@@ -148,18 +148,7 @@
         ! manifest end
       
       
-        if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-          return
-        end if
-        if (size(y, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-          return
-        end if
-      if (size(((x + 1.0_c_double)), kind=c_ptrdiff_t) == 0 .or. size(((x + 1.0_c_double)), kind=c_ptrdiff_t) /= size(((y -&
-      & 1.0_c_double)), kind=c_ptrdiff_t)) then
+        if (size(((x + 1.0_c_double)), kind=c_ptrdiff_t) /= size(((y - 1.0_c_double)), kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return

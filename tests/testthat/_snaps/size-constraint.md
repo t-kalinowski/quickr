@@ -29,11 +29,6 @@
         ! manifest end
       
       
-        if (size(a, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-          return
-        end if
         if ((size(a, 1, kind=c_ptrdiff_t)) /= (size((a + sum(b)), 1, kind=c_ptrdiff_t))) then
           call quickr_set_error_msg("reassignment must preserve the shape of `a`")
           return
