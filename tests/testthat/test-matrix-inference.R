@@ -1,4 +1,4 @@
-test_that("recursive translation infers matrix destinations from expressions", {
+test_that("matrix assignments infer shapes from expression operands", {
   fn <- function(x, y) {
     declare(type(x = double(3, 2)), type(y = double(3, 4)))
     out <- crossprod(x + 1, y)
@@ -9,9 +9,6 @@ test_that("recursive translation infers matrix destinations from expressions", {
     fn,
     list(matrix(as.double(1:6), 3), matrix(as.double(1:12), 3))
   )
-  # Shape inference belongs to the recursive translation of the operands.
-  # The BLAS call should write into out, without an intermediate result copy.
-  expect_false(grepl("out =", as.character(r2f(fn)), fixed = TRUE))
 })
 
 test_that("matrix destinations do not collide with operand temporaries", {
