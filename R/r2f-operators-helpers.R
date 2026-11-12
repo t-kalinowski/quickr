@@ -329,7 +329,19 @@ input_dimension <- function(dim, operand, axis, scope) {
   if (is.null(name)) {
     return(NULL)
   }
-  var <- get0(name, scope_root(scope), inherits = FALSE)
+  # A local declaration or closure formal can reuse the root's Fortran name.
+  # Only the actual root binding has the wrapper-validated input contract.
+  owner <- scope
+  while (
+    inherits(owner, "quickr_scope") &&
+      !exists(name, owner, inherits = FALSE)
+  ) {
+    owner <- parent.env(owner)
+  }
+  if (!identical(owner, scope_root(scope))) {
+    return(NULL)
+  }
+  var <- get(name, owner, inherits = FALSE)
   if (
     !inherits(var, Variable) ||
       !var@is_arg ||

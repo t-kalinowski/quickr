@@ -37,6 +37,45 @@ test_that("dimension contracts distinguish promoted singleton axes", {
   )
 })
 
+test_that("shadowed arrays do not inherit root input dimension contracts", {
+  for (body in alist(
+    {
+      declare(type(x = double(n, n)))
+      x <- matrix(1, n, n)
+      sum(x %*% y)
+    },
+    {
+      declare(type(z = double(n, n)))
+      z <- matrix(1, n, n)
+      g <- function(x) sum(x %*% y)
+      g(z)
+    }
+  )) {
+    fn <- eval(substitute(
+      function(n, x, y, local_n) {
+        declare(
+          type(n = integer(1)),
+          type(x = double(n, n)),
+          type(y = double(n, n)),
+          type(local_n = integer(1))
+        )
+        f <- function(n) BODY
+        f(local_n)
+      },
+      list(BODY = body)
+    ))
+
+    qfn <- quick(fn)
+    x <- y <- matrix(1, 3, 3)
+    expect_identical(qfn(3L, x, y, 3L), fn(3L, x, y, 3L))
+    expect_error(
+      qfn(3L, x, y, 2L),
+      "non-conformable arguments in %*%",
+      fixed = TRUE
+    )
+  }
+})
+
 test_that("pure closures do not inherit unrelated error checks", {
   fn <- function(x) {
     declare(type(x = double(NA)))
