@@ -117,8 +117,7 @@
         num_steps = size(observations)
         trellis = 0.0_c_double
         backpointer = 0_c_int
-      if (size(initial_probs, kind=c_ptrdiff_t) == 0 .or. size(initial_probs, kind=c_ptrdiff_t) /= size(emission_probs(:,&
-      & observations(1_c_int)), kind=c_ptrdiff_t)) then
+        if (size(initial_probs, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return
@@ -376,8 +375,7 @@
       
         trellis = 0.0_c_double
         backpointer = 0_c_int
-      if (size(initial_probs, kind=c_ptrdiff_t) == 0 .or. size(initial_probs, kind=c_ptrdiff_t) /= size(emission_probs(:,&
-      & observations(1_c_int)), kind=c_ptrdiff_t)) then
+        if (size(initial_probs, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return
