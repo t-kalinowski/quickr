@@ -69,10 +69,6 @@
       & supported")
               return
             end if
-            if ((size(weights, 1, kind=c_ptrdiff_t)) /= (size(((weights / btmp1_) * size(weights)), 1, kind=c_ptrdiff_t))) then
-              call quickr_set_error_msg("reassignment must preserve the shape of `weights`")
-              return
-            end if
             weights = ((weights / btmp1_) * size(weights))
           end block
         end if

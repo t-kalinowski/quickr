@@ -137,3 +137,86 @@ test_that("reassignment between scalar and array shapes is refused", {
     fixed = TRUE
   )
 })
+
+test_that("scalar arithmetic and fixed-shape copies retain input dimensions", {
+  fn <- function(x) {
+    declare(type(x = double(n)))
+    y <- x * 2
+    y <- y / 2
+    y + x
+  }
+
+  expect_quick_identical(fn, c(1, 2, 3))
+
+  # Shape-preserving expressions must not recheck equality with their source.
+  # The current nonempty policy still needs its separate runtime check.
+  code <- as.character(r2f(fn))
+  expect_false(grepl("/=", code, fixed = TRUE))
+  expect_true(grepl("== 0", code, fixed = TRUE))
+})
+
+test_that("full columns retain wrapper-validated dimension equality", {
+  fn <- function(x, y) {
+    declare(type(x = double(n, m)), type(y = double(n, m)))
+    total <- 0
+    for (i in seq_len(ncol(x))) {
+      total <- total + sum(x[, i] * y[, i])
+    }
+    total
+  }
+
+  x <- matrix(as.double(1:6), 2, 3)
+  y <- matrix(as.double(6:1), 2, 3)
+  expect_quick_identical(fn, list(x, y))
+  expect_false(grepl("/=", as.character(r2f(fn)), fixed = TRUE))
+})
+
+test_that("input shape proofs survive scalar dimension rebinding", {
+  fn <- function(n, x, y) {
+    declare(type(n = integer(1)), type(x = double(n)), type(y = double(n)))
+    copy <- x
+    n <- n + 1L
+    total <- sum(copy + y)
+    total + as.double(n)
+  }
+
+  expect_quick_identical(fn, list(3L, c(1, 2, 3), c(4, 5, 6)))
+})
+
+test_that("independent inputs and deferred local resizes keep shape checks", {
+  independent <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    (x * 2) + y
+  }
+  deferred <- function(x) {
+    declare(type(x = double(n)), type(copy = double(NA)))
+    copy <- x
+    copy <- x[1:2]
+    sum(copy + x)
+  }
+
+  qindependent <- quick(independent)
+  expect_identical(qindependent(c(1, 2), c(3, 4)), c(5, 8))
+  expect_error(qindependent(c(1, 2), c(3, 4, 5)), "equal lengths")
+  expect_quick_identical(deferred, c(1, 2))
+  expect_error(quick(deferred)(c(1, 2, 3)), "equal lengths")
+})
+
+test_that("captured copies and shadowed dimensions remain conservative", {
+  fn <- function(n, x, local_n) {
+    declare(
+      type(n = integer(1)),
+      type(x = double(n)),
+      type(local_n = integer(1))
+    )
+    copy <- x
+    f <- function(n) {
+      y <- numeric(n)
+      sum(copy + y)
+    }
+    f(local_n)
+  }
+
+  expect_quick_identical(fn, list(3L, c(1, 2, 3), 3L))
+  expect_error(quick(fn)(3L, c(1, 2, 3), 2L), "equal lengths")
+})

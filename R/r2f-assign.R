@@ -189,7 +189,11 @@ register_r2f_handler(
         )
       }
       src <- value@value
-      var <- if (value@writes_to_dest) src else Variable(src@mode, src@dims)
+      var <- if (value@writes_to_dest) {
+        src
+      } else {
+        Variable(src@mode, src@dims, input_shape = src@input_shape)
+      }
       if (
         inherits(value, Fortran) &&
           inherits(value@value, Variable) &&

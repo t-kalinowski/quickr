@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- Shape-preserving arithmetic, full-axis slices, and fixed-shape local copies
+  retain input dimension proofs during translation. This removes equality checks
+  already implied by the input declarations. Independent dynamic shapes and
+  captured storage keep their runtime checks.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
