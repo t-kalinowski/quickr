@@ -53,20 +53,44 @@ r2f_expression_is_pure <- function(e, scope) {
   all(vapply(as.list(e)[-1L], r2f_expression_is_pure, logical(1L), scope))
 }
 
-ifelse_branch_shape_is_known <- function(branch, mask) {
+# Booleanizing a bind(c) logical preserves its storage shape. Use that storage
+# when proving dimensions, before the selector becomes a temporary array.
+ifelse_shape_operand <- function(x) {
+  if (isTRUE(x@logical_booleanized) && !is.null(x@value@name)) {
+    Fortran(x@value@name, x@value)
+  } else {
+    x
+  }
+}
+
+ifelse_branch_shape_is_known <- function(branch, mask, scope) {
   if (
     passes_as_scalar(branch@value) ||
       branch@value@rank != mask@value@rank
   ) {
     return(TRUE)
   }
+  branch <- ifelse_shape_operand(branch)
+  mask <- ifelse_shape_operand(mask)
   all(vapply(
     seq_len(mask@value@rank),
     function(axis) {
-      !check_equal_dims(
-        dim_or_one(mask, axis),
-        dim_or_one(branch, axis)
-      )$unknown
+      mask_dim <- dim_or_one(mask, axis)
+      branch_dim <- dim_or_one(branch, axis)
+      if (!check_equal_dims(mask_dim, branch_dim)$unknown) {
+        return(TRUE)
+      }
+      if (
+        identical(
+          dimension_guard_expr(mask_dim, mask, axis),
+          dimension_guard_expr(branch_dim, branch, axis)
+        )
+      ) {
+        return(TRUE)
+      }
+      mask_input <- input_dimension(mask_dim, mask, axis, scope)
+      branch_input <- input_dimension(branch_dim, branch, axis, scope)
+      !is.null(mask_input) && identical(mask_input, branch_input)
     },
     logical(1L)
   ))
@@ -87,6 +111,8 @@ check_ifelse_branch_shape <- function(branch, mask, hoist, scope) {
   if (branch@value@rank != mask@value@rank) {
     stop(ifelse_branch_shape_msg, call. = FALSE)
   }
+  branch <- ifelse_shape_operand(branch)
+  mask <- ifelse_shape_operand(mask)
   for (axis in seq_len(mask@value@rank)) {
     guard_conformable_dims(
       dim_or_one(branch, axis),
@@ -115,22 +141,6 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     ...,
     hoist = hoist
   )[[1L]]
-  mask_code <- trimws(as.character(mask))
-  # Known limitation: a branch can mutate a named mask or its symbolic
-  # extents through a local closure. Freezing both before branch evaluation
-  # requires broader ifelse() allocation changes and remains deferred.
-  if (is.null(mask@value@name) || !identical(mask_code, mask@value@name)) {
-    # Keep the selector in the parent statement block. Branch captures share
-    # this declaration scope, so their temporary names cannot shadow it.
-    mask_tmp <- hoist$declare_tmp(
-      mode = mask@value@mode,
-      dims = mask@value@dims,
-      logical_as_int = logical_as_int(mask@value) &&
-        !isTRUE(mask@logical_booleanized)
-    )
-    hoist$emit(glue("{mask_tmp@name} = {mask}"))
-    mask <- Fortran(mask_tmp@name, mask_tmp)
-  }
 
   # Known limitation: static diagnostics in both branches are checked during
   # lowering, even when R would skip a branch. Deferring these errors is separate
@@ -138,17 +148,11 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
   lower_branch <- function(arg) {
     sub <- hoist$capture_block()
     branch <- r2f(arg, scope, ..., hoist = sub)
-    if (
-      !passes_as_scalar(mask@value) &&
-        (!r2f_expression_is_pure(arg, scope) ||
-          !ifelse_branch_shape_is_known(branch, mask))
-    ) {
-      # WHERE may evaluate only selected RHS elements. Materialize a branch
-      # when full evaluation is observable or a runtime shape guard needs its
-      # actual extent.
-      branch <- hoist_unless_name(branch, sub)
-    }
-    list(value = branch, hoist = sub)
+    list(
+      value = branch,
+      hoist = sub,
+      pure = r2f_expression_is_pure(arg, scope)
+    )
   }
 
   yes <- lower_branch(args[[2L]])
@@ -168,6 +172,67 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
       call. = FALSE
     )
   }
+
+  # Pure branches with proven shapes need no conditional work. Keeping the
+  # MERGE expression inline lets the enclosing assignment write its destination
+  # directly, without mask/result allocations or ANY/WHERE passes. An empty
+  # hoist also excludes arithmetic that can signal a runtime shape error.
+  mergeable <- identical(mask@value@mode, "logical") &&
+    all(vapply(
+      list(yes, no),
+      function(branch) {
+        branch$pure &&
+          branch$hoist$is_empty() &&
+          ifelse_branch_shape_is_known(branch$value, mask, scope)
+      },
+      logical(1L)
+    ))
+  if (mergeable) {
+    check_ifelse_branch_shape(tsource, mask, yes$hoist, scope)
+    check_ifelse_branch_shape(fsource, mask, no$hoist, scope)
+    promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
+    .[tsource, fsource] <- promoted$args
+    mask <- booleanize_logical_as_int(mask)
+    return(Fortran(
+      glue("merge({tsource}, {fsource}, {mask})"),
+      Variable(promoted$mode, mask@value@dims)
+    ))
+  }
+
+  mask_code <- trimws(as.character(mask))
+  # Known limitation: a branch can mutate a named mask or its symbolic
+  # extents through a local closure. Freezing both before branch evaluation
+  # requires broader ifelse() allocation changes and remains deferred.
+  if (is.null(mask@value@name) || !identical(mask_code, mask@value@name)) {
+    # Keep the selector in the parent statement block. Nested block hoists
+    # share its temporary-name counter, including branches already lowered.
+    mask_tmp <- hoist$declare_tmp(
+      mode = mask@value@mode,
+      dims = mask@value@dims,
+      logical_as_int = logical_as_int(mask@value) &&
+        !isTRUE(mask@logical_booleanized)
+    )
+    hoist$emit(glue("{mask_tmp@name} = {mask}"))
+    mask <- Fortran(mask_tmp@name, mask_tmp)
+  }
+
+  materialize_branch <- function(branch) {
+    if (
+      !passes_as_scalar(mask@value) &&
+        (!branch$pure ||
+          !ifelse_branch_shape_is_known(branch$value, mask, scope))
+    ) {
+      # WHERE may evaluate only selected RHS elements. Materialize a branch
+      # when full evaluation is observable or a runtime shape guard needs its
+      # actual extent.
+      branch$value <- hoist_unless_name(branch$value, branch$hoist)
+    }
+    branch
+  }
+  yes <- materialize_branch(yes)
+  no <- materialize_branch(no)
+  tsource <- yes$value
+  fsource <- no$value
 
   # Checked before casts so guards splice the bare operand text. Keep each
   # guard with its branch because an unselected branch is not evaluated by R.
@@ -204,6 +269,9 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
       hoist$emit(indent(branch_hoists[[i]]$render(assignment)))
       hoist$emit("end if")
     }
+    # Neither branch runs for an empty selector. The result still needs valid
+    # zero-length storage before an enclosing expression or assignment uses it.
+    hoist$emit(hoist$allocation_guard_at_point(result))
   }
 
   Fortran(result@name, result)

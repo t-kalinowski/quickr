@@ -65,6 +65,77 @@ test_that("ifelse keeps pure known-shape branches inline", {
   )
 })
 
+test_that("ifelse reuses shared input shapes without selection temporaries", {
+  fn <- function(test, yes, no) {
+    declare(
+      type(test = logical(n)),
+      type(yes = double(n)),
+      type(no = double(n))
+    )
+    ifelse(test, yes, no)
+  }
+
+  expect_quick_identical(
+    fn,
+    list(c(TRUE, FALSE, TRUE), c(1, 2, 3), c(4, 5, 6)),
+    list(rep(TRUE, 3), c(1, 2, 3), c(4, 5, 6)),
+    list(rep(FALSE, 3), c(1, 2, 3), c(4, 5, 6)),
+    list(FALSE, 1, 2)
+  )
+
+  # This is a generated-code performance contract: selection must remain one
+  # expression, without native allocations or additional passes over the mask.
+  code <- as.character(r2f(fn))
+  expect_true(grepl("merge(", code, fixed = TRUE))
+  expect_false(grepl("allocate(", code, fixed = TRUE))
+  expect_false(grepl("any(", code, fixed = TRUE))
+  expect_false(grepl("where (", code, fixed = TRUE))
+})
+
+test_that("inline ifelse preserves computed selectors, modes, and matrix shape", {
+  computed <- function(x) {
+    declare(type(x = double(3)))
+    ifelse(x > 0, x, -x)
+  }
+  matrix_result <- function(test, yes) {
+    declare(type(test = logical(n, m)), type(yes = integer(n, m)))
+    ifelse(test, yes, 0.5)
+  }
+  logical_result <- function(test, yes) {
+    declare(type(test = logical(n)), type(yes = logical(n)))
+    ifelse(test, yes, FALSE)
+  }
+
+  expect_quick_identical(computed, c(-3, 0, 4))
+  expect_quick_identical(
+    matrix_result,
+    list(
+      matrix(c(TRUE, FALSE, TRUE, FALSE, TRUE, FALSE), 2, 3),
+      matrix(1:6, 2, 3)
+    )
+  )
+  expect_quick_identical(
+    logical_result,
+    list(c(TRUE, FALSE, TRUE), c(TRUE, TRUE, FALSE))
+  )
+})
+
+test_that("inline ifelse evaluates an effectful selector exactly once", {
+  fn <- function() {
+    ifelse(runif(3) > 0.5, 1, -1)
+  }
+  qfn <- quick(fn)
+
+  set.seed(927)
+  expected <- fn()
+  expected_seed <- .Random.seed
+
+  set.seed(927)
+  actual <- qfn()
+  expect_identical(actual, expected)
+  expect_identical(.Random.seed, expected_seed)
+})
+
 test_that("ifelse with scalar test and array branch errors cleanly", {
   fn <- function(c, a) {
     declare(type(c = logical(1)), type(a = double(n)))
@@ -116,6 +187,9 @@ test_that("ifelse guards unknown branch lengths at runtime", {
 
   expect_error(qfn(cc, c(10, 20), b), "match the shape of `test`")
   expect_error(qfn(cc, a, c(1, 2, 3, 4)), "match the shape of `test`")
+  # A pure branch with unproven shape must still be checked only when selected.
+  expect_identical(qfn(rep(FALSE, 3), c(10, 20), b), b)
+  expect_identical(qfn(rep(TRUE, 3), a, c(1, 2, 3, 4)), a)
 })
 
 test_that("ifelse evaluates earlier branches before later shape errors", {
@@ -244,4 +318,20 @@ test_that("ifelse accepts matching empty inputs", {
   expect_no_error(r2f(static))
   qdynamic <- quick(dynamic)
   expect_identical(qdynamic(logical(), numeric(), numeric()), numeric())
+})
+
+test_that("empty ifelse results have valid storage for enclosing reductions", {
+  fn <- function(test, yes, no) {
+    declare(
+      type(test = logical(NA)),
+      type(yes = double(NA)),
+      type(no = double(NA))
+    )
+    as.double(sum(ifelse(test, yes, no)))
+  }
+  expect_quick_identical(
+    fn,
+    list(logical(), numeric(), numeric()),
+    list(c(TRUE, FALSE, TRUE), c(1, 2, 3), c(4, 5, 6))
+  )
 })

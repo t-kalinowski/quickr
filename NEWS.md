@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- `ifelse()` with pure branches and proven matching shapes now lowers to an
+  inline selection, avoiding temporary mask/result arrays and extra scans.
+  Branches with effects or runtime shape checks retain conditional evaluation.
+  Empty selectors now leave valid empty result storage for enclosing expressions.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.

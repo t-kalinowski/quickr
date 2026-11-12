@@ -30,16 +30,8 @@
       
         out = 0.0_c_double
         block
-          logical :: btmp1_ ! logical
-          real(c_double) :: btmp2_
       
-          btmp1_ = (pred(2_c_int, 3_c_int) /= 0)
-          if (btmp1_) then
-            btmp2_ = 1.0_c_double
-          else
-            btmp2_ = 0.0_c_double
-          end if
-          out = btmp2_
+          out = merge(1.0_c_double, 0.0_c_double, (pred(2_c_int, 3_c_int) /= 0))
         end block
       end subroutine
     Code
@@ -118,17 +110,9 @@
         out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
-          logical :: btmp2_ ! logical
-          real(c_double) :: btmp3_
       
           btmp1_ = (((((x > 0.0_c_double)))))
-          btmp2_ = btmp1_(2_c_int, 3_c_int)
-          if (btmp2_) then
-            btmp3_ = 1.0_c_double
-          else
-            btmp3_ = 0.0_c_double
-          end if
-          out = btmp3_
+          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
         end block
       end subroutine
     Code
@@ -207,17 +191,9 @@
         out = 0.0_c_double
         block
           logical :: btmp1_(3, 4) ! logical
-          logical :: btmp2_ ! logical
-          real(c_double) :: btmp3_
       
           btmp1_ = (((((x > 0.0_c_double)) .and. ((x < 0.5_c_double)))))
-          btmp2_ = btmp1_(2_c_int, 3_c_int)
-          if (btmp2_) then
-            btmp3_ = 1.0_c_double
-          else
-            btmp3_ = 0.0_c_double
-          end if
-          out = btmp3_
+          out = merge(1.0_c_double, 0.0_c_double, btmp1_(2_c_int, 3_c_int))
         end block
       end subroutine
     Code
