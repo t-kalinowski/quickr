@@ -306,8 +306,10 @@ Empty `which.min()` and `which.max()` inputs also differ. R returns
 `integer(0)`; quickr returns the scalar index produced by Fortran's
 `minloc()` or `maxloc()`. Do not pass empty inputs to these reductions.
 
-`min()`, `max()`, `sum()`, and `prod()` accept only positional data arguments.
-Named arguments, including `na.rm`, are compile errors.
+`min()`, `max()`, `sum()`, `prod()`, `any()`, and `all()` accept named data
+arguments and an explicit `na.rm = FALSE`. The latter is the default and
+adds no runtime work. Other values of `na.rm` are compile errors; quickr
+does not support removing missing values.
 
 ### Whole-valued real exponents can differ for negative bases {#real-exponents}
 

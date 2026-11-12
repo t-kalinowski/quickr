@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Reductions accept named data arguments and an explicit `na.rm = FALSE`.
+  Unsupported values of `na.rm` still report a compile-time error. Empty
+  `sum()` and `prod()` calls return their usual identities.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
