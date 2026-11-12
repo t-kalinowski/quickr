@@ -13,7 +13,7 @@ r2f_handlers[["+"]] <- function(args, scope, ..., hoist = NULL) {
     x <- r2f(args[[1L]], scope, ..., hoist = hoist)
     # R: +TRUE is 1L
     x <- cast_to_mode(x, arith_join_mode(x), "unary +")
-    Fortran(glue("(+{x})"), Variable(x@value@mode, x@value@dims))
+    Fortran(glue("(+{x})"), infer_result_variable(x@value))
   } else {
     .[left, right] <- lower_elementwise_operands(
       args,
@@ -36,7 +36,7 @@ r2f_handlers[["-"]] <- function(args, scope, ..., hoist = NULL) {
     x <- r2f(args[[1L]], scope, ..., hoist = hoist)
     # R: -TRUE is -1L
     x <- cast_to_mode(x, arith_join_mode(x), "unary -")
-    Fortran(glue("(-{x})"), Variable(x@value@mode, x@value@dims))
+    Fortran(glue("(-{x})"), infer_result_variable(x@value))
   } else {
     .[left, right] <- lower_elementwise_operands(
       args,
