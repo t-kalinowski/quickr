@@ -290,6 +290,31 @@ test_that("higher-rank elementwise arrays guard every axis", {
   )
 })
 
+test_that("empty arrays still require matching ranks", {
+  incompatible <- function(a, b) {
+    declare(type(a = double(0, 2, 3)), type(b = double(0, 6)))
+    a + b
+  }
+  expect_error(quick(incompatible), "matching dimensions", fixed = TRUE)
+
+  lazy <- function(flag, a, b) {
+    declare(
+      type(flag = logical(1)),
+      type(a = double(NA, NA, NA)),
+      type(b = double(NA, NA))
+    )
+    flag && (sum(a + b) > 0)
+  }
+  qlazy <- quick(lazy)
+  for (n in c(0L, 1L)) {
+    a <- array(0, c(n, 2, 3))
+    b <- matrix(0, n, 6)
+    expect_identical(qlazy(FALSE, a, b), lazy(FALSE, a, b))
+    expect_error(lazy(TRUE, a, b), "non-conformable arrays", fixed = TRUE)
+    expect_error(qlazy(TRUE, a, b), "matching dimensions", fixed = TRUE)
+  }
+})
+
 test_that("vector-matrix ops with unknown dims guard instead of rejecting", {
   fn <- function(vec, mat) {
     declare(type(vec = double(n)), type(mat = double(m, k)))

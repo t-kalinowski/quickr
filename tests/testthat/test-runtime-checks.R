@@ -83,6 +83,46 @@ test_that("sapply evaluates pure closures after guarded expressions", {
   expect_error(qfn(c(1, 2), c(3, 4, 5)), "equal lengths", fixed = TRUE)
 })
 
+test_that("replacement values precede guards in computed indices", {
+  local <- function(i, j) {
+    declare(type(i = integer(NA)), type(j = integer(NA)))
+    out <- c(0, 0, 0)
+    out[i + j] <- runif(1L)
+    out
+  }
+  host <- function(i, j) {
+    declare(type(i = integer(NA)), type(j = integer(NA)))
+    out <- c(0, 0, 0)
+    replace <- function() {
+      out[i + j] <<- runif(1L)
+      NULL
+    }
+    replace()
+    out
+  }
+
+  withr::local_seed(151)
+  for (fn in list(local, host)) {
+    qfn <- quick(fn)
+    for (indices in list(integer(), c(1L, 2L))) {
+      offsets <- integer(length(indices))
+      set.seed(151)
+      expected <- fn(indices, offsets)
+      expected_seed <- .Random.seed
+      set.seed(151)
+      expect_identical(qfn(indices, offsets), expected)
+      expect_identical(.Random.seed, expected_seed)
+    }
+
+    set.seed(151)
+    runif(1L)
+    expected_seed <- .Random.seed
+    set.seed(151)
+    expect_error(qfn(c(1L, 2L), 0L), "equal lengths", fixed = TRUE)
+    expect_identical(.Random.seed, expected_seed)
+  }
+})
+
 test_that("nested closures still propagate errors from their callees", {
   fn <- function(x) {
     declare(type(x = double(NA)))
