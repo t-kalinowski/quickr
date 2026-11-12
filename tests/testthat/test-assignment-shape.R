@@ -224,3 +224,39 @@ test_that("deferred constructor fills reject negative requested extents", {
   qfn <- quick(fn)
   expect_error(qfn(-1L), "invalid 'length' argument", fixed = TRUE)
 })
+
+test_that("deferred fills reject missing requested extents", {
+  fn <- function() {
+    declare(type(out = double(NA)))
+    out <- numeric(NA_integer_)
+    sum(out)
+  }
+  expect_error(fn())
+  expect_error(
+    quick(fn),
+    "a deferred local fill requires known result extents",
+    fixed = TRUE
+  )
+})
+
+test_that("deferred fills distinguish input extents from unresolved local extents", {
+  from_input <- function(x) {
+    declare(type(x = double(NA)), type(out = double(NA)))
+    out <- numeric(length(x))
+    sum(out)
+  }
+  expect_quick_identical(from_input, c(1, 2, 3), numeric())
+
+  from_local <- function() {
+    declare(type(out = double(NA, NA)))
+    out <- matrix(1, 2, 3)
+    out <- matrix(0, nrow(out), ncol(out))
+    sum(out)
+  }
+  expect_identical(from_local(), 0)
+  expect_error(
+    quick(from_local),
+    "a deferred local fill requires known result extents",
+    fixed = TRUE
+  )
+})
