@@ -59,6 +59,31 @@ assignment_is_local_closure_call <- function(rhs, scope) {
     inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
 }
 
+# Ordinary writers rely on storage provided by the subroutine prologue.
+# Record this independently of point allocation so a later conditional
+# BLAS/LAPACK write cannot suppress an earlier initializer's allocation.
+require_local_assignment_allocation <- function(name, scope) {
+  var <- get0(name, scope, inherits = FALSE)
+  if (
+    !identical(scope_kind(scope), "subroutine") ||
+      !inherits(var, Variable) ||
+      var@is_external
+  ) {
+    return(invisible())
+  }
+  ordinary_assignments <- scope_get(
+    scope,
+    "ordinary_local_assignment_names",
+    character()
+  )
+  scope_set(
+    scope,
+    "ordinary_local_assignment_names",
+    unique(c(ordinary_assignments, var@name))
+  )
+  invisible()
+}
+
 register_r2f_handler(
   "<-",
   function(args, scope, ..., hoist = NULL) {
@@ -114,28 +139,30 @@ register_r2f_handler(
 
     # Local closure call: `x <- f(...)` where `f <- function(...) ...` in scope.
     if (assignment_is_local_closure_call(rhs, scope)) {
-      return(compile_closure_call_assignment(
+      out <- compile_closure_call_assignment(
         name,
         rhs,
         scope,
         ...,
         hoist = hoist
-      ))
+      )
+      require_local_assignment_allocation(name, scope)
+      return(out)
     }
 
     # Targeted higher-order lowering: `out <- sapply(seq_along(x), f)`
     if (is_sapply_call(rhs)) {
       parallel <- take_pending_parallel(scope)
-      return(
-        compile_sapply_assignment(
-          name,
-          rhs,
-          scope,
-          ...,
-          hoist = hoist,
-          parallel = parallel
-        )
+      out <- compile_sapply_assignment(
+        name,
+        rhs,
+        scope,
+        ...,
+        hoist = hoist,
+        parallel = parallel
       )
+      require_local_assignment_allocation(name, scope)
+      return(out)
     }
 
     rhs_unwrapped <- unwrap_parens(rhs)
@@ -241,6 +268,7 @@ register_r2f_handler(
     if (inherits(value, Fortran) && isTRUE(value@writes_to_dest)) {
       Fortran("")
     } else {
+      require_local_assignment_allocation(name, scope)
       Fortran(glue("{var@name} = {value}"))
     }
   }
