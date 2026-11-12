@@ -6,6 +6,10 @@
   Compound arguments that read a captured binding modified by the callee now
   report an error instead of using a value evaluated before R would force it.
 
+- Locals shared by conditional matrix operations and ordinary assignments
+  retain their allocation. Skipping a `solve()` branch no longer leaves a
+  later constructor assignment reading or writing unallocated storage.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
