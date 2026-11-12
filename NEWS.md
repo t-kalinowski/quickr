@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- BLAS operations can write directly into an existing destination with symbolic
+  dimensions. They check its stored extents before writing, avoiding a temporary
+  result and copy. Deferred-shape destinations still resize through assignment.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.

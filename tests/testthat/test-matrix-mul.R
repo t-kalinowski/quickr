@@ -537,12 +537,9 @@ test_that("crossprod rejects incompatible destination dimensions", {
   )
 })
 
-test_that("BLAS output routes through a temp when the dest shape is unproven", {
-  # A pre-declared destination whose symbolic dims are not *proven* equal
-  # to the BLAS result shape must not be written directly (that passed the
-  # wrong leading dimensions to dsyrk and could corrupt or overflow the
-  # output). crossprod(x) here is 3x3; the (m, m) dest gets a runtime
-  # shape guard instead of a silent direct write.
+test_that("BLAS output checks an unproven destination shape before writing", {
+  # crossprod(x) is 3x3. Check the (m, m) destination's actual shape before
+  # writing so neither a smaller nor a larger destination reaches dsyrk.
   fn <- function(x, m) {
     declare(type(x = double(n, 3)), type(m = integer(1)))
     out <- matrix(0, m, m)
@@ -778,4 +775,110 @@ test_that("forwardsolve and backsolve match R", {
   expect_quick_equal(forward_upper, list(U = U, b = b_vec))
   expect_quick_equal(forward_transpose, list(L = L, b = b_vec))
   expect_quick_equal(back_lower, list(L = L, b = b_vec))
+})
+
+test_that("repeated BLAS operations reuse symbolic output storage", {
+  fn <- function(x, steps) {
+    declare(type(x = double(n, k)), type(steps = integer(1)))
+    out <- matrix(0, ncol(x), ncol(x))
+    for (i in seq_len(steps)) {
+      out <- crossprod(x)
+    }
+    out
+  }
+
+  x <- matrix(as.double(1:6), 2, 3)
+  expect_quick_equal(fn, list(x, 0L), list(x, 1L), list(x, 3L))
+
+  # The returned destination is allocated by the C wrapper. Repeated BLAS
+  # writes must not allocate a native result array and copy it into `out`.
+  code <- as.character(r2f(fn))
+  expect_false(grepl("allocate(", code, fixed = TRUE))
+})
+
+test_that("symbolic output guards run before BLAS writes", {
+  fn <- function(x, m) {
+    declare(type(x = double(n, k)), type(m = integer(1)))
+    out <- matrix(0, m, m)
+    out <- crossprod(x)
+    out
+  }
+
+  x <- matrix(as.double(1:6), 2, 3)
+  qfn <- quick(fn)
+  expect_equal(qfn(x, 3L), fn(x, 3L))
+  for (m in c(2L, 4L)) {
+    expect_error(
+      qfn(x, m),
+      "reassignment must preserve the shape of `out`",
+      fixed = TRUE
+    )
+  }
+
+  code <- as.character(r2f(fn))
+  expect_lt(
+    regexpr(
+      "reassignment must preserve the shape of `out`",
+      code,
+      fixed = TRUE
+    )[[1L]],
+    regexpr("call dsyrk(", code, fixed = TRUE)[[1L]]
+  )
+})
+
+test_that("BLAS reuse checks stored extents after dimension bindings change", {
+  fn <- function(x, m) {
+    declare(type(x = double(n, k)), type(m = integer(1)))
+    out <- matrix(0, m, m)
+    m <- m + 1L
+    out <- crossprod(x)
+    sum(out)
+  }
+
+  x <- matrix(as.double(1:6), 2, 3)
+  expect_quick_equal(fn, list(x, 3L))
+  expect_error(
+    quick(fn)(x, 2L),
+    "reassignment must preserve the shape of `out`",
+    fixed = TRUE
+  )
+})
+
+test_that("BLAS reuse allocates locals after untaken earlier BLAS writes", {
+  fn <- function(a, b, flag) {
+    declare(
+      type(a = double(n, n)),
+      type(b = double(n, n)),
+      type(flag = logical(1))
+    )
+    if (flag) {
+      z <- solve(a, b)
+    }
+    z <- a %*% b
+    sum(z)
+  }
+
+  a <- diag(c(2, 3))
+  b <- matrix(as.double(1:4), 2, 2)
+  expect_quick_equal(fn, list(a, b, FALSE), list(a, b, TRUE))
+})
+
+test_that("symbolic BLAS outputs preserve alias and deferred-shape behavior", {
+  alias <- function(x) {
+    declare(type(x = double(n, n)))
+    x <- crossprod(x)
+    x
+  }
+  deferred <- function(x) {
+    declare(type(x = double(n, k)), type(out = double(NA, NA)))
+    out <- x
+    out <- crossprod(x)
+    sum(out)
+  }
+
+  x <- matrix(as.double(1:4), 2, 2)
+  saved <- x + 0
+  expect_equal(quick(alias)(x), alias(x))
+  expect_identical(x, saved)
+  expect_quick_equal(deferred, matrix(as.double(1:6), 2, 3))
 })

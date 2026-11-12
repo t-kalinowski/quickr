@@ -266,36 +266,49 @@ assert_nonempty_blas_output <- function(
   invisible(TRUE)
 }
 
-# TRUE when the destination's declared shape is *proven* to match the
-# expected output shape: rank equal and every extent proven equal
-# (check_equal_dims()). Anything unproven -- symbolic dims that merely
-# fail to be refuted, NA dims -- is FALSE: the emitter then routes
-# through a hoisted temporary and the assignment shape check guards (or
-# refuses) the copy. Accepting an unproven dest passed wrong leading
-# dimensions to the BLAS call and could write past the allocation.
-dest_dims_proven_equal <- function(dest, expected_dims) {
-  if (is.null(expected_dims)) {
-    return(FALSE)
+# Checks required before BLAS writes a fixed-shape destination. NULL keeps the
+# temporary-and-copy path, including deferred locals which may need to resize.
+# Symbolic declarations alone do not prove equality: compare the destination's
+# stored extents with the result dimensions used by the BLAS call.
+blas_output_shape_checks <- function(dest, expected_dims, scope) {
+  if (
+    is.null(dest) ||
+      is.null(dest@name) ||
+      is.null(expected_dims) ||
+      dest@rank != length(expected_dims) ||
+      (!dest@is_external && has_self_size_dims(dest)) ||
+      any(vapply(dest@dims, is_scalar_na, logical(1L)))
+  ) {
+    return(NULL)
   }
-  if (dest@rank != length(expected_dims)) {
-    return(FALSE)
+  checks <- character()
+  for (axis in seq_along(expected_dims)) {
+    expected <- expected_dims[[axis]]
+    verdict <- check_equal_dims(dest@dims[[axis]], expected)
+    if (
+      !verdict$ok ||
+        is_scalar_na(expected) ||
+        !dim_guard_spellable(expected, scope)
+    ) {
+      return(NULL)
+    }
+    if (!verdict$unknown) {
+      next
+    }
+    actual <- dimension_guard_expr(dest@dims[[axis]], dest@name, axis)
+    expected <- dims2f(list(expected), scope)
+    if (!identical(as.character(actual), as.character(expected))) {
+      checks <- c(checks, glue("({actual}) /= ({expected})"))
+    }
   }
-  all(vapply(
-    seq_along(expected_dims),
-    function(i) {
-      verdict <- check_equal_dims(dest@dims[[i]], expected_dims[[i]])
-      verdict$ok && !verdict$unknown
-    },
-    logical(1)
-  ))
+  unique(checks)
 }
 
 # Determine if output can safely write into dest without aliasing.
 can_use_output <- function(
   dest,
   input_names = character(),
-  expected_dims = NULL,
-  context,
+  shape_checks,
   allow_alias = character(),
   mode = "double",
   logical_is_c_int = FALSE
@@ -313,7 +326,7 @@ can_use_output <- function(
   if (!identical(logical_as_int(dest), logical_is_c_int)) {
     return(FALSE)
   }
-  if (!dest_dims_proven_equal(dest, expected_dims)) {
+  if (is.null(shape_checks)) {
     return(FALSE)
   }
   output_name <- dest@name
@@ -399,6 +412,11 @@ resolve_blas_output <- function(
     dest@logical_as_int <- logical_is_c_int ||
       (identical(mode, "logical") && dest@is_return)
   }
+  shape_checks <- if (new_dest) {
+    character()
+  } else {
+    blas_output_shape_checks(dest, expected_dims, scope)
+  }
   if (
     # A fresh destination has exactly the inferred shape and cannot alias an
     # input. Reused bindings still need the shape and alias checks.
@@ -406,15 +424,33 @@ resolve_blas_output <- function(
       can_use_output(
         dest,
         input_names = input_names,
-        expected_dims = expected_dims,
-        context = context,
+        shape_checks = shape_checks,
         allow_alias = allow_alias,
         mode = mode,
         logical_is_c_int = logical_is_c_int
       )
   ) {
-    if (at_point) {
+    # Keep existing prologue allocations when enabling symbolic reuse. A local
+    # already allocated at BLAS statements may still be unallocated after an
+    # untaken branch; allocate it before asking SIZE() for its stored extents.
+    point_allocated <- scope_get(
+      scope,
+      "point_allocated_local_names",
+      character()
+    )
+    if ((at_point && !length(shape_checks)) || dest@name %in% point_allocated) {
       allocate_reusable_local_output_at_point(dest, scope, hoist)
+    }
+    for (condition in shape_checks) {
+      emit_quickr_error_if(
+        condition,
+        sprintf(
+          "reassignment must preserve the shape of `%s`",
+          dest@r_name %||% dest@name
+        ),
+        hoist,
+        scope
+      )
     }
     return(list(var = dest, name = dest@name, use_dest = TRUE))
   }
