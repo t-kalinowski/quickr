@@ -1,65 +1,76 @@
+# Working on quickr
 
-This project is an R package that transpiles R functions to Fortran.
+quickr compiles annotated R functions to Fortran. Users spend time compiling and declare some facts about their data so calls to the resulting function can be fast.
 
-- To run the full test suite:
+## Design
+
+Keep recursive AST translation understandable one handler at a time. Prefer the existing R AST, `eval()` with controlled environments, and small helpers that name real responsibilities. Add an analysis pass only when a concrete correctness or performance problem needs one.
+
+Preserve convenient declaration syntax: `NA` axes, fixed dimensions, shared dimension names, and supported size expressions. Unknown extent does not mean unknown rank or element type. `NA` in a shape declaration is distinct from missing values in the data.
+
+Within the supported subset and for inputs satisfying declarations, compiled functions should agree with R. Document intentional differences; do not silently turn a compiler limitation into a new public restriction.
+
+Do work at compilation time when possible. Validate input contracts once at the C boundary. Emit checks inside the function only for facts that can change there or cannot be established earlier. Reject contradictions known during translation. Generated code may rely on documented input and indexing preconditions; do not add general runtime bounds checks or data scans without an explicit behavior decision.
+
+When changing emitted code, distinguish compilation cost, wrapper cost per call, and work per loop iteration or array element. Check allocation, copying, and temporary lifetime as well as execution time.
+
+## Implementation
+
+Each handler owns its syntax and translates its operands through the common recursive path. Keep statement emission and temporary lifetime in the statement context. Make changes to enclosing scopes explicit.
+
+Preserve evaluation count and order, stored array extents, binding identity across closures, and copy-on-modify behavior. A dimension expression and an already allocated array's extent are different facts.
+
+Keep straightforward single-use code inline. Extract helpers for a shared invariant or a meaningful responsibility. Keep invariant comments with the implementation when moving code.
+
+Prefer explicit S7 properties over unchecked attributes. Keep compatibility workarounds small and link the upstream issue that makes them necessary.
+
+## Change discipline
+
+Keep a behavior-changing PR to one coherent observable change. Separate mechanical file moves and unrelated formatting from behavior changes.
+
+Start a behavior fix with a failing public regression. For an internal refactor, establish a passing public baseline before editing.
+
+Describe accepted and rejected inputs that change, with a short example. Update `NEWS.md` and the owning user documentation. Record intentional limitations beside the code; distinguish them from bugs awaiting a fix.
+
+Keep source changes proportional to the problem. A review finding should lead to a focused fix or a recorded follow-up, rather than an unrelated expansion of the PR.
+
+## Tests and performance
+
+Prefer tests that call `quick()` and execute the generated function, such as `expect_quick_identical()`. Test output values, dimensions, modes, errors, and relevant side effects. R coverage measures the compiler; it does not establish correctness of generated C or Fortran.
+
+Use narrow generated-code assertions when they protect a stated compilation or performance contract that output-value tests cannot observe, such as avoiding a full-array copy or a guard inside a loop. Avoid incidental temporary names, whitespace, and complete snapshots for these checks.
+
+For performance claims, benchmark the same inputs and toolchain before and after, with compilation separated from warmed execution. Report what was measured and what is only inferred from emitted code.
+
+Do not disable tests to get a pass. Keep compiler and platform requirements in shared test support. Preserve CRAN-enabled compile-and-call smoke coverage.
+
+Regenerate snapshots through testthat, inspect their diffs, and rerun without accepting changes. Do not hand-edit generated snapshots or `README.md`.
+
+## Validation
+
+During development, run the relevant subset:
+
+```sh
+R -q -e 'devtools::test(filter = "regex")'
+```
+
+After a large refactor, run the full suite:
+
 ```sh
 R -q -e 'devtools::test()'
 ```
 
-- To run the full `R CMD check` locally (this takes a long time):
+Before opening a PR:
+
 ```sh
+air format .
 R -q -e 'rcmdcheck::rcmdcheck(error_on = "warning")'
 ```
 
-- To run a single test file:
-```sh
-R -q -e 'devtools::test_active_file("tests/testthat/test-dims2f.R")'
-```
+Regenerate README changes with:
 
-- To run a subset of test files:
-```sh
-R -q -e 'devtools::test(filter = "regex")'
-```
-filter arg behavior: If not `NULL`, only tests with file names matching this regular expression will be executed. Matching is performed on the file name after it's stripped of "test-" and ".R".
-
-- To run full coverage and save zero-coverage JSON output:
-```sh
-R -q -e 'covr::package_coverage() -> cov; saveRDS(cov, "cov.rds"); z <- covr::zero_coverage(cov); jsonlite::toJSON(z, pretty = TRUE)'
-```
-
-- To see the generated C and Fortran code for an R function, use `r2f()`:
-```sh
-R --no-save -q <<'EOF'
-devtools::load_all()
-r2f(function(x) {
-  declare(type(x = double(NA)))
-  x + 1
-})
-EOF
-```
-
-- When running tests and snapshots need to be updated, use this workflow:
-  - `R -q -e 'testthat::set_max_fails(Inf); devtools::test(); testthat::snapshot_accept()'`
-  - Afterwards always review diffs of updated snapshots to confirm they match expectations.
-
-- Never disable or skip tests.
-
-- When adding tests, strongly prefer tests that only excercise the public API (e.g. `expect_quick_identical()`); avoid asserting on generated Fortran/C translation strings unless explicitly asked. Avoid testing internal functions unless explicitly.
-
-- When writing tests, make sure that we test both C/Fortran code generation (typically reported accuratly by covr), as well as calling the generated function (not covered by covr). Our tests must excercise the actual generated function.
-
-- While troubleshooting and iterating towards a solution, you can run targeted single-file tests; After large refactors, always run the full test suite.
-
-- Before opening a PR, always run `rcmdcheck`.
-
-- Prefer extending S7 classes with explicit properties over attaching arbitrary unchecked attributes.
-
-- README.md must only be generated by running:
 ```sh
 R -q -e 'devtools::build_readme()'
 ```
 
-- Before wrapping up, always run:
-```sh
-air format .
-```
+Report commands actually run and any unavailable compiler or platform coverage. Respect the user's requested stopping point; review does not authorize merge or release.
