@@ -59,6 +59,42 @@ assignment_is_local_closure_call <- function(rhs, scope) {
     inherits(scope[[as.character(rhs[[1L]])]], LocalClosure)
 }
 
+# Array RHS assignments allocate deferred locals automatically in Fortran.
+# A scalar fill has only shape metadata, so allocate its requested shape
+# explicitly, retaining existing storage when the extents already match.
+allocate_deferred_fill <- function(target, value, hoist, scope) {
+  dims <- vapply(
+    value@value@dims,
+    function(dim) {
+      if (is_scalar_na(dim) || !dim_guard_spellable(dim, scope)) {
+        stop(
+          "a deferred local fill requires known result extents",
+          call. = FALSE
+        )
+      }
+      expr <- dims2f(list(dim), scope)
+      if (nzchar(expr)) expr else "1"
+    },
+    character(1L)
+  )
+  mismatches <- vapply(
+    seq_along(dims),
+    function(axis) {
+      glue("size({target@name}, {axis}, kind=c_ptrdiff_t) /= ({dims[[axis]]})")
+    },
+    character(1L)
+  )
+  condition <- paste(mismatches, collapse = " .or. ")
+  hoist$emit(glue(
+    "
+    if (allocated({target@name})) then
+      if ({condition}) deallocate({target@name})
+    end if
+    if (.not. allocated({target@name})) allocate({target@name}({str_flatten_commas(dims)}))
+    "
+  ))
+}
+
 register_r2f_handler(
   "<-",
   function(args, scope, ..., hoist = NULL) {
@@ -223,6 +259,15 @@ register_r2f_handler(
         var@dims <- value@value@dims
       }
       check_reassignment_narrowing(name, var, value@value)
+      # A length-one vector still supplies a shape for a deferred vector;
+      # its scalar ABI representation does not mean scalar rebinding here.
+      if (
+        is_deferred_local(var) &&
+          passes_as_scalar(value@value) &&
+          var@rank == value@value@rank
+      ) {
+        value@scalar_fill <- TRUE
+      }
       check_assignment_compatible(
         name,
         var,
@@ -230,6 +275,17 @@ register_r2f_handler(
         hoist = hoist,
         scope = scope
       )
+      if (is_deferred_local(var) && value@scalar_fill) {
+        # The fill can read the old array (e.g. matrix(sum(out), n, m)).
+        # Evaluate that scalar before any deallocation, without an array copy.
+        scalar <- hoist_unless_name(
+          Fortran(as.character(value), Variable(value@value@mode)),
+          hoist
+        )
+        value <- Fortran(as.character(scalar), value@value)
+        value@scalar_fill <- TRUE
+        allocate_deferred_fill(var, value, hoist, scope)
+      }
       var@modified <- TRUE
       # could probably drop this @modified property, and instead track
       # if the var populated by declare is identical at the end (e.g., perhaps by

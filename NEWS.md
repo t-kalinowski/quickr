@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Scalar-fill constructors now allocate locals declared with `NA` extents
+  before writing them, and resize those locals when the requested shape
+  changes. Matching extents reuse the existing storage.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
