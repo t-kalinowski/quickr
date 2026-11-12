@@ -2,75 +2,22 @@
 NULL
 
 validate_scalar <- function(value) {
-  if (is.null(value)) {
-    return()
-  }
-  if (length(value) != 1L) {
-    return("must be a scalar")
-  }
-  if (anyNA(value)) {
-    "must not be NA"
+  if (!is.null(value) && (length(value) != 1L || anyNA(value))) {
+    "must be a non-missing scalar"
   }
 }
 
-prop_bool <- function(default) {
-  new_property(
-    class_logical,
-    validator = validate_scalar,
-    default = default
-  )
-}
+prop_bool <- new_property(
+  class_logical,
+  validator = validate_scalar,
+  default = FALSE
+)
 
-prop_string <- function(allow_null = FALSE) {
-  new_property(
-    if (allow_null) NULL | class_character else class_character,
-    validator = validate_scalar,
-    setter = function(self, name, value) {
-      if (is.symbol(value)) {
-        value <- as.character(value)
-      }
-      prop(self, name) <- value
-      self
-    }
-  )
-}
-
-prop_enum <- function(
-  values,
-  nullable = FALSE,
-  default = if (nullable) NULL else values[1],
-  exact = FALSE
-) {
-  new_property(
-    if (nullable) NULL | class_character else class_character,
-    setter = if (!exact) {
-      function(self, name, value) {
-        if (length(value) == 1L && !anyNA(i <- charmatch(value, values))) {
-          value <- values[i]
-        }
-        prop(self, name) <- value
-        self
-      }
-    },
-    validator = function(value) {
-      if (is.null(value)) {
-        return()
-      }
-      error <- validate_scalar(value)
-      if (!is.null(error)) {
-        return(error)
-      }
-      if (!value %in% values) {
-        sprintf(
-          "must be either %s, not '%s'.",
-          glue_collapse(single_quote(values), sep = ", ", last = ", or "),
-          value
-        )
-      }
-    },
-    default = default
-  )
-}
+prop_string <- new_property(class_character, validator = validate_scalar)
+prop_optional_string <- new_property(
+  NULL | class_character,
+  validator = validate_scalar
+)
 
 # S7's property assignment still evaluates calls and symbols when checking a
 # typed property (src/prop.c: prop_validate()). Keep ASTs unevaluated here until
@@ -94,7 +41,17 @@ set_r <- function(self, value) {
 # the print method for this should only print non-null values
 Variable := new_class(
   properties = list(
-    mode = prop_enum(.atomic_type_names, nullable = TRUE),
+    mode = new_property(
+      NULL | class_character,
+      validator = function(value) {
+        if (
+          !is.null(value) &&
+            (length(value) != 1L || !value %in% .atomic_type_names)
+        ) {
+          "must be a single atomic mode"
+        }
+      }
+    ),
 
     dims = new_property(
       # NULL means scalar
@@ -135,9 +92,9 @@ Variable := new_class(
       } # dims$setter
     ), # dims = new_property()
 
-    name = prop_string(allow_null = TRUE),
+    name = prop_optional_string,
 
-    r_name = prop_string(allow_null = TRUE),
+    r_name = prop_optional_string,
 
     rank = new_property(
       class_integer,
@@ -146,15 +103,15 @@ Variable := new_class(
       }
     ),
 
-    modified = prop_bool(default = FALSE),
+    modified = prop_bool,
 
-    loop_is_singleton = prop_bool(default = FALSE),
+    loop_is_singleton = prop_bool,
 
     r = new_property(NULL | class_language | class_atomic, setter = set_r),
 
-    is_arg = prop_bool(default = FALSE),
+    is_arg = prop_bool,
 
-    is_return = prop_bool(default = FALSE),
+    is_return = prop_bool,
 
     # TRUE for closure args and return values, FALSE for all other vars.
     is_external = new_property(
@@ -173,23 +130,27 @@ Variable := new_class(
 
     # When TRUE, Fortran/C interfaces should treat logicals as integer(c_int)
     # storage (0/1) rather than Fortran LOGICAL.
-    logical_as_int = prop_bool(default = FALSE),
+    logical_as_int = prop_bool,
 
     # Fortran kind for integer variables. User-facing R integers remain c_int;
     # pointer-sized compiler locals opt into c_ptrdiff_t explicitly.
-    integer_kind = prop_enum(
-      c("c_int", "c_ptrdiff_t"),
+    integer_kind = new_property(
+      class_character,
       default = "c_int",
-      exact = TRUE
+      validator = function(value) {
+        if (length(value) != 1L || !value %in% c("c_int", "c_ptrdiff_t")) {
+          "must be 'c_int' or 'c_ptrdiff_t'"
+        }
+      }
     ),
 
     # TRUE when the variable is available via host association and should not
     # be redeclared in the local scope.
-    host_associated = prop_bool(default = FALSE),
+    host_associated = prop_bool,
 
     # When set, references to this variable should treat the named dummy
     # argument as an optional input (e.g., is.null() -> .not. present()).
-    optional_dummy = prop_string(allow_null = TRUE)
+    optional_dummy = prop_optional_string
   ),
 
   validator = function(self) {
@@ -214,10 +175,10 @@ Fortran := new_class(
     # Metadata flags used during compilation/lowering. Keep these as explicit
     # properties rather than ad-hoc attributes so they are discoverable and
     # consistently propagated with the Fortran object.
-    logical_booleanized = prop_bool(default = FALSE),
-    writes_to_dest = prop_bool(default = FALSE),
+    logical_booleanized = prop_bool,
+    writes_to_dest = prop_bool,
     # A scalar expression broadcast to the dimensions in @value.
-    scalar_fill = prop_bool(default = FALSE),
+    scalar_fill = prop_bool,
 
     r = new_property(
       NULL | class_language | class_atomic | class_function,
@@ -242,7 +203,7 @@ SvdResult := new_class(
 
 LocalClosure := new_class(
   properties = list(
-    name = prop_string(allow_null = TRUE),
+    name = prop_optional_string,
     fun = class_function
   )
 )
@@ -251,7 +212,7 @@ LocalClosure := new_class(
 FortranSubroutine := new_class(
   Fortran,
   properties = list(
-    name = prop_string(),
+    name = prop_string,
     signature = class_character,
     closure = class_function,
     scope = NULL | class_environment,
@@ -267,10 +228,10 @@ FortranSubroutine := new_class(
 R2FHandler := new_class(
   class_function,
   properties = list(
-    dest_supported = prop_bool(default = FALSE),
+    dest_supported = prop_bool,
     # Set when the handler was registered as a namespace-level named function,
     # so dispatch can re-resolve it by name. See register_r2f_handler().
-    fun_name = prop_string(allow_null = TRUE),
+    fun_name = prop_optional_string,
     # When NULL, r2f will resolve the callable by name and use match.call().
     # When FALSE, r2f will not attempt match.call().
     match_fun = new_property(
