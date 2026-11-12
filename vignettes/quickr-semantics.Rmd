@@ -367,14 +367,15 @@ zero-length non-scalar operand is rejected, including when the other
 operand is a scalar or another zero-length vector. This is a compile
 error when the zero extent is known and a runtime error when it is not.
 
-### Some zero-sized linear-algebra outputs are not supported
+### Zero-sized linear-algebra products
 
-`%*%`, `crossprod()`, and `tcrossprod()` raise an error when
-the result would have a zero extent, where R returns a zero-sized array.
-A zero contracted dimension remains supported when every output extent is
-nonzero, such as a `2x0` matrix multiplied by a `0x3` matrix; that result is
-a `2x3` matrix of zeros, as in R. `outer()` and `%o%` reject zero-sized
-outputs.
+`%*%`, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%` preserve zero-sized
+output dimensions. For example, a `0x2` matrix multiplied by a `2x3` matrix
+returns a `0x3` matrix. A zero contracted dimension also works: a `2x0`
+matrix multiplied by a `0x3` matrix returns a `2x3` matrix of zeros, as in R.
+These cases do not call BLAS, whose leading dimensions must be positive.
+The usual operand shape checks still apply, including when the result is
+empty.
 
 ### `drop()` requires a fixed result rank
 

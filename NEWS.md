@@ -4,6 +4,11 @@
   including axes declared with `NA` or different symbolic names. Their actual
   extents are checked before binding; known mismatches remain compile errors.
 
+- Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
+  now return correctly shaped empty matrices for zero-sized outputs. Empty
+  outputs and zero contracted dimensions bypass BLAS; nonempty outputs from
+  zero contracted dimensions are filled with zeros.
+
 - Reductions accept named data arguments and an explicit `na.rm = FALSE`.
   Unsupported values of `na.rm` still report a compile-time error. Empty
   `sum()` and `prod()` calls return their usual identities.
