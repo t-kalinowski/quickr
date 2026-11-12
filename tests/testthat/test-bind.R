@@ -311,6 +311,7 @@ test_that("cbind validates independently supplied dimension values", {
     cbind(x, y)
   }
 
+  expect_translation_snapshots(fn)
   expect_bind_equal(fn, list(c(1, 2), c(3, 4), 2L, 2L))
   expect_error(quick(fn)(c(1, 2), c(3, 4, 5), 2L, 3L), "matching dimensions")
 })
@@ -344,6 +345,8 @@ test_that("cbind and rbind check independently inferred dimensions at runtime", 
     rbind(A, B)
   }
 
+  expect_translation_snapshots(unknown_rows)
+  expect_translation_snapshots(unknown_columns)
   expect_bind_equal(
     unknown_rows,
     list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1)),
@@ -379,6 +382,7 @@ test_that("binding ignores NULL alongside nonempty dynamic inputs", {
   }
 
   for (fn in list(columns, rows)) {
+    expect_translation_snapshots(fn)
     expect_bind_equal(fn, list(c(1, 2), c(3, 4)))
     expect_error(quick(fn)(c(1, 2), c(3, 4, 5)), "matching dimensions")
   }
@@ -406,6 +410,8 @@ test_that("binding accepts distinct symbolic dimensions and scalar inputs", {
     declare(type(x = double(n)), type(y = double(m)))
     rbind(1, x, y)
   }
+  expect_translation_snapshots(columns)
+  expect_translation_snapshots(rows)
   expect_bind_equal(columns, list(c(1, 2), c(3, 4)))
   expect_bind_equal(rows, list(c(1, 2), c(3, 4)))
   expect_error(quick(columns)(c(1, 2), c(3, 4, 5)), "matching dimensions")
@@ -417,6 +423,7 @@ test_that("binding checks a dynamic common dimension against a known one", {
     declare(type(A = double(NA, 2)), type(B = double(3, 1)))
     cbind(A, B)
   }
+  expect_translation_snapshots(fn)
   expect_bind_equal(
     fn,
     list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1))
