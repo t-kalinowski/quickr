@@ -2,6 +2,15 @@
 
 skip_on_cran()
 
+test_that("diag matches omitted and partially named arguments", {
+  fn <- function(n, m) {
+    declare(type(n = integer(1)), type(m = integer(1)))
+    diag(, nr = n, nc = m)
+  }
+
+  expect_quick_identical(fn, list(2L, 3L), list(3L, 2L))
+})
+
 test_that("transpose parsing handles scalars and rejects rank > 2", {
   scalar_left <- function(B) {
     declare(type(B = double(2, 2)))

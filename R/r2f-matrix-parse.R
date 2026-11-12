@@ -46,43 +46,14 @@ logical_arg_or_default <- function(args, name, default, context) {
   val
 }
 
-# Match diag() arguments, named or positional.
+# r2f() has already matched diag() arguments with match.call().
 diag_call_args <- function(args) {
-  arg_names <- names(args)
-  if (is.null(arg_names)) {
-    arg_names <- rep("", length(args))
-  }
-  unnamed_idx <- which(!nzchar(arg_names) | is.na(arg_names))
-
-  # Extract x (named or position 1)
-  x_arg <- NULL
-  if (!is.null(args$x) && !is_missing(args$x)) {
-    x_arg <- args$x
-  } else if (length(unnamed_idx) >= 1L) {
-    candidate <- args[[unnamed_idx[[1L]]]]
-    if (!is_missing(candidate)) {
-      x_arg <- candidate
-    }
-  }
-
-  # Extract nrow (named or position 2)
-  nrow_arg <- args$nrow
-  if (is.null(nrow_arg) && length(unnamed_idx) >= 2L) {
-    nrow_arg <- args[[unnamed_idx[[2L]]]]
-  }
-
-  # Extract ncol (named or position 3)
-  ncol_arg <- args$ncol
-  if (is.null(ncol_arg) && length(unnamed_idx) >= 3L) {
-    ncol_arg <- args[[unnamed_idx[[3L]]]]
-  }
-
   list(
-    x = x_arg,
-    nrow = nrow_arg,
-    ncol = ncol_arg,
-    has_nrow = !is.null(nrow_arg) && !is_missing(nrow_arg),
-    has_ncol = !is.null(ncol_arg) && !is_missing(ncol_arg),
+    x = args$x,
+    nrow = args$nrow,
+    ncol = args$ncol,
+    has_nrow = !is.null(args$nrow),
+    has_ncol = !is.null(args$ncol),
     identity = length(args) == 1L
   )
 }
