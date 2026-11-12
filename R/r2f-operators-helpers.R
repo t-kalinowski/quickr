@@ -253,45 +253,16 @@ dims_match <- function(left, right) {
   identical(declared_dim(left), declared_dim(right))
 }
 
-# Equality-only dimension checks permit matching zero extents. This is the
-# conformability contract for BLAS operands and shape-preserving operations
-# such as ifelse(); arithmetic uses the stricter nonempty checker below.
+# Equal extents are conformable, including zero. Unknown extents need a
+# runtime comparison unless the input declarations already establish equality.
 check_equal_dims <- function(left, right) {
   if (is_wholenumber(left) && is_wholenumber(right)) {
     return(list(
       ok = identical(as.integer(left), as.integer(right)),
-      unknown = FALSE,
-      reject_zero = FALSE
+      unknown = FALSE
     ))
   }
-  list(ok = TRUE, unknown = TRUE, reject_zero = FALSE)
-}
-
-# Three-valued conformability verdict for one axis of an elementwise op:
-# ok+known (no guard needed), not-ok+known (compile error at the caller),
-# or unknown (caller emits a runtime guard). Known lengths must be equal
-# and nonzero -- R-style recycling is never implemented, and quickr cannot
-# represent length-0 results. Symbolic dims are always unknown because their
-# positivity must be checked at runtime, even when both operands use the same
-# expression.
-# Used by: guard_conformable_dims()
-check_elementwise_lengths <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    left <- as.integer(left)
-    right <- as.integer(right)
-    return(list(
-      ok = left == right && left > 0L,
-      unknown = FALSE,
-      reject_zero = TRUE
-    ))
-  }
-  if (
-    (is_wholenumber(left) && as.integer(left) == 0L) ||
-      (is_wholenumber(right) && as.integer(right) == 0L)
-  ) {
-    return(list(ok = FALSE, unknown = FALSE, reject_zero = TRUE))
-  }
-  list(ok = TRUE, unknown = TRUE, reject_zero = TRUE)
+  list(ok = TRUE, unknown = TRUE)
 }
 
 # The static and runtime matrix shape diagnostics share one spelling.
@@ -356,8 +327,7 @@ input_dimension <- function(dim, operand, axis, scope) {
 }
 
 # Shared conformability guard emitter. `checker` supplies the caller's
-# static and runtime policy: elementwise operations require equal nonzero
-# dimensions, while BLAS/LAPACK callers use equality semantics that permit zero.
+# static and runtime policy for matching dimensions.
 # A statically known mismatch is a compile error; unknown dimensions get a
 # statement-level runtime guard; provably equal dimensions need nothing.
 # `axis` NULL compares the operand's whole size (rank-1 operands).
@@ -378,7 +348,7 @@ guard_conformable_dims <- function(
   right_axis = NULL,
   left_f = NULL,
   right_f = NULL,
-  checker = check_elementwise_lengths,
+  checker = check_equal_dims,
   defer_static_error = isTRUE(hoist$defer_static_shape_error)
 ) {
   stopifnot(
@@ -403,12 +373,6 @@ guard_conformable_dims <- function(
       equal <- !is.null(left_input) && identical(left_input, right_input)
     }
     condition <- if (!equal) glue("{left_guard} /= {right_guard}")
-    if (isTRUE(verdict$reject_zero)) {
-      condition <- paste(
-        c(glue("{left_guard} == 0"), condition),
-        collapse = " .or. "
-      )
-    }
     if (is.null(condition)) {
       return(invisible(TRUE))
     }
@@ -538,37 +502,6 @@ conform_elementwise_operands <- function(
     }
   }
 
-  check_nonempty <- function(x, message) {
-    for (axis in seq_len(x@value@rank)) {
-      dim <- r2size(dim_or_one(x, axis), scope)
-      if (is_wholenumber(dim)) {
-        if (as.integer(dim) == 0L) {
-          stop_static_error(message)
-        }
-      } else {
-        emit_quickr_error_if(
-          glue("size({x}, {axis}, kind=c_ptrdiff_t) == 0_c_ptrdiff_t"),
-          message,
-          hoist,
-          scope
-        )
-      }
-    }
-  }
-
-  if (xor(left_scalar, right_scalar)) {
-    array_operand <- if (left_scalar) right else left
-    message <- if (array_operand@value@rank == 1L) {
-      paste0(
-        "elementwise vector operations require equal lengths or ",
-        "a scalar operand; R-style recycling is not supported"
-      )
-    } else {
-      "elementwise matrix operations require matching dimensions"
-    }
-    check_nonempty(array_operand, message)
-  }
-
   if (left_rank == 1L && right_rank == 1L) {
     vector_msg <- paste0(
       "elementwise vector operations require equal lengths or ",
@@ -623,7 +556,6 @@ conform_elementwise_operands <- function(
   )
   if (left_rank == 1L && right_rank == 2L) {
     right_dims <- matrix_dims(right)
-    check_nonempty(right, vec_mat_msg)
     guard_conformable_dims(
       dim_or_one(left, 1L),
       right_dims$rows,
@@ -639,7 +571,6 @@ conform_elementwise_operands <- function(
     left <- reshape_vector_for_matrix(left, right_dims$rows, right_dims$cols)
   } else if (left_rank == 2L && right_rank == 1L) {
     left_dims <- matrix_dims(left)
-    check_nonempty(left, vec_mat_msg)
     guard_conformable_dims(
       dim_or_one(right, 1L),
       left_dims$rows,

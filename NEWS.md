@@ -1,5 +1,11 @@
 # quickr (development version)
 
+- Elementwise operations now accept equally shaped empty arrays and scalar
+  operations on empty arrays. Vector-matrix operations also accept empty rows
+  or columns when the vector spans the matrix's rows. These cases preserve R's
+  result type and dimensions, without generating nonempty checks. Unequal
+  non-scalar shapes are still rejected; general recycling remains unsupported.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.

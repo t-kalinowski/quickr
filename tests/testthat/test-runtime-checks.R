@@ -72,15 +72,15 @@ test_that("shadowed arrays do not inherit root input dimension contracts", {
 })
 
 test_that("sapply evaluates pure closures after guarded expressions", {
-  fn <- function(x) {
-    declare(type(x = double(NA)))
-    y <- x + 1
-    sapply(y, function(z) z * 2)
+  fn <- function(x, y) {
+    declare(type(x = double(NA)), type(y = double(NA)))
+    values <- x + y
+    sapply(values, function(z) z * 2)
   }
 
-  expect_quick_identical(fn, c(1, 2, 3))
+  expect_quick_identical(fn, list(c(1, 2, 3), c(4, 5, 6)))
   qfn <- quick(fn)
-  expect_error(qfn(double()), "equal lengths", fixed = TRUE)
+  expect_error(qfn(c(1, 2), c(3, 4, 5)), "equal lengths", fixed = TRUE)
 })
 
 test_that("nested closures still propagate errors from their callees", {
