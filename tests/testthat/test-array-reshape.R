@@ -132,13 +132,23 @@ test_that("array() forwards hoist when data needs hoisted temporaries", {
   expect_quick_identical(fn, list(x, y))
 })
 
-test_that("array() rejects empty dim vectors (dim=c())", {
-  fn <- function(x) {
-    declare(type(x = double(2L, 2L)))
-    array(as.double(x), dim = c())
-  }
+test_that("array() rejects empty and invalid dimensions", {
+  cases <- list(
+    list(quote(c()), "must not be empty"),
+    list(integer(), "must be non-empty and must not contain NA"),
+    list(NA_integer_, "must be non-empty and must not contain NA"),
+    list(2.5, "must be whole numbers"),
+    list(quote(1:n), "only supports literal sequences")
+  )
+  for (case in cases) {
+    fn <- eval(substitute(
+      function(n) {
+        declare(type(n = integer(1)))
+        array(1, dim = DIM)
+      },
+      list(DIM = case[[1L]])
+    ))
 
-  # Base R errors here ("'dims' cannot be of length 0"); quickr should fail
-  # early too, rather than emitting rank-mismatched Fortran.
-  expect_error(quick(fn), "dim")
+    expect_error(quick(fn), paste0("array(dim=) ", case[[2L]]), fixed = TRUE)
+  }
 })

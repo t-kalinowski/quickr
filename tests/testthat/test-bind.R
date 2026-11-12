@@ -14,6 +14,18 @@ expect_bind_equal <- function(fn, ...) {
   }
 }
 
+test_that("cbind/rbind bind scalar inputs", {
+  columns <- function() {
+    cbind(1, 2, deparse.level = 0)
+  }
+  rows <- function() {
+    rbind(1, 2, deparse.level = 0)
+  }
+
+  expect_quick_identical(columns, list())
+  expect_quick_identical(rows, list())
+})
+
 test_that("cbind binds vectors and matrices with scalar recycling", {
   cbind_vec <- function(x, y, s) {
     declare(type(x = double(n)), type(y = double(n)), type(s = double(1)))
@@ -98,6 +110,29 @@ test_that("cbind/rbind enforce common lengths", {
     "common column count",
     fixed = TRUE
   )
+})
+
+test_that("cbind/rbind reject data-dependent dimensions", {
+  cases <- list(
+    "row sizes" = quote(rbind(A[mask, , drop = FALSE])),
+    "column sizes" = quote(cbind(A[, mask, drop = FALSE])),
+    "row counts" = quote(cbind(A[mask, , drop = FALSE]))
+  )
+  for (dimension in names(cases)) {
+    fn <- eval(substitute(
+      function(A, mask) {
+        declare(type(A = double(3, 3)), type(mask = logical(3)))
+        EXPR
+      },
+      list(EXPR = cases[[dimension]])
+    ))
+
+    expect_error(
+      quick(fn),
+      paste0("requires inputs with known ", dimension),
+      fixed = TRUE
+    )
+  }
 })
 
 test_that("cbind/rbind evaluate effectful arguments from left to right", {
