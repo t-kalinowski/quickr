@@ -230,42 +230,6 @@ assert_square_matrix <- function(dims, operand, context, hoist, scope) {
 
 # ---- BLAS emitters ----
 
-# Generated function results cannot currently represent zero-sized arrays.
-# Reject a known zero output during translation and guard unknown output
-# extents at runtime before emitting a BLAS call with an invalid leading
-# dimension. A zero contracted dimension remains supported when every output
-# extent is nonzero.
-assert_nonempty_blas_output <- function(
-  dim,
-  operand,
-  axis,
-  context,
-  hoist,
-  scope
-) {
-  stopifnot(
-    inherits(operand, Fortran),
-    is.numeric(axis),
-    length(axis) == 1L,
-    is_string(context)
-  )
-  message <- paste0(context, " zero-sized outputs are not supported")
-  if (is_wholenumber(dim)) {
-    if (as.integer(dim) == 0L) {
-      stop(message, call. = FALSE)
-    }
-    return(invisible(TRUE))
-  }
-
-  emit_quickr_error_if(
-    glue("{dimension_guard_expr(dim, operand, axis)} == 0_c_ptrdiff_t"),
-    message,
-    hoist,
-    scope
-  )
-  invisible(TRUE)
-}
-
 # TRUE when the destination's declared shape is *proven* to match the
 # expected output shape: rank equal and every extent proven equal
 # (check_equal_dims()). Anything unproven -- symbolic dims that merely
@@ -502,24 +466,34 @@ blas_int <- function(x) {
   glue("int({x_str}, kind=c_int)")
 }
 
-# Emit a BLAS call for positive contractions and fill the result with zero
-# without calling BLAS when the contracted dimension is zero.
-emit_blas_contraction <- function(call, output, contracted_dim, hoist) {
+# Skip BLAS when an output or contracted extent is zero. Assigning zero
+# fills a nonempty result for an empty contraction and is a no-op for an
+# empty result, avoiding BLAS calls with invalid zero leading dimensions.
+emit_blas_product <- function(call, output, dims, hoist) {
   stopifnot(is_string(call), is_string(output))
   assert_hoist_env(hoist)
 
-  if (is_wholenumber(contracted_dim)) {
-    if (as.integer(contracted_dim) == 0L) {
-      hoist$emit(glue("{output} = 0.0_c_double"))
-    } else {
-      hoist$emit(call)
-    }
+  known <- vapply(dims, is_wholenumber, logical(1L))
+  if (
+    any(vapply(dims[known], function(dim) as.integer(dim) == 0L, logical(1L)))
+  ) {
+    hoist$emit(glue("{output} = 0.0_c_double"))
+    return(invisible(TRUE))
+  }
+  if (all(known)) {
+    hoist$emit(call)
     return(invisible(TRUE))
   }
 
+  zero_conditions <- vapply(
+    dims[!known],
+    function(dim) glue("{blas_int(dim)} == 0_c_int"),
+    character(1L)
+  )
+  condition <- paste(unique(zero_conditions), collapse = " .or. ")
   hoist$emit(glue(
     "
-if ({blas_int(contracted_dim)} == 0_c_int) then
+if ({condition}) then
   {output} = 0.0_c_double
 else
   {call}
@@ -550,22 +524,6 @@ gemm <- function(
   assert_hoist_env(hoist)
   left <- blas_double_operand(left, context, hoist)
   right <- blas_double_operand(right, context, hoist)
-  assert_nonempty_blas_output(
-    m,
-    left,
-    if (opA == "N") 1L else 2L,
-    context,
-    hoist,
-    scope
-  )
-  assert_nonempty_blas_output(
-    n,
-    right,
-    if (opB == "N") 2L else 1L,
-    context,
-    hoist,
-    scope
-  )
   A_name <- ensure_blas_operand_name(left, hoist)
   B_name <- ensure_blas_operand_name(right, hoist)
 
@@ -581,7 +539,7 @@ gemm <- function(
   blas_call <- glue(
     "call dgemm('{opA}','{opB}', {blas_int(m)}, {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {B_name}, {blas_int(ldb)}, 0.0_c_double, {out$name}, {blas_int(ldc_expr)})"
   )
-  emit_blas_contraction(blas_call, out$name, k, hoist)
+  emit_blas_product(blas_call, out$name, list(m, n, k), hoist)
   finalize_blas_output(out)
 }
 
@@ -604,15 +562,6 @@ gemv <- function(
   assert_hoist_env(hoist)
   A <- blas_double_operand(A, context, hoist)
   x <- blas_double_operand(x, context, hoist)
-  output_dim <- if (transA == "N") m else n
-  assert_nonempty_blas_output(
-    output_dim,
-    A,
-    if (transA == "N") 1L else 2L,
-    context,
-    hoist,
-    scope
-  )
   A_name <- ensure_blas_operand_name(A, hoist)
   x_name <- ensure_blas_operand_name(x, hoist)
 
@@ -628,8 +577,7 @@ gemv <- function(
   blas_call <- glue(
     "call dgemv('{transA}', {blas_int(m)}, {blas_int(n)}, 1.0_c_double, {A_name}, {blas_int(lda)}, {x_name}, 1_c_int, 0.0_c_double, {out$name}, 1_c_int)"
   )
-  contracted_dim <- if (transA == "N") n else m
-  emit_blas_contraction(blas_call, out$name, contracted_dim, hoist)
+  emit_blas_product(blas_call, out$name, list(m, n), hoist)
   finalize_blas_output(out)
 }
 
@@ -707,15 +655,6 @@ syrk <- function(
   }
   lda <- x_dims$rows
   X_name <- ensure_blas_operand_name(X, hoist)
-  X <- Fortran(X_name, X@value)
-  assert_nonempty_blas_output(
-    n,
-    X,
-    if (trans == "T") 2L else 1L,
-    context,
-    hoist,
-    scope
-  )
 
   # Output is symmetric n x n matrix
   out <- resolve_blas_output(
@@ -730,7 +669,7 @@ syrk <- function(
   blas_call <- glue(
     "call dsyrk('U', '{trans}', {blas_int(n)}, {blas_int(k)}, 1.0_c_double, {X_name}, {blas_int(lda)}, 0.0_c_double, {out$name}, {blas_int(n)})"
   )
-  emit_blas_contraction(blas_call, out$name, k, hoist)
+  emit_blas_product(blas_call, out$name, list(n, k), hoist)
   symmetrize_upper_to_lower(out$name, n, hoist = hoist)
 
   finalize_blas_output(out)
@@ -757,9 +696,6 @@ outer_mul <- function(
   m <- dim_or_one(x, 1L)
   n <- dim_or_one(y, 1L)
 
-  assert_nonempty_blas_output(m, x, 1L, context, hoist, scope)
-  assert_nonempty_blas_output(n, y, 1L, context, hoist, scope)
-
   x_name <- ensure_blas_operand_name(x, hoist)
   y_name <- ensure_blas_operand_name(y, hoist)
 
@@ -771,10 +707,11 @@ outer_mul <- function(
     expected_dims = list(m, n),
     context = context
   )
-  hoist$emit(glue("{out$name} = 0.0_c_double"))
-  hoist$emit(glue(
-    "call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {out$name}, {blas_int(m)})"
-  ))
+  blas_call <- glue(
+    "{out$name} = 0.0_c_double
+call dger({blas_int(m)}, {blas_int(n)}, 1.0_c_double, {x_name}, 1_c_int, {y_name}, 1_c_int, {out$name}, {blas_int(m)})"
+  )
+  emit_blas_product(blas_call, out$name, list(m, n), hoist)
   finalize_blas_output(out)
 }
 

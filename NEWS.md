@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
+  now return correctly shaped empty matrices for zero-sized outputs. Empty
+  outputs and zero contracted dimensions bypass BLAS; nonempty outputs from
+  zero contracted dimensions are filled with zeros.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
