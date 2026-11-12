@@ -1,3 +1,29 @@
+test_that("matrix assignments infer shapes from expression operands", {
+  fn <- function(x, y) {
+    declare(type(x = double(3, 2)), type(y = double(3, 4)))
+    out <- crossprod(x + 1, y)
+    out
+  }
+
+  expect_quick_equal(
+    fn,
+    list(matrix(as.double(1:6), 3), matrix(as.double(1:12), 3))
+  )
+})
+
+test_that("matrix destinations do not collide with operand temporaries", {
+  fn <- function(A, B) {
+    declare(type(A = double(2, 2)), type(B = double(2, 2)))
+    btmp1. <- (A + 1) %*% B
+    btmp1.
+  }
+
+  expect_quick_identical(
+    fn,
+    list(matrix(as.double(1:4), 2), matrix(as.double(5:8), 2))
+  )
+})
+
 test_that("matrix ops infer destination sizes for assignments", {
   matmul_infer <- function(A, B) {
     declare(type(A = double(2, 3)), type(B = double(3, 2)))

@@ -182,7 +182,7 @@ test_that("qr.solve uses QR with pivoting for known square systems", {
   expect_false(has_call(square_fortran, "dgesv"))
 })
 
-test_that("solve always uses dgesv, guarding squareness when symbolic", {
+test_that("solve uses dgesv and checks squareness only when unproven", {
   solve_square <- function(A, b) {
     declare(
       type(A = double(n, n)),
@@ -225,15 +225,15 @@ test_that("solve always uses dgesv, guarding squareness when symbolic", {
   }
 
   # solve() is LU (dgesv) only; least squares is qr.solve()'s job. Provably
-  # square systems with literal dimensions get no guard; symbolic dimensions
-  # are checked against the stored shape even when their names match.
+  # square systems need no Fortran guard when the wrapper verifies their
+  # declared dimensions. Independent symbolic dimensions still need a guard.
   expect_true(has_call(square_named_fortran, "dgesv"))
   expect_false(has_call(square_named_fortran, "dgels"))
-  expect_match(
-    square_named_fortran,
+  expect_false(grepl(
     "solve requires a square matrix",
+    square_named_fortran,
     fixed = TRUE
-  )
+  ))
 
   expect_true(has_call(square_fixed_fortran, "dgesv"))
   expect_false(has_call(square_fixed_fortran, "dgels"))

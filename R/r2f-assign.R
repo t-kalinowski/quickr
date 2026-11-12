@@ -154,11 +154,14 @@ register_r2f_handler(
     # If target already exists (declared), thread destination hint to a single BLAS-capable child
     var <- get0(name, scope, inherits = FALSE)
     existing_binding <- !is.null(var) && inherits(var, Variable)
-    inferred_var <- NULL
     fortran_name <- NULL
     if (!existing_binding && dest_allowed) {
-      inferred_var <- dest_infer_for_call(rhs, scope)
       fortran_name <- assignment_fortran_name(name, scope)
+      scope_reserve_fortran_name(scope, fortran_name)
+      # The child infers mode and dimensions while recursively translating its
+      # operands. Reserve only the destination name here.
+      var <- Variable(name = fortran_name, r_name = name)
+      var@is_return <- name %in% scope_get(scope, "return_names", character())
     }
 
     if (existing_binding) {
@@ -167,18 +170,7 @@ register_r2f_handler(
       } else {
         lower_r2f_operand_in_order(rhs, scope, ..., hoist = hoist)
       }
-    } else if (inherits(inferred_var, Variable)) {
-      var <- inferred_var
-      var@r_name <- name
-      var@name <- fortran_name
-      return_names <- scope_get(scope, "return_names", character()) %||%
-        character()
-      if (name %in% return_names) {
-        var@is_return <- TRUE
-        if (identical(var@mode, "logical")) {
-          var@logical_as_int <- TRUE
-        }
-      }
+    } else if (dest_allowed) {
       value <- r2f(rhs, scope, ..., hoist = hoist, dest = var)
     } else {
       value <- r2f(rhs, scope, ..., hoist = hoist)
@@ -196,10 +188,8 @@ register_r2f_handler(
           call. = FALSE
         )
       }
-      if (!inherits(var, Variable)) {
-        src <- value@value
-        var <- Variable(mode = src@mode, dims = src@dims)
-      }
+      src <- value@value
+      var <- if (value@writes_to_dest) src else Variable(src@mode, src@dims)
       if (
         inherits(value, Fortran) &&
           inherits(value@value, Variable) &&
@@ -217,14 +207,8 @@ register_r2f_handler(
       var@r_name <- name
       var@name <- fortran_name
       # keep a reference to the R expression assigned, if available
-      tryCatch(
-        var@r <- attr(value, "r", TRUE),
-        error = function(e) NULL
-      )
+      var@r <- value@r
       scope[[name]] <- var
-      if (inherits(inferred_var, Variable) && !value@writes_to_dest) {
-        allocate_reusable_local_output_at_point(var, scope, hoist)
-      }
     } else {
       # The var already exists, this assignment is a modification / reassignment
       if (is.null(var@r_name)) {

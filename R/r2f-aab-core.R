@@ -615,11 +615,10 @@ lang2fortran <- r2f <- function(
     }
   )
 
-  attr(fortran, "r") <- e
+  fortran@r <- e
   if (render_hoist) {
     combined <- hoist$render(fortran)
     attributes(combined) <- attributes(fortran)
-    attr(combined, "r") <- e
     combined
   } else {
     fortran
@@ -728,35 +727,6 @@ handler_for_call <- function(call) {
 dest_supported_for_call <- function(call) {
   isTRUE(handler_field(handler_for_call(call), "dest_supported"))
 }
-
-dest_infer_for_call <- function(call, scope) {
-  handler <- handler_for_call(call)
-  if (is.null(handler)) {
-    return(NULL)
-  }
-  unwrapped <- unwrap_parens(call)
-  infer <- handler_field(handler, "dest_infer")
-  infer_name <- handler_field(handler, "dest_infer_name")
-
-  infer_fun <- NULL
-  if (is_string(infer_name)) {
-    # Resolve dynamically from the handler's environment (typically the package
-    # namespace) so instrumented/rebound functions are respected.
-    infer_fun <- get0(
-      infer_name,
-      envir = environment(handler),
-      mode = "function"
-    )
-  }
-  if (!is.function(infer_fun)) {
-    infer_fun <- infer
-  }
-  if (!is.function(infer_fun)) {
-    return(NULL)
-  }
-  infer_fun(as.list(unwrapped)[-1L], scope)
-}
-
 
 # --- Default Handlers ---
 

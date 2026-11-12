@@ -100,19 +100,21 @@ test_that("optional NULL defaults must be initialized before use", {
   )
 })
 
-test_that("optional NULL defaults can be assigned before use", {
+test_that("optional NULL defaults can be initialized in nested branches", {
   fn <- function(x) {
     declare(type(x = double(1)))
 
     f <- function(shift = NULL) {
-      shift <- 2
+      if (is.null(shift)) {
+        if (x > 0) shift <- x else shift <- -x
+      }
       x + shift
     }
 
     f()
   }
 
-  expect_quick_identical(fn, list(3))
+  expect_quick_identical(fn, list(3), list(-3))
 })
 
 test_that("optional arg shadow names avoid existing fortran names", {

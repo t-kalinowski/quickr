@@ -26,9 +26,14 @@ scope_root_for_errors <- function(scope) {
 }
 
 mark_scope_uses_errors <- function(scope) {
-  root <- scope_root_for_errors(scope)
-  if (inherits(root, "quickr_scope")) {
-    scope_mark_uses_errors_flag(root)
+  # A procedure needs to propagate only its own errors, including errors
+  # from nested callees. The root also needs the shared error buffer.
+  while (inherits(scope, "quickr_scope")) {
+    scope_mark_uses_errors_flag(scope)
+    if (identical(scope_kind(scope), "subroutine")) {
+      break
+    }
+    scope <- parent.env(scope)
   }
   invisible(TRUE)
 }
@@ -141,9 +146,10 @@ emit_quickr_error_if <- function(
 
 quickr_error_return_if_set <- function(
   scope,
-  openmp_depth = scope_openmp_depth(scope)
+  openmp_depth = scope_openmp_depth(scope),
+  uses_errors = scope_uses_errors(scope)
 ) {
-  if (!isTRUE(scope_uses_errors(scope))) {
+  if (!uses_errors) {
     return("")
   }
   if (is.null(openmp_depth)) {

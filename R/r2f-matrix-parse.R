@@ -45,3 +45,15 @@ logical_arg_or_default <- function(args, name, default, context) {
   }
   val
 }
+
+# r2f() has already matched diag() arguments with match.call().
+diag_call_args <- function(args) {
+  list(
+    x = args$x,
+    nrow = args$nrow,
+    ncol = args$ncol,
+    has_nrow = !is.null(args$nrow),
+    has_ncol = !is.null(args$ncol),
+    identity = length(args) == 1L
+  )
+}

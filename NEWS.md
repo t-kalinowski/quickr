@@ -1,5 +1,11 @@
 # quickr (development version)
 
+- quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
+
+- Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.
+
+- Generated loops omit dimension-equality checks already enforced by input declarations, and calls to closures that cannot signal errors no longer check the shared error flag. Dynamic shape checks and error propagation remain in place where needed.
+
 - Local closures retain array extents when a formal or local shadows a
   dimension binding. Captured arrays, ordinary array arguments, matrix
   operations, and shape queries use stored dimensions. Supplied optional

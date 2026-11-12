@@ -11,26 +11,6 @@ test_that("nil-coalescing %||% returns first non-NULL", {
   expect_identical(quickr:::`%||%`(0, 1), 0)
 })
 
-test_that("S7-style := assigns and preserves name", {
-  local({
-    quickr:::`:=`(f, function() 1L)
-    expect_true(is.function(f))
-    expect_identical(attr(f, "name"), "f")
-
-    quickr:::`:=`(e, new.env())
-    expect_true(is.environment(e))
-    expect_identical(attr(e, "name"), "e")
-
-    new_obj <- function(name) name
-    quickr:::`:=`(x, new_obj())
-    expect_identical(x, "x")
-
-    expect_error(quickr:::`:=`(1, function() 1L), "left hand side")
-    expect_error(quickr:::`:=`(bad, 1), "right hand side")
-    expect_error(quickr:::`:=`(dup, new_obj(name = "x")), "matched by multiple")
-  })
-})
-
 test_that("append helpers work for common cases", {
   expect_identical(quickr:::`append<-`(1:2, value = 3L), c(1L, 2L, 3L))
   expect_identical(

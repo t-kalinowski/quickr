@@ -318,6 +318,43 @@ dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
   }
 }
 
+# The C wrapper verifies top-level input declarations before entering Fortran.
+# Their storage shapes are fixed, including when the arrays are captured by a
+# closure whose scalar bindings shadow names from those declarations.
+input_dimension <- function(dim, operand, axis, scope) {
+  if (!inherits(operand, Fortran) || is.null(operand@value)) {
+    return(NULL)
+  }
+  name <- operand@value@r_name %||% operand@value@name
+  if (is.null(name)) {
+    return(NULL)
+  }
+  # A local declaration or closure formal can reuse the root's Fortran name.
+  # Only the actual root binding has the wrapper-validated input contract.
+  owner <- scope
+  while (
+    inherits(owner, "quickr_scope") &&
+      !exists(name, owner, inherits = FALSE)
+  ) {
+    owner <- parent.env(owner)
+  }
+  if (!identical(owner, scope_root(scope))) {
+    return(NULL)
+  }
+  var <- get(name, owner, inherits = FALSE)
+  if (
+    !inherits(var, Variable) ||
+      !var@is_arg ||
+      !identical(as.character(operand), var@name) ||
+      (is.null(axis) && var@rank != 1L) ||
+      (!is.null(axis) && axis > var@rank)
+  ) {
+    return(NULL)
+  }
+  declared <- declared_dim(var@dims[[axis %||% 1L]])
+  if (identical(declared_dim(dim), declared)) declared else NULL
+}
+
 # Shared conformability guard emitter. `checker` supplies the caller's
 # static and runtime policy: elementwise operations require equal nonzero
 # dimensions, while BLAS/LAPACK callers use equality semantics that permit zero.
@@ -359,11 +396,21 @@ guard_conformable_dims <- function(
   if (verdict$unknown) {
     left_guard <- dimension_guard_expr(left_dim, left, left_axis, left_f)
     right_guard <- dimension_guard_expr(right_dim, right, right_axis, right_f)
-    condition <- glue("{left_guard} /= {right_guard}")
+    equal <- left_guard == right_guard
+    if (!equal && is.null(left_f) && is.null(right_f)) {
+      left_input <- input_dimension(left_dim, left, left_axis, scope)
+      right_input <- input_dimension(right_dim, right, right_axis, scope)
+      equal <- !is.null(left_input) && identical(left_input, right_input)
+    }
+    condition <- if (!equal) glue("{left_guard} /= {right_guard}")
     if (isTRUE(verdict$reject_zero)) {
-      condition <- glue(
-        "{left_guard} == 0 .or. {condition}"
+      condition <- paste(
+        c(glue("{left_guard} == 0"), condition),
+        collapse = " .or. "
       )
+    }
+    if (is.null(condition)) {
+      return(invisible(TRUE))
     }
     emit_quickr_error_if(
       condition,

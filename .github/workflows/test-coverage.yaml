@@ -25,7 +25,9 @@ jobs:
 
       - uses: r-lib/actions/setup-r-dependencies@v2
         with:
-          extra-packages: any::covr, any::xml2
+          # Pin the development-S7 fix until it is available in a covr release.
+          # This keeps coverage accounting comparable with main (r-lib/covr#646).
+          extra-packages: github::r-lib/covr@3ce8274843269afe2bc66a49be764ec928f2b8a8, any::xml2
           needs: coverage
 
       - name: Test coverage
