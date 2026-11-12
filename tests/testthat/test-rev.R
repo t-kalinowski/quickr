@@ -67,6 +67,21 @@ test_that("rev() result can flow into logical coercions and reductions", {
   expect_quick_identical(fn_which_min, list(m))
 })
 
+test_that("rev() logical storage promotes in numeric arithmetic", {
+  fn_integer <- function(m) {
+    declare(type(m = logical(n)))
+    1L + rev(m)
+  }
+  fn_double <- function(m) {
+    declare(type(m = logical(n)))
+    rev(m) * 0.5
+  }
+
+  m <- c(TRUE, FALSE, TRUE, TRUE, FALSE)
+  expect_quick_identical(fn_integer, list(m), list(FALSE))
+  expect_quick_identical(fn_double, list(m), list(TRUE))
+})
+
 test_that("rev() works inside compound logical expressions", {
   fn <- function(x) {
     declare(type(x = logical(NA)))

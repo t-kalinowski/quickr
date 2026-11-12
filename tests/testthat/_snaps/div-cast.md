@@ -29,8 +29,7 @@
         ! manifest end
       
       
-      if (size(real(a, kind=c_double), kind=c_ptrdiff_t) == 0 .or. size(real(a, kind=c_double), kind=c_ptrdiff_t) /= size(real(b,&
-      & kind=c_double), kind=c_ptrdiff_t)) then
+        if (size(real(a, kind=c_double), kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return
@@ -140,7 +139,7 @@
         ! manifest end
       
       
-        if (size(a, kind=c_ptrdiff_t) == 0 .or. size(a, kind=c_ptrdiff_t) /= size(real(b, kind=c_double), kind=c_ptrdiff_t)) then
+        if (size(a, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return
@@ -250,8 +249,7 @@
         ! manifest end
       
       
-      if (size(a, kind=c_ptrdiff_t) == 0 .or. size(a, kind=c_ptrdiff_t) /= size(merge(1.0_c_double, 0.0_c_double, (b/=0)),&
-      & kind=c_ptrdiff_t)) then
+        if (size(a, kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return

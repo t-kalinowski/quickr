@@ -133,9 +133,19 @@ scope_read_variable <- function(name, scope, var = get0(name, scope)) {
   if (!inherits(var, Variable) || passes_as_scalar(var)) {
     return(var)
   }
+  root <- scope_root(scope)
+  if (!identical(scope, root)) {
+    # Captured and formal storage keep their existing runtime shape checks.
+    var@input_shape <- NULL
+  }
   owner <- scope
   while (inherits(owner, "quickr_scope")) {
     if (exists(name, owner, inherits = FALSE)) {
+      if (identical(scope, root) && identical(owner, root) && var@is_arg) {
+        var@input_shape <- lapply(seq_len(var@rank), function(axis) {
+          list(variable = name, axis = axis)
+        })
+      }
       if (
         identical(scope_kind(owner), "closure_formals") || has_storage_dims(var)
       ) {

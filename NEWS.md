@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- Shape-preserving arithmetic, full-axis slices, and fixed-shape local copies
+  retain input dimension proofs during translation. This removes equality checks
+  already implied by the input declarations. Independent dynamic shapes and
+  captured storage keep their runtime checks.
+
 - Locals shared by conditional matrix operations and ordinary assignments
   retain their allocation. Skipping a `solve()` branch no longer leaves a
   later constructor assignment reading or writing unallocated storage.
