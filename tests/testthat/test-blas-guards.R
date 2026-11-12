@@ -526,7 +526,7 @@ test_that("symmetric products return zeros for known empty contractions", {
   expect_quick_identical(tcross_symbolic, list(matrix(double(), 2, 0), 0L))
 })
 
-test_that("matrix BLAS rejects known zero-sized outputs", {
+test_that("matrix BLAS preserves known zero-sized outputs", {
   matrix_matrix <- function(a, b) {
     declare(type(a = double(0, 2)), type(b = double(2, 3)))
     a %*% b
@@ -552,22 +552,29 @@ test_that("matrix BLAS rejects known zero-sized outputs", {
     x %o% y
   }
 
-  expect_error(quick(matrix_matrix), "zero-sized outputs are not supported")
-  expect_error(quick(matrix_vector), "zero-sized outputs are not supported")
-  expect_error(quick(tcross_vec), "zero-sized outputs are not supported")
-  expect_error(quick(cross_mat), "zero-sized outputs are not supported")
-  expect_error(quick(outer_left), "zero-sized outputs are not supported")
-  expect_error(quick(outer_right), "zero-sized outputs are not supported")
+  expect_quick_identical(
+    matrix_matrix,
+    list(matrix(double(), 0, 2), matrix(as.double(1:6), 2, 3))
+  )
+  expect_quick_identical(matrix_vector, list(matrix(double(), 0, 2), c(1, 2)))
+  expect_quick_identical(tcross_vec, double())
+  expect_quick_identical(cross_mat, matrix(double(), 0, 0))
+  expect_quick_identical(outer_left, list(double(), c(1, 2)))
+  expect_quick_identical(outer_right, list(c(1, 2), double()))
 })
 
-test_that("matrix BLAS guards unknown output extents at runtime", {
+test_that("matrix BLAS preserves empty runtime output extents", {
   matrix_matrix <- function(a, b) {
-    declare(type(a = double(NA, 2)), type(b = double(2, 3)))
+    declare(type(a = double(NA, 2)), type(b = double(2, NA)))
     a %*% b
   }
   matrix_vector <- function(a, x) {
     declare(type(a = double(NA, 2)), type(x = double(2)))
     a %*% x
+  }
+  vector_matrix <- function(x, a) {
+    declare(type(x = double(2)), type(a = double(2, NA)))
+    x %*% a
   }
   cross_mat <- function(x) {
     declare(type(x = double(2, NA)))
@@ -582,23 +589,75 @@ test_that("matrix BLAS guards unknown output extents at runtime", {
     outer(x, y)
   }
 
-  q_matrix_matrix <- expect_no_warning(quick(matrix_matrix))
-  q_matrix_vector <- expect_no_warning(quick(matrix_vector))
-  q_cross_mat <- expect_no_warning(quick(cross_mat))
-  q_tcross_mat <- expect_no_warning(quick(tcross_mat))
-  q_outer <- expect_no_warning(quick(outer_fn))
-  message <- "zero-sized outputs are not supported"
-
-  expect_error(
-    q_matrix_matrix(matrix(double(), 0, 2), matrix(double(), 2, 3)),
-    message
+  expect_quick_identical(
+    matrix_matrix,
+    list(matrix(double(), 0, 2), matrix(as.double(1:6), 2, 3)),
+    list(matrix(as.double(1:6), 3, 2), matrix(double(), 2, 0)),
+    list(matrix(double(), 0, 2), matrix(double(), 2, 0)),
+    list(matrix(as.double(1:6), 3, 2), matrix(as.double(1:4), 2, 2))
   )
-  expect_error(q_matrix_vector(matrix(double(), 0, 2), double(2)), message)
-  expect_error(q_cross_mat(matrix(double(), 2, 0)), message)
-  expect_error(q_tcross_mat(matrix(double(), 0, 2)), message)
-  expect_equal(q_outer(as.double(1:2), as.double(3:4)), outer(1:2, 3:4))
-  expect_error(q_outer(double(), as.double(1:2)), message)
-  expect_error(q_outer(as.double(1:2), double()), message)
+  expect_quick_identical(
+    matrix_vector,
+    list(matrix(double(), 0, 2), c(1, 2)),
+    list(matrix(as.double(1:6), 3, 2), c(1, 2))
+  )
+  expect_quick_identical(
+    vector_matrix,
+    list(c(1, 2), matrix(double(), 2, 0)),
+    list(c(1, 2), matrix(as.double(1:6), 2, 3))
+  )
+  expect_quick_identical(
+    cross_mat,
+    matrix(double(), 2, 0),
+    matrix(as.double(1:6), 2, 3)
+  )
+  expect_quick_identical(
+    tcross_mat,
+    matrix(double(), 0, 2),
+    matrix(as.double(1:6), 3, 2)
+  )
+  expect_quick_identical(
+    outer_fn,
+    list(c(1, 2), c(3, 4)),
+    list(double(), c(1, 2)),
+    list(c(1, 2), double()),
+    list(double(), double())
+  )
+})
+
+test_that("transposed products preserve empty output axes", {
+  left_transposed <- function(a, b) {
+    declare(type(a = double(2, NA)), type(b = double(2, NA)))
+    t(a) %*% b
+  }
+  right_transposed <- function(a, b) {
+    declare(type(a = double(NA, 2)), type(b = double(NA, 2)))
+    a %*% t(b)
+  }
+  cross <- function(a, b) {
+    declare(type(a = double(2, NA)), type(b = double(2, NA)))
+    crossprod(a, b)
+  }
+  tcross <- function(a, b) {
+    declare(type(a = double(NA, 2)), type(b = double(NA, 2)))
+    tcrossprod(a, b)
+  }
+  for (fn in list(left_transposed, cross)) {
+    expect_quick_identical(
+      fn,
+      list(matrix(double(), 2, 0), matrix(as.double(1:6), 2, 3)),
+      list(matrix(as.double(1:6), 2, 3), matrix(double(), 2, 0)),
+      list(matrix(double(), 2, 0), matrix(double(), 2, 0))
+    )
+  }
+  for (fn in list(right_transposed, tcross)) {
+    expect_quick_identical(
+      fn,
+      list(matrix(double(), 0, 2), matrix(as.double(1:6), 3, 2)),
+      list(matrix(as.double(1:6), 3, 2), matrix(double(), 0, 2)),
+      list(matrix(double(), 0, 2), matrix(double(), 0, 2))
+    )
+  }
 })
 
 test_that("NA dims are never treated as equal", {
@@ -612,6 +671,11 @@ test_that("NA dims are never treated as equal", {
   # was: identical(NA, NA) blessed the pair with no check at all
   expect_error(
     qfn(m, matrix(as.double(1:6), 3, 2)),
+    "non-conformable arguments in %*%",
+    fixed = TRUE
+  )
+  expect_error(
+    qfn(matrix(double(), 0, 2), matrix(double(), 3, 0)),
     "non-conformable arguments in %*%",
     fixed = TRUE
   )
