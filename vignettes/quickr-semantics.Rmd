@@ -377,10 +377,13 @@ outputs.
 
 ### `drop()` requires a fixed result rank
 
-The rank of a compiled result cannot depend on a runtime extent. When a
-matrix axis is not known at compile time, `drop()` accepts inputs whose
-runtime extent is not 1 and raises an error when it is 1. Declare singleton
-axes explicitly when `drop()` should remove them.
+The rank of a compiled result cannot depend on a runtime extent. `drop()`
+removes matrix axes declared with extent 1. Axes whose extent is unknown
+at compile time are retained, even when their runtime extent is 1; this
+does not raise an error. For example, `drop(x)` with `x` declared
+`double(NA, NA)` retains a matrix result for a one-row input, whereas R
+returns a vector. Declare singleton axes explicitly when `drop()` should
+remove them.
 
 ### A variable's type cannot change
 
