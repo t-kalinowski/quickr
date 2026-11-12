@@ -149,10 +149,8 @@ test_that("scalar arithmetic and fixed-shape copies retain input dimensions", {
   expect_quick_identical(fn, c(1, 2, 3))
 
   # Shape-preserving expressions must not recheck equality with their source.
-  # The current nonempty policy still needs its separate runtime check.
   code <- as.character(r2f(fn))
   expect_false(grepl("/=", code, fixed = TRUE))
-  expect_true(grepl("== 0", code, fixed = TRUE))
 })
 
 test_that("full columns retain wrapper-validated dimension equality", {

@@ -334,12 +334,18 @@ input_dimension <- function(dim, operand, axis, scope) {
   # A derived expression can retain an input axis without retaining its name.
   # These facts are recorded during recursive lowering, after the operation's
   # own checks, and never inferred from matching symbolic dimension spellings.
+  # A promoted matrix view can ask about a singleton dimension instead of the
+  # vector's length; only use provenance for the operand axis actually queried.
   if (
     inherits(scope, "quickr_scope") &&
       identical(scope, scope_root(scope)) &&
       !is.null(operand@value@input_shape) &&
       (operand@value@rank == 1L || !is.null(axis)) &&
-      (axis %||% 1L) <= length(operand@value@input_shape)
+      (axis %||% 1L) <= length(operand@value@input_shape) &&
+      identical(
+        declared_dim(dim),
+        declared_dim(dim_or_one(operand, axis %||% 1L))
+      )
   ) {
     source <- operand@value@input_shape[[axis %||% 1L]]
     if (!is.null(source)) {
