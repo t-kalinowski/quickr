@@ -330,8 +330,9 @@ can_use_output <- function(
   !output_name %in% disallowed
 }
 
-# Known issue: allocation planning does not cover every initializer and
-# conditional write to a reused local. Use separate locals for separate results.
+# Locals written only through BLAS/LAPACK can allocate after its guards.
+# The manifest retains prologue allocation if ordinary assignments also
+# write this local; their shape checks and scalar fills require storage.
 allocate_reusable_local_output_at_point <- function(dest, scope, hoist) {
   stopifnot(inherits(dest, Variable), inherits(scope, "quickr_scope"))
   assert_hoist_env(hoist)
