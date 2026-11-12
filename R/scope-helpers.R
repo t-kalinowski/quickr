@@ -45,6 +45,17 @@ scope_mark_uses_rng <- function(scope) {
   invisible(TRUE)
 }
 
+# Record actual host writes while translating their owners. Mark lexical
+# callers too, so a nested closure's write remains visible at its call site.
+scope_mark_host_write <- function(scope, name) {
+  while (inherits(scope, "quickr_scope")) {
+    writes <- scope_get(scope, "host_writes", character())
+    scope_set(scope, "host_writes", union(writes, name))
+    scope <- parent.env(scope)
+  }
+  invisible()
+}
+
 scope_defers_branch_errors <- function(scope) {
   while (inherits(scope, "quickr_scope")) {
     defer <- scope_get(scope, "defer_branch_errors")

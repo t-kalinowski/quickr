@@ -11,6 +11,23 @@ ifelse_branch_shape_msg <- paste0(
 # Conservative classifier for expressions whose evaluation timing is not
 # observable. It lets ifelse() keep safe branches inline and local closures
 # accept actual values without pretending to implement R promise semantics.
+r2f_pure_operators <- c(
+  "(",
+  "!",
+  "&",
+  "|",
+  "<",
+  "<=",
+  ">",
+  ">=",
+  "==",
+  "!=",
+  "+",
+  "-",
+  "*",
+  "abs"
+)
+
 r2f_expression_is_pure <- function(e, scope) {
   if (is.null(e) || identical(e, quote(NULL))) {
     return(TRUE)
@@ -26,25 +43,7 @@ r2f_expression_is_pure <- function(e, scope) {
     return(FALSE)
   }
   op <- as.character(e[[1L]])
-  if (
-    !op %in%
-      c(
-        "(",
-        "!",
-        "&",
-        "|",
-        "<",
-        "<=",
-        ">",
-        ">=",
-        "==",
-        "!=",
-        "+",
-        "-",
-        "*",
-        "abs"
-      )
-  ) {
+  if (!op %in% r2f_pure_operators) {
     return(FALSE)
   }
   if (inherits(get0(op, scope), LocalClosure)) {

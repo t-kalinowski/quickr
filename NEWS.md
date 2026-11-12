@@ -1,5 +1,11 @@
 # quickr (development version)
 
+- Supplied local closure arguments now accept safe dimension queries, numeric reductions,
+  rounding, division, and `sqrt()` of a nonnegative literal
+  or `abs()` expression. Effectful or runtime-guarded arguments remain unsupported.
+  Compound arguments that read a captured binding modified by the callee now
+  report an error instead of using a value evaluated before R would force it.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.

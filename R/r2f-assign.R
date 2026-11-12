@@ -347,6 +347,7 @@ resolve_superassign_target <- function(name, scope) {
 
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
+  scope_mark_host_write(scope, host_var@name)
   host_var
 }
 

@@ -510,6 +510,7 @@ compile_internal_subroutine <- function(
     res = res_name,
     res_var = res_var,
     uses_errors = scope_uses_errors_flag(proc_scope),
+    host_writes = scope_get(proc_scope, "host_writes", character()),
     error = if (body_failed) expr_error else NULL
   )
 }
@@ -767,6 +768,74 @@ closure_formal_vars <- function(args_f, formal_names) {
   formal_vars
 }
 
+# These additional expressions are safe to evaluate before entering a local
+# procedure. Domain-sensitive operations need a local proof; unknown calls,
+# subscripts, RNG, optional arguments, and emitted runtime guards stay excluded.
+closure_argument_is_pure <- function(e, scope) {
+  if (!is.call(e)) {
+    return(r2f_expression_is_pure(e, scope))
+  }
+  if (!is.symbol(e[[1L]])) {
+    return(FALSE)
+  }
+  op <- as.character(e[[1L]])
+  if (inherits(get0(op, scope), LocalClosure)) {
+    return(FALSE)
+  }
+  args <- as.list(e)[-1L]
+  allowed <- op %in%
+    r2f_pure_operators ||
+    (op == "/" && length(args) == 2L) ||
+    (op %in%
+      c("length", "floor", "ceiling", "trunc", "as.double") &&
+      length(args) == 1L) ||
+    (op %in% c("sum", "prod") && length(args) > 0L)
+
+  if (op == "sqrt" && length(args) == 1L) {
+    value <- unwrap_parens(args[[1L]])
+    allowed <- (is.numeric(value) &&
+      length(value) == 1L &&
+      is.finite(value) &&
+      value >= 0) ||
+      (is_call(value, "abs") &&
+        length(value) == 2L &&
+        !inherits(get0("abs", scope), LocalClosure))
+  } else if (op %in% c("nrow", "ncol") && length(args) == 1L) {
+    value <- unwrap_parens(args[[1L]])
+    var <- if (is.symbol(value)) get0(as.character(value), scope) else NULL
+    allowed <- inherits(var, Variable) && var@rank >= 2L
+  }
+
+  allowed && all(map_lgl(args, closure_argument_is_pure, scope = scope))
+}
+
+check_closure_argument_timing <- function(call_info, proc, scope) {
+  if (!length(proc$host_writes)) {
+    return(invisible())
+  }
+  for (nm in call_info$formal_names[call_info$args_present]) {
+    expr <- call_info$args_expr[[nm]]
+    if (!is.call(expr)) {
+      next
+    }
+    for (name in all.vars(expr, functions = FALSE)) {
+      var <- get0(name, scope)
+      if (inherits(var, Variable) && var@name %in% proc$host_writes) {
+        stop(
+          "local closure argument `",
+          nm,
+          "` reads `",
+          name,
+          "`, which the callee may modify before forcing the argument; ",
+          "evaluate the argument in a separate statement",
+          call. = FALSE
+        )
+      }
+    }
+  }
+  invisible()
+}
+
 match_closure_call_args <- function(
   call_expr,
   closure_obj,
@@ -802,6 +871,7 @@ match_closure_call_args <- function(
     )
   }
 
+  supplied_names <- arg_names[!map_lgl(args_expr, is_missing)]
   args_aligned <- formals_list
   if (length(args_expr)) {
     args_aligned[names(args_expr)] <- args_expr
@@ -854,11 +924,16 @@ match_closure_call_args <- function(
   # lazy promise forcing for effectful or trapping actual expressions. Keep
   # that boundary explicit instead of choosing an observably wrong order.
   present_names <- formal_names[args_present]
-  pure_args <- map_lgl(
-    args_expr[present_names],
-    r2f_expression_is_pure,
-    scope = scope
-  )
+  pure_args <- map_lgl(present_names, function(nm) {
+    # Supplied arguments belong to the caller. Defaults belong to the callee
+    # and can refer to its other formals, so do not extend their lowering here.
+    classify <- if (nm %in% supplied_names) {
+      closure_argument_is_pure
+    } else {
+      r2f_expression_is_pure
+    }
+    classify(args_expr[[nm]], scope)
+  })
   promise_error <- paste0(
     closure_name,
     " call: local closure calls only support pure argument expressions"
@@ -1007,6 +1082,7 @@ compile_closure_call <- function(
     optional_args = optional_args,
     defer_errors = defer_errors
   )
+  check_closure_argument_timing(call_info, proc, scope)
 
   if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
@@ -1123,6 +1199,7 @@ compile_closure_call_assignment <- function(
     allow_void_return = defer_errors,
     defer_errors = defer_errors
   )
+  check_closure_argument_timing(call_info, proc, scope)
   if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
     hoist$emit(str_flatten_lines(

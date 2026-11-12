@@ -416,6 +416,186 @@ test_that("local closure calls reject guarded argument promises", {
   )
 })
 
+test_that("local closure arguments accept safe scalar expressions", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    combine <- function(half, down, up, whole, magnitude) {
+      c(half, down, up, whole, magnitude)
+    }
+    combine(x / 2, floor(x), ceiling(x), trunc(x), sqrt(abs(x)))
+  }
+  expect_quick_equal(fn, -3.5, 0, 4.5)
+
+  composed <- function(x) {
+    declare(type(x = integer(1)))
+    add_one <- function(y) y + 1
+    add_one(as.double(x) / 2 + sqrt(9))
+  }
+  expect_quick_identical(composed, -3L, 0L, 4L)
+})
+
+test_that("local closure arguments accept reductions and matrix dimensions", {
+  fn <- function(x) {
+    declare(type(x = double(NA, NA)))
+    combine <- function(total, product, size, rows, cols) {
+      c(total, product, as.double(size), as.double(rows), as.double(cols))
+    }
+    combine(sum(x), prod(x), length(x), nrow(x), ncol(x))
+  }
+  expect_quick_identical(
+    fn,
+    matrix(as.double(1:6), 2, 3),
+    matrix(double(), 0, 3)
+  )
+})
+
+test_that("closure arguments allow floating division by variable and zero divisors", {
+  fn <- function(x, scale) {
+    declare(type(x = double(1)), type(scale = double(1)))
+    identity <- function(value) value
+    identity(x / scale)
+  }
+  expect_quick_identical(
+    fn,
+    list(4, 2),
+    list(1, 0),
+    list(-1, 0),
+    list(0, 0)
+  )
+
+  integer_args <- function(x, scale) {
+    declare(type(x = integer(1)), type(scale = integer(1)))
+    identity <- function(value) value
+    identity(x / scale)
+  }
+  expect_quick_identical(
+    integer_args,
+    list(3L, 2L),
+    list(1L, 0L),
+    list(0L, 0L)
+  )
+
+  unused <- function(x, scale) {
+    declare(type(x = double(1)), type(scale = double(1)))
+    ignore <- function(value, literal) 3L
+    ignore(x / scale, 1 / 0)
+  }
+  expect_quick_identical(unused, list(1, 0), list(0, 0))
+})
+
+test_that("unused safe closure arguments preserve results and RNG state", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    ignore <- function(count, total) 3L
+    ignore(length(x), sum(x))
+  }
+  expect_quick_identical(fn, c(1, 2, 3), double())
+  qfn <- quick(fn)
+  withr::local_seed(161)
+  before <- .Random.seed
+  expect_identical(qfn(c(1, 2)), 3L)
+  expect_identical(.Random.seed, before)
+})
+
+test_that("safe wrappers do not hide argument effects or uncertain domains", {
+  expressions <- alist(
+    length(runif(2)),
+    sum(runif(2)),
+    sqrt(abs(runif(1))),
+    sqrt(x),
+    x / runif(1),
+    sum(x[1])
+  )
+  for (expr in expressions) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      ignore <- function(value) 3L
+      ignore(.(expr))
+    }))
+    expect_identical(fn(-1), 3L)
+    expect_error(
+      quick(fn),
+      "local closure calls only support pure argument expressions",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("new closure argument intrinsics respect local shadowing", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    sum <- function(value) {
+      x <<- x + 1
+      value
+    }
+    ignore <- function(value) 3L
+    ignore(sum(x))
+  }
+  expect_identical(fn(2), 3L)
+  expect_error(
+    quick(fn),
+    "local closure calls only support pure argument expressions",
+    fixed = TRUE
+  )
+})
+
+test_that("safe actual expressions do not extend callee default evaluation", {
+  for (call in alist(read(10), read(10, ))) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      read <- function(x, value = x / 2) value
+      .(call)
+    }))
+    expect_identical(fn(2), 5)
+    expect_error(
+      quick(fn),
+      "local closure calls only support pure argument expressions",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("closure expressions cannot read captures modified before forcing", {
+  bodies <- alist(
+    {
+      x <<- 8
+      value
+    },
+    {
+      change <- function() {
+        x <<- 8
+        NULL
+      }
+      change()
+      value
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      read <- function(value) .(body)
+      read(x / 2)
+    }))
+    expect_identical(fn(2), 4)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+
+  unrelated <- function(x) {
+    declare(type(x = double(1)))
+    state <- 0
+    read <- function(value) {
+      state <<- 1
+      value + state
+    }
+    read(x / 2)
+  }
+  expect_quick_identical(unrelated, 2, 4)
+})
+
 test_that("sapply errors for insufficient arguments", {
   expect_error(
     quick(function(x) {
