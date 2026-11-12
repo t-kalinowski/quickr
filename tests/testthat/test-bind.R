@@ -300,7 +300,7 @@ test_that("cbind rejects mixing complex with non-complex", {
   expect_error(quick(bad), "mixing complex", fixed = TRUE)
 })
 
-test_that("cbind requires dimensions to be equal at compile time", {
+test_that("cbind validates independently supplied dimension values", {
   fn <- function(x, y, n, m) {
     declare(
       type(n = integer(1)),
@@ -311,11 +311,8 @@ test_that("cbind requires dimensions to be equal at compile time", {
     cbind(x, y)
   }
 
-  expect_error(
-    quick(fn),
-    "common row count",
-    fixed = TRUE
-  )
+  expect_bind_equal(fn, list(c(1, 2), c(3, 4), 2L, 2L))
+  expect_error(quick(fn)(c(1, 2), c(3, 4, 5), 2L, 3L), "matching dimensions")
 })
 
 test_that("cbind supports symbolic dimension expressions in output shape", {
@@ -337,20 +334,68 @@ test_that("cbind supports symbolic dimension expressions in output shape", {
   expect_bind_equal(fn, list(x, A, n, m))
 })
 
-test_that("cbind requires inferred dimensions to match", {
+test_that("cbind and rbind check independently inferred dimensions at runtime", {
   unknown_rows <- function(A, B) {
     declare(type(A = double(NA, 2)), type(B = double(NA, 1)))
     cbind(A, B)
   }
+  unknown_columns <- function(A, B) {
+    declare(type(A = double(2, NA)), type(B = double(1, NA)))
+    rbind(A, B)
+  }
 
-  q_unknown_rows <- NULL
+  expect_bind_equal(
+    unknown_rows,
+    list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1)),
+    list(matrix(double(), 0, 2), matrix(double(), 0, 1))
+  )
+  expect_bind_equal(
+    unknown_columns,
+    list(matrix(as.double(1:6), 2, 3), matrix(as.double(7:9), 1, 3)),
+    list(matrix(double(), 2, 0), matrix(double(), 1, 0))
+  )
+  qrows <- quick(unknown_rows)
+  qcols <- quick(unknown_columns)
   expect_error(
-    q_unknown_rows <- quick(unknown_rows),
-    "common row count",
+    qrows(matrix(as.double(1:6), 3, 2), matrix(as.double(1:2), 2, 1)),
+    "cbind() requires inputs with matching dimensions",
     fixed = TRUE
   )
+  expect_error(
+    qcols(matrix(as.double(1:6), 2, 3), matrix(as.double(1:2), 1, 2)),
+    "rbind() requires inputs with matching dimensions",
+    fixed = TRUE
+  )
+})
 
-  expect_null(q_unknown_rows)
+test_that("binding accepts distinct symbolic dimensions and scalar inputs", {
+  columns <- function(x, y) {
+    declare(type(x = double(n)), type(y = double(m)))
+    cbind(x, y, 1)
+  }
+  rows <- function(x, y) {
+    declare(type(x = double(n)), type(y = double(m)))
+    rbind(1, x, y)
+  }
+  expect_bind_equal(columns, list(c(1, 2), c(3, 4)))
+  expect_bind_equal(rows, list(c(1, 2), c(3, 4)))
+  expect_error(quick(columns)(c(1, 2), c(3, 4, 5)), "matching dimensions")
+  expect_error(quick(rows)(c(1, 2), c(3, 4, 5)), "matching dimensions")
+})
+
+test_that("binding checks a dynamic common dimension against a known one", {
+  fn <- function(A, B) {
+    declare(type(A = double(NA, 2)), type(B = double(3, 1)))
+    cbind(A, B)
+  }
+  expect_bind_equal(
+    fn,
+    list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1))
+  )
+  expect_error(
+    quick(fn)(matrix(as.double(1:4), 2, 2), matrix(as.double(7:9), 3, 1)),
+    "matching dimensions"
+  )
 })
 
 for (rank in c("vector", "matrix")) {

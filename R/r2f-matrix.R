@@ -294,8 +294,8 @@ bind_dim_sum <- function(values, context, label) {
   reduce(values, \(a, b) call("+", a, b))
 }
 
-# Bind outputs require a known, common declared dimension. Matching declaration
-# expressions still require a runtime check against the inputs' stored extents.
+# Use the first nonscalar input's common dimension for the result. Reject
+# known mismatches here; runtime checks below compare unknown stored extents.
 bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   non_scalar <- which(!scalar_flags)
   if (!length(non_scalar)) {
@@ -313,9 +313,7 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
   }
   if (length(non_scalar) > 1L) {
     for (idx in non_scalar[-1L]) {
-      # Distinct declaration expressions remain unsupported even though
-      # matching declarations are checked against stored extents below.
-      if (!dims_match(target, dim_list[[idx]])) {
+      if (!check_equal_dims(target, dim_list[[idx]])$ok) {
         stop(
           context,
           " requires inputs with a common ",
@@ -369,7 +367,7 @@ bind_piece_expr <- function(value, common, is_scalar, context, direction) {
 }
 
 # cbind()/rbind() share one skeleton: clean the args, join input modes,
-# require a known common dim (bind_common_dim) and sum the other, then
+# check the common dim (bind_common_dim) and sum the other, then
 # assemble the pieces. Only the orientation differs; rbind builds the
 # transpose and flips it at the end so the array constructor still fills
 # column-major.

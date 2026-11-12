@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- `cbind()` and `rbind()` accept independent dynamic common dimensions,
+  including axes declared with `NA` or different symbolic names. Their actual
+  extents are checked before binding; known mismatches remain compile errors.
+
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 
 - Matrix assignments infer their output shape during recursive translation, removing a separate inference pass. Expressions such as `out <- crossprod(x + 1, y)` can write directly into the destination.

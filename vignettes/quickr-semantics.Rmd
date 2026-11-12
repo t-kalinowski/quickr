@@ -239,10 +239,11 @@ refuses that rank-0 form. Declare a length-one vector when that case is
 required.
 
 `cbind()` and `rbind()` support scalar recycling and otherwise require the
-common nonscalar extent to be provably equal at compile time. Arguments
-declared with the same symbolic extent satisfy that requirement. Distinct or
-otherwise unresolved extents are a compile error, even if their runtime values
-would be equal.
+common nonscalar extent to match. Known mismatches are compile errors.
+Independent dynamic extents, including axes declared with `NA` or different
+symbolic names, are checked at run time before binding. A shared input
+dimension declaration can establish equality at the compiled function's
+boundary, avoiding another check inside the function.
 
 ## Differences from R
 
