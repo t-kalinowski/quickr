@@ -416,6 +416,462 @@ test_that("local closure calls reject guarded argument promises", {
   )
 })
 
+test_that("local closure arguments accept safe scalar expressions", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    combine <- function(half, down, up, whole, magnitude) {
+      c(half, down, up, whole, magnitude)
+    }
+    combine(x / 2, floor(x), ceiling(x), trunc(x), sqrt(abs(x)))
+  }
+  expect_quick_equal(fn, -3.5, 0, 4.5)
+
+  composed <- function(x) {
+    declare(type(x = integer(1)))
+    add_one <- function(y) y + 1
+    add_one(as.double(x) / 2 + sqrt(9))
+  }
+  expect_quick_identical(composed, -3L, 0L, 4L)
+})
+
+test_that("local closure arguments accept reductions and matrix dimensions", {
+  fn <- function(x) {
+    declare(type(x = double(NA, NA)))
+    combine <- function(total, product, size, rows, cols) {
+      c(total, product, as.double(size), as.double(rows), as.double(cols))
+    }
+    combine(sum(x), prod(x), length(x), nrow(x), ncol(x))
+  }
+  expect_quick_identical(
+    fn,
+    matrix(as.double(1:6), 2, 3),
+    matrix(double(), 0, 3)
+  )
+})
+
+test_that("closure arguments allow floating division by variable and zero divisors", {
+  fn <- function(x, scale) {
+    declare(type(x = double(1)), type(scale = double(1)))
+    identity <- function(value) value
+    identity(x / scale)
+  }
+  expect_quick_identical(
+    fn,
+    list(4, 2),
+    list(1, 0),
+    list(-1, 0),
+    list(0, 0)
+  )
+
+  integer_args <- function(x, scale) {
+    declare(type(x = integer(1)), type(scale = integer(1)))
+    identity <- function(value) value
+    identity(x / scale)
+  }
+  expect_quick_identical(
+    integer_args,
+    list(3L, 2L),
+    list(1L, 0L),
+    list(0L, 0L)
+  )
+
+  unused <- function(x, scale) {
+    declare(type(x = double(1)), type(scale = double(1)))
+    ignore <- function(value, literal) 3L
+    ignore(x / scale, 1 / 0)
+  }
+  expect_quick_identical(unused, list(1, 0), list(0, 0))
+})
+
+test_that("unused safe closure arguments preserve results and RNG state", {
+  fn <- function(x) {
+    declare(type(x = double(NA)))
+    ignore <- function(count, total) 3L
+    ignore(length(x), sum(x))
+  }
+  expect_quick_identical(fn, c(1, 2, 3), double())
+  qfn <- quick(fn)
+  withr::local_seed(161)
+  before <- .Random.seed
+  expect_identical(qfn(c(1, 2)), 3L)
+  expect_identical(.Random.seed, before)
+})
+
+test_that("safe wrappers do not hide argument effects or uncertain domains", {
+  expressions <- alist(
+    length(runif(2)),
+    sum(runif(2)),
+    sqrt(abs(runif(1))),
+    sqrt(x),
+    x / runif(1),
+    sum(x[1])
+  )
+  for (expr in expressions) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      ignore <- function(value) 3L
+      ignore(.(expr))
+    }))
+    expect_identical(fn(-1), 3L)
+    expect_error(
+      quick(fn),
+      "local closure calls only support pure argument expressions",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("new closure argument intrinsics respect local shadowing", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    sum <- function(value) {
+      x <<- x + 1
+      value
+    }
+    ignore <- function(value) 3L
+    ignore(sum(x))
+  }
+  expect_identical(fn(2), 3L)
+  expect_error(
+    quick(fn),
+    "local closure calls only support pure argument expressions",
+    fixed = TRUE
+  )
+})
+
+test_that("safe actual expressions do not extend callee default evaluation", {
+  for (call in alist(read(10), read(10, ))) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      read <- function(x, value = x / 2) value
+      .(call)
+    }))
+    expect_identical(fn(2), 5)
+    expect_error(
+      quick(fn),
+      "local closure calls only support pure argument expressions",
+      fixed = TRUE
+    )
+  }
+})
+
+test_that("default arguments retain captured binding identities", {
+  for (default in alist(x, (x))) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(y = .(default)) change(y / 2)
+      outer()
+    }))
+    expect_identical(fn(2), 4)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+
+  shadowed_compound_default <- function(x) {
+    declare(type(x = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    read <- function(value = x + 1) change(value)
+    outer <- function(z) {
+      x <- z + 99
+      read()
+    }
+    outer(2)
+  }
+  expect_identical(shadowed_compound_default(1), 9)
+  expect_error(
+    quick(shadowed_compound_default),
+    "which the callee may modify before forcing the argument",
+    fixed = TRUE
+  )
+})
+
+test_that("safe defaults use their lexical bindings at the call site", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x + 1) value
+    outer <- function(z) {
+      x <- z + 99
+      read()
+    }
+    outer(2)
+  }
+  expect_quick_identical(fn, 1, 10)
+
+  result_name <- function(res) {
+    declare(type(res = double(1)))
+    read <- function(value = res) value
+    read()
+  }
+  expect_quick_identical(result_name, 1, 10)
+
+  direct_read <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) {
+      x <<- 8
+      value
+    }
+    read()
+  }
+  expect_quick_identical(direct_read, 1, 10)
+})
+
+test_that("defaults reject unavailable caller bindings and callee dependencies", {
+  shadowed <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) value
+    outer <- function(x) read()
+    outer(2)
+  }
+  expect_identical(shadowed(10), 10)
+  expect_error(
+    quick(shadowed),
+    "cannot access `x` from the calling procedure; supply it explicitly",
+    fixed = TRUE
+  )
+
+  formal <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(x, value = x) value
+    read(10)
+  }
+  expect_identical(formal(2), 10)
+  expect_error(
+    quick(formal),
+    "depends on callee formals; supply it explicitly",
+    fixed = TRUE
+  )
+
+  local <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) {
+      x <- 8
+      value
+    }
+    read()
+  }
+  expect_identical(local(2), 8)
+  expect_error(
+    quick(local),
+    "which is assigned in the callee; supply it explicitly",
+    fixed = TRUE
+  )
+})
+
+test_that("closure expressions cannot read captures modified before forcing", {
+  bodies <- alist(
+    {
+      x <<- 8
+      value
+    },
+    {
+      change <- function() {
+        x <<- 8
+        NULL
+      }
+      change()
+      value
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      read <- function(value) .(body)
+      read(x / 2)
+    }))
+    expect_identical(fn(2), 4)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+
+  unrelated <- function(x) {
+    declare(type(x = double(1)))
+    state <- 0
+    read <- function(value) {
+      state <<- 1
+      value + state
+    }
+    read(x / 2)
+  }
+  expect_quick_identical(unrelated, 2, 4)
+})
+
+test_that("closure argument timing distinguishes shadowed bindings", {
+  bodies <- alist(
+    change(x + 1),
+    {
+      forward <- function(x) change(x + 1)
+      forward(x)
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      value <- outer(2)
+      c(value, x)
+    }))
+    expect_quick_identical(fn, 1, 10)
+  }
+
+  other_binding <- function(x, y) {
+    declare(type(x = double(1)), type(y = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    outer <- function(x) change(x + 1)
+    value <- outer(y)
+    c(value, x, y)
+  }
+  expect_quick_identical(other_binding, list(1, 2), list(10, 4))
+})
+
+test_that("closure argument captures use the definition scope", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    identity_local <- function(value) value
+    read <- function() identity_local(x)
+    outer <- function(x) read()
+    outer(2)
+  }
+  expect_quick_identical(fn, 1, 10)
+})
+
+test_that("root-defined callee writes reach caller argument checks", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    change <- function() {
+      x <<- 8
+      NULL
+    }
+    read <- function(value) {
+      change()
+      value
+    }
+    read(x + 1)
+  }
+  expect_identical(fn(2), 9)
+  expect_error(
+    quick(fn),
+    "which the callee may modify before forcing the argument",
+    fixed = TRUE
+  )
+})
+
+test_that("closure arguments reject enclosing procedure captures", {
+  bodies <- alist(
+    {
+      inner <- function() change(x + 1)
+      inner()
+    },
+    {
+      local <- x
+      inner <- function() change(local + 1)
+      inner()
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      value <- outer(2)
+      c(value, x)
+    }))
+    expect_identical(fn(1), c(3, 8))
+    expect_error(
+      quick(fn),
+      "from an enclosing local closure; pass it as an explicit argument",
+      fixed = TRUE
+    )
+  }
+
+  alias_capture <- function(x) {
+    declare(type(x = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    outer <- function(x) {
+      inner <- function() change(x + 1)
+      inner()
+    }
+    value <- outer(x)
+    c(value, x)
+  }
+  expect_identical(alias_capture(1), c(9, 8))
+  expect_error(
+    quick(alias_capture),
+    "from an enclosing local closure; pass it as an explicit argument",
+    fixed = TRUE
+  )
+})
+
+test_that("read-only compound arguments still require visible bindings", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    identity_local <- function(value) value
+    outer <- function(x) {
+      inner <- function() identity_local(x / 2)
+      inner()
+    }
+    outer(2)
+  }
+  expect_identical(fn(10), 1)
+  expect_error(
+    quick(fn),
+    "from an enclosing local closure; pass it as an explicit argument",
+    fixed = TRUE
+  )
+})
+
+test_that("closure formal aliases retain captured argument checks", {
+  bodies <- alist(
+    change(x + 1),
+    {
+      forward <- function(x) change(x + 1)
+      forward(x)
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      outer(x)
+    }))
+    expect_identical(fn(2), 9)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+})
+
 test_that("sapply errors for insufficient arguments", {
   expect_error(
     quick(function(x) {

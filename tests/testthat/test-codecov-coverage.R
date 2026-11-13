@@ -485,21 +485,33 @@ test_that("rbind coerces logical inputs to integer mode", {
 })
 
 test_that("cbind supports dynamic column sizes with common row counts", {
-  bad_cols <- function(x, y) {
+  dynamic_cols <- function(x, y) {
     declare(type(x = double(n, NA)), type(y = double(n, NA)))
     cbind(x, y)
   }
   x <- matrix(as.double(1:6), nrow = 2)
   y <- matrix(as.double(7:12), nrow = 2)
-  qcols <- quick(bad_cols)
+  qcols <- quick(dynamic_cols)
   expect_identical(unname(qcols(x, y)), unname(cbind(x, y)))
 
-  bad_rows <- function(x, y) {
+  dynamic_rows <- function(x, y) {
     declare(type(x = double(NA, n)), type(y = double(NA, n)))
     cbind(x, y)
   }
+  qrows <- quick(dynamic_rows)
+  expect_identical(unname(qrows(x, y)), unname(cbind(x, y)))
   expect_error(
-    quick(bad_rows),
+    qrows(x, matrix(as.double(1:9), nrow = 3)),
+    "cbind() requires inputs with matching dimensions",
+    fixed = TRUE
+  )
+
+  mismatched_rows <- function(x, y) {
+    declare(type(x = double(2, 3)), type(y = double(3, 3)))
+    cbind(x, y)
+  }
+  expect_error(
+    quick(mismatched_rows),
     "cbind() requires inputs with a common row count",
     fixed = TRUE
   )
@@ -558,9 +570,23 @@ test_that("raw constructor is not implemented", {
   expect_error(quick(fn), "not implemented yet", fixed = TRUE)
 })
 
-test_that("rbind requires common column sizes", {
-  mismatched_cols <- function(x, y) {
+test_that("rbind checks independent column sizes", {
+  dynamic_cols <- function(x, y) {
     declare(type(x = double(n)), type(y = double(m)))
+    rbind(x, y)
+  }
+  qcols <- quick(dynamic_cols)
+  x <- as.double(1:3)
+  y <- as.double(4:6)
+  expect_identical(unname(qcols(x, y)), unname(rbind(x, y)))
+  expect_error(
+    qcols(x, y[-1L]),
+    "rbind() requires inputs with matching dimensions",
+    fixed = TRUE
+  )
+
+  mismatched_cols <- function(x, y) {
+    declare(type(x = double(3)), type(y = double(2)))
     rbind(x, y)
   }
   expect_error(

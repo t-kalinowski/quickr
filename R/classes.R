@@ -152,6 +152,10 @@ Variable := new_class(
     # argument as an optional input (e.g., is.null() -> .not. present()).
     optional_dummy = prop_optional_string,
 
+    # A closure formal supplied by a bare symbol refers to that caller binding.
+    # Retain its owner across nested calls when checking argument forcing order.
+    argument_binding = new_property(NULL | class_list),
+
     # Per-axis provenance to wrapper-validated input storage. Entries are NULL
     # or list(variable = <root R binding>, axis = <input axis>); shape-preserving
     # expressions and fixed-shape copies may retain them.
@@ -209,7 +213,8 @@ SvdResult := new_class(
 LocalClosure := new_class(
   properties = list(
     name = prop_optional_string,
-    fun = class_function
+    fun = class_function,
+    definition_scope = class_environment
   )
 )
 
