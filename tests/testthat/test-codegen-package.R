@@ -62,12 +62,22 @@ expect_codegen_package_snapshot <- function(pkg) {
 
 load_codegen_package <- function(pkg, .local_envir = parent.frame()) {
   src <- file.path(pkg$path, "src")
-  withr::local_dir(src)
   sources <- c("quickr_sub_routines.f90", "quickr_entrypoints.c")
-  if (file.exists("init.c")) {
+  if (file.exists(file.path(src, "init.c"))) {
     sources <- c(sources, "init.c")
   }
-  dll_name <- paste0(pkg$name, .Platform$dynlib.ext)
+  load_codegen_dll(pkg$name, src, sources, .local_envir = .local_envir)
+}
+
+load_codegen_dll <- function(
+  name,
+  src,
+  sources,
+  local = TRUE,
+  .local_envir = parent.frame()
+) {
+  withr::local_dir(src)
+  dll_name <- paste0(name, .Platform$dynlib.ext)
   output <- suppressWarnings(system2(
     R.home("bin/R"),
     c("CMD", "SHLIB", "-o", dll_name, sources),
@@ -83,7 +93,7 @@ load_codegen_package <- function(pkg, .local_envir = parent.frame()) {
       call. = FALSE
     )
   }
-  dll <- dyn.load(file.path(src, dll_name))
+  dll <- dyn.load(file.path(src, dll_name), local = local)
   withr::defer(dyn.unload(dll[["path"]]), envir = .local_envir)
   dll
 }
@@ -146,6 +156,34 @@ test_that("package entrypoints retain separate procedures with the same local na
   second <- getNativeSymbolInfo("second_", dll)$address
   expect_identical(.External(first, 3), 4)
   expect_identical(.External(second, 3), 6)
+})
+
+test_that("package registration keeps its entrypoints local to the DLL", {
+  src <- withr::local_tempdir()
+  writeLines(
+    c(
+      "#include <Rinternals.h>",
+      "SEXP quickrsnapshotprobe_(SEXP args) { return Rf_ScalarReal(-1); }"
+    ),
+    file.path(src, "collision.c")
+  )
+  load_codegen_dll("quickrsnapshotcollision", src, "collision.c", local = FALSE)
+
+  pkg <- generate_codegen_package(
+    "quickrsnapshotregistration",
+    c(
+      "declare <- function(...) invisible()",
+      "",
+      "probe <- quickr::quick(\"quickrsnapshotprobe\", function(x) {",
+      "  declare(type(x = double(1)))",
+      "  x + 1",
+      "})"
+    )
+  )
+  expect_codegen_package_snapshot(pkg)
+  dll <- load_codegen_package(pkg)
+  probe <- getNativeSymbolInfo("quickrsnapshotprobe_", dll)$address
+  expect_identical(.External(probe, 2), 3)
 })
 
 test_that("packages with their own init receive a registration helper", {

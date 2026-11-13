@@ -66,7 +66,7 @@
       
       extern void shift(const double* const x__, double* const out___);
       
-      SEXP shift_(SEXP _args) {
+      static SEXP shift_(SEXP _args) {
         // x
         _args = CDR(_args);
         SEXP x = CAR(_args);
@@ -91,7 +91,7 @@
       
       extern void draw_square(const int* const n__, double* const out___);
       
-      SEXP draw_square_(SEXP _args) {
+      static SEXP draw_square_(SEXP _args) {
         // n
         _args = CDR(_args);
         SEXP n = CAR(_args);
@@ -216,7 +216,7 @@
       
       extern void first(const double* const x__, double* const out___);
       
-      SEXP first_(SEXP _args) {
+      static SEXP first_(SEXP _args) {
         // x
         _args = CDR(_args);
         SEXP x = CAR(_args);
@@ -241,7 +241,7 @@
       
       extern void second(const double* const x__, double* const out___);
       
-      SEXP second_(SEXP _args) {
+      static SEXP second_(SEXP _args) {
         // x
         _args = CDR(_args);
         SEXP x = CAR(_args);
@@ -273,6 +273,80 @@
       #include <R_ext/Rdynload.h>
       
       void R_init_quickrsnapshotclosures(DllInfo *dll) {
+        R_registerRoutines(dll, NULL, NULL, NULL, QuickrEntries);
+        R_useDynamicSymbols(dll, FALSE);
+      }
+
+# package registration keeps its entrypoints local to the DLL
+
+    Code
+      writeLines(pkg$source)
+    Output
+      declare <- function(...) invisible()
+      
+      probe <- quickr::quick("quickrsnapshotprobe", function(x) {
+        declare(type(x = double(1)))
+        x + 1
+      })
+    Code
+      writeLines(pkg$fortran)
+    Output
+      subroutine quickrsnapshotprobe(x, out_) bind(c)
+        use iso_c_binding, only: c_double
+        implicit none
+      
+        ! manifest start
+        ! args
+        real(c_double), intent(in) :: x
+        real(c_double), intent(out) :: out_
+        ! manifest end
+      
+      
+        out_ = (x + 1.0_c_double)
+      end subroutine
+    Code
+      writeLines(pkg$entrypoints)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      #include <Rmath.h>
+      #include <R_ext/Random.h>
+      
+      
+      extern void quickrsnapshotprobe(const double* const x__, double* const out___);
+      
+      static SEXP quickrsnapshotprobe_(SEXP _args) {
+        // x
+        _args = CDR(_args);
+        SEXP x = CAR(_args);
+        if (TYPEOF(x) != REALSXP) {
+          Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
+        }
+        const double* const x__ = REAL(x);
+        const R_xlen_t x__len_ = Rf_xlength(x);
+      
+        if (x__len_ != 1)
+          Rf_error("length(x) must be 1, not %0.f",
+                    (double)x__len_);
+        const R_xlen_t out___len_ = (1);
+        SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
+        double* out___ = REAL(out_);
+      
+        quickrsnapshotprobe(x__, out___);
+      
+        UNPROTECT(1);
+        return out_;
+      }
+      
+      static const R_ExternalMethodDef QuickrEntries[] = {
+        {"quickrsnapshotprobe_", (DL_FUNC) &quickrsnapshotprobe_, -1},
+        {NULL, NULL, 0}
+      };
+      
+      #include <R_ext/Rdynload.h>
+      
+      void R_init_quickrsnapshotregistration(DllInfo *dll) {
         R_registerRoutines(dll, NULL, NULL, NULL, QuickrEntries);
         R_useDynamicSymbols(dll, FALSE);
       }
@@ -316,7 +390,7 @@
       
       extern void shift(const double* const x__, double* const out___);
       
-      SEXP shift_(SEXP _args) {
+      static SEXP shift_(SEXP _args) {
         // x
         _args = CDR(_args);
         SEXP x = CAR(_args);
