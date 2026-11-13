@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- BLAS operations can write directly into an existing destination with symbolic
+  dimensions. They check its stored extents before writing, avoiding a temporary
+  result and copy. Deferred-shape destinations still resize through assignment.
+
 - Scalar-fill constructors now allocate locals declared with `NA` extents
   before writing them, and resize those locals when the requested shape
   changes. Matching extents reuse the existing storage.
