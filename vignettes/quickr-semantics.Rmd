@@ -239,10 +239,12 @@ refuses that rank-0 form. Declare a length-one vector when that case is
 required.
 
 `cbind()` and `rbind()` support scalar recycling and otherwise require the
-common nonscalar extent to be provably equal at compile time. Arguments
-declared with the same symbolic extent satisfy that requirement. Distinct or
-otherwise unresolved extents are a compile error, even if their runtime values
-would be equal.
+common nonscalar extent to match. Known mismatches are compile errors, even
+when an earlier input has a dynamic extent.
+Independent dynamic extents, including axes declared with `NA` or different
+symbolic names, are checked at run time before binding. A shared input
+dimension declaration can establish equality at the compiled function's
+boundary, avoiding another check inside the function.
 
 ## Differences from R
 
@@ -396,6 +398,11 @@ Conversion upwards into an existing higher-mode binding is allowed:
 assigning `1L` to a double `x` leaves `x` double. This is a non-error
 difference for whole-variable assignment, since R changes `x` to integer.
 Subassignment retains the higher type in both R and quickr.
+
+Local arrays declared with `NA` extents can resize on whole-array
+assignment while keeping their declared rank and type. Scalar-fill
+constructors such as `numeric(n)` and `matrix(0, n, m)` allocate the
+requested shape, reusing existing storage when its extents already match.
 
 ### Empty `sapply()` results
 
