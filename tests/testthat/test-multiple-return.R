@@ -7,6 +7,7 @@ test_that("multiple return values", {
     z <- x + 2
     list(y = y, z = z)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -20,6 +21,7 @@ test_that("multiple return values via assignment", {
     out <- list(y = y, z = z)
     out
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -31,6 +33,7 @@ test_that("single return variable still works", {
     y <- x + 1
     y
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -43,6 +46,7 @@ test_that("custom names for multiple return values are preserved", {
     z <- x + 2L
     list(abc = y, def = z)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -55,6 +59,7 @@ test_that("no names add to unnamed elements", {
     z <- x + 2L
     list(y, z)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -67,6 +72,7 @@ test_that("single-element unnamed list returns a list", {
     y <- x + 1L
     list(y)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -79,6 +85,7 @@ test_that("single-element named list preserves name", {
     y <- x + 1L
     list(abc = y)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -91,6 +98,7 @@ test_that("single-element list via assignment returns a list (VECSXP)", {
     out <- list(y)
     out
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -122,6 +130,7 @@ test_that("mixed named and unnamed list work", {
     z <- x + 2L
     list(y, abc = z, x)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -133,6 +142,7 @@ test_that("duplicate return variables compile once and work", {
     y <- x + 1L
     list(y, y)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
@@ -144,6 +154,7 @@ test_that("duplicate return variables with names work", {
     y <- x + 1L
     list(a = y, b = y)
   }
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   x <- 1:3
   expect_equal(qfn(x), fn(x))
