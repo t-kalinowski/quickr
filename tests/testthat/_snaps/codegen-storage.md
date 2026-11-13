@@ -1006,12 +1006,14 @@
         ! locals
         real(c_double) :: block(1, 3, 2)
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
         out = 0.0_c_double
         block = 1.0_c_double
-        do i = 1, 2_c_int
+        do tmp1_ = 1, 2_c_int
+          i = tmp1_
           out(i:i:sign(1, i-i), :, :) = block
         end do
       end subroutine

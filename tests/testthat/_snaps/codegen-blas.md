@@ -899,11 +899,13 @@
       
         ! locals
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
         out = 0.0_c_double
-        do i = 1, steps
+        do tmp1_ = 1, steps
+          i = tmp1_
           block
             integer(c_int) :: btmp1_
             integer(c_int) :: btmp2_

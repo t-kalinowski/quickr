@@ -76,6 +76,7 @@
       
         ! locals
         integer(c_int) :: step
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
@@ -92,7 +93,8 @@
         end block
       
       
-        do step = 1, steps
+        do tmp1_ = 1, steps
+          step = tmp1_
           block
             real(c_double), allocatable :: btmp1_(:, :)
       
@@ -147,11 +149,15 @@
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp_new(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t))
             integer(c_int) :: i
+            integer(c_int) :: ctmp1_
             integer(c_int) :: j
+            integer(c_int) :: ctmp2_
       
             temp_new = temp
-            do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
-              do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+            do ctmp1_ = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+              i = ctmp1_
+              do ctmp2_ = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+                j = ctmp2_
                 block
                   real(c_double) :: btmp1_
                   real(c_double) :: btmp2_
@@ -403,6 +409,7 @@
       
         ! locals
         integer(c_int) :: step
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
@@ -419,7 +426,8 @@
         end block
       
       
-        do step = 1, steps
+        do tmp1_ = 1, steps
+          step = tmp1_
           call apply_boundary_conditions()
           block
             real(c_double), allocatable :: btmp1_(:, :)
@@ -455,11 +463,15 @@
             real(c_double), intent(out) :: res(:, :)
             real(c_double) :: temp_new(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t))
             integer(c_int) :: i
+            integer(c_int) :: ctmp1_
             integer(c_int) :: j
+            integer(c_int) :: ctmp2_
       
             temp_new = temp
-            do i = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
-              do j = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+            do ctmp1_ = 2_c_int, ((nx - 1_c_int)), sign(1, ((nx - 1_c_int))-2_c_int)
+              i = ctmp1_
+              do ctmp2_ = 2_c_int, ((ny - 1_c_int)), sign(1, ((ny - 1_c_int))-2_c_int)
+                j = ctmp2_
                 block
                   real(c_double) :: btmp1_
                   real(c_double) :: btmp2_

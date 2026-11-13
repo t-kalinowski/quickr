@@ -84,6 +84,10 @@
 
 - Generated loops omit dimension-equality checks already enforced by input declarations, and calls to closures that cannot signal errors no longer check the shared error flag. Dynamic shape checks and error propagation remain in place where needed.
 
+- Serial `for` loops over integer sequences now retain the last iteration's
+  loop-variable value, including assignments made in the body. `break`, `next`,
+  and nested loops that reuse the variable preserve R's behavior (#23).
+
 - `sapply()` reads named iterables directly when the callback and output leave
   their storage unchanged, avoiding an allocation and full-input copy.
   Callbacks that write the iterable, including through nested closures or

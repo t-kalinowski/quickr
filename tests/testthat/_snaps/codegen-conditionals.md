@@ -1337,6 +1337,7 @@
       
         ! locals
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         real(c_double), allocatable :: z(:)
         ! manifest end
       
@@ -1344,7 +1345,8 @@
       
       
         out = 0.0_c_double
-        do i = 1_c_int, 3_c_int, sign(1, 3_c_int-1_c_int)
+        do tmp1_ = 1_c_int, 3_c_int, sign(1, 3_c_int-1_c_int)
+          i = tmp1_
           if ((i > 1_c_int)) then
             block
               real(c_double), allocatable :: btmp1_(:, :)

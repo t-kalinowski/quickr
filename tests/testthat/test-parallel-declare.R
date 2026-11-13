@@ -155,6 +155,75 @@ test_that("parallel for-loops support value iteration", {
   expect_quick_identical(value_iter, list(x))
 })
 
+test_that("serial loop variables stay private inside parallel loops", {
+  skip_if_no_openmp()
+
+  nested_serial <- function(x) {
+    declare(type(x = integer(NA)))
+    out <- integer(length(x))
+    declare(parallel())
+    for (i in seq_along(x)) {
+      for (j in 1L:3L) {
+        out[i] <- out[i] + j
+      }
+      out[i] <- out[i] + j
+    }
+    out
+  }
+
+  expect_translation_snapshots(nested_serial)
+  expect_quick_identical(nested_serial, integer(), integer(1000L))
+})
+
+test_that("closures cannot modify a private serial loop variable", {
+  skip_if_no_openmp()
+
+  captured_write <- function(n) {
+    declare(type(n = integer(1)))
+    j <- 0L
+    bump <- function() {
+      j <<- j + 10L
+      NULL
+    }
+    out <- integer(n)
+    declare(parallel())
+    for (i in seq_len(n)) {
+      for (j in 1L:3L) {
+        bump()
+        out[i] <- out[i] + j
+      }
+      out[i] <- out[i] + j
+    }
+    out
+  }
+
+  expect_error(
+    quick(captured_write),
+    "local closures cannot modify a private for-loop variable: j",
+    fixed = TRUE
+  )
+
+  prior_write <- function(n) {
+    declare(type(n = integer(1)))
+    j <- 0L
+    bump <- function() {
+      j <<- j + 10L
+      NULL
+    }
+    bump()
+    out <- integer(n)
+    declare(parallel())
+    for (i in seq_len(n)) {
+      for (j in 1L:3L) {
+        out[i] <- out[i] + j
+      }
+      out[i] <- out[i] + j
+    }
+    out
+  }
+  expect_quick_identical(prior_write, 1L, 1000L)
+})
+
 test_that("parallel declarations require supported targets", {
   skip_if_no_openmp()
 

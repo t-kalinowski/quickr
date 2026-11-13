@@ -38,7 +38,9 @@
       
         ! locals
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         integer(c_int) :: j
+        integer(c_int) :: tmp2_
         ! manifest end
       
       
@@ -48,8 +50,10 @@
           return
         end if
         ab = 0.0_c_double
-        do i = 1, size(a)
-          do j = 1, size(b)
+        do tmp1_ = 1, size(a)
+          i = tmp1_
+          do tmp2_ = 1, size(b)
+            j = tmp2_
             ab(((i + j) - 1_c_int)) = (ab(((i + j) - 1_c_int)) + (a(i) * b(j)))
           end do
         end do

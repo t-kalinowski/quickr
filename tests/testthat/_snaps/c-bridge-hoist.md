@@ -35,11 +35,13 @@
       
         ! locals
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
         out = 0.0_c_double
-        do i = 1, size(out)
+        do tmp1_ = 1, size(out)
+          i = tmp1_
           out(i) = (a(i) + b(i))
         end do
       end subroutine

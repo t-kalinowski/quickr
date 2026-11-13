@@ -149,6 +149,7 @@
       
         ! locals
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
@@ -161,7 +162,8 @@
           return
         end if
         out = 0.0_c_double
-        do i = 1, size(out)
+        do tmp1_ = 1, size(out)
+          i = tmp1_
           out(i) = real(i, kind=c_double)
         end do
       
