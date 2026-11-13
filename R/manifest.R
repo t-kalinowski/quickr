@@ -347,6 +347,10 @@ r2f.scope <- function(scope, include_errors = FALSE) {
     "point_allocated_local_names",
     character()
   ))
+  point_allocated_local_names <- setdiff(
+    point_allocated_local_names,
+    tolower(scope_get(scope, "ordinary_local_assignment_names", character()))
+  )
 
   local_allocs <- character()
   vars <- lapply(vars, function(var) {
