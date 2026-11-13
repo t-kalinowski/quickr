@@ -844,6 +844,27 @@ test_that("BLAS reuse checks stored extents after dimension bindings change", {
   )
 })
 
+test_that("symbolic BLAS destinations check literal singleton result axes", {
+  fn <- function(x, m) {
+    declare(type(x = double(n, 1)), type(m = integer(1)))
+    out <- matrix(0, m, m)
+    out <- crossprod(x)
+    out
+  }
+
+  x <- matrix(c(1, 2, 3), ncol = 1)
+  qfn <- quick(fn)
+  expect_equal(qfn(x, 1L), fn(x, 1L))
+  expect_equal(qfn(matrix(numeric(), 0, 1), 1L), matrix(0, 1, 1))
+  for (m in c(0L, 2L)) {
+    expect_error(
+      qfn(x, m),
+      "reassignment must preserve the shape of `out`",
+      fixed = TRUE
+    )
+  }
+})
+
 test_that("BLAS reuse allocates locals after untaken earlier BLAS writes", {
   fn <- function(a, b, flag) {
     declare(

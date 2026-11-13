@@ -191,7 +191,7 @@ test_that("declare() type() calls validate syntax", {
   )
 })
 
-test_that("reductions reject named arguments like na.rm", {
+test_that("reductions reject unsupported removal of missing values", {
   for (reducer in c("max", "min", "sum", "prod")) {
     fn <- eval(bquote(function(x) {
       declare(type(x = double(NA)))
@@ -200,7 +200,7 @@ test_that("reductions reject named arguments like na.rm", {
     }))
     expect_error(
       quick(fn),
-      "do not support named arguments",
+      "`na.rm` must be the literal FALSE",
       fixed = TRUE
     )
   }

@@ -150,7 +150,12 @@ Variable := new_class(
 
     # When set, references to this variable should treat the named dummy
     # argument as an optional input (e.g., is.null() -> .not. present()).
-    optional_dummy = prop_optional_string
+    optional_dummy = prop_optional_string,
+
+    # Per-axis provenance to wrapper-validated input storage. Entries are NULL
+    # or list(variable = <root R binding>, axis = <input axis>); shape-preserving
+    # expressions and fixed-shape copies may retain them.
+    input_shape = new_property(NULL | class_list)
   ),
 
   validator = function(self) {
