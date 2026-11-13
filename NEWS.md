@@ -40,6 +40,12 @@
   before writing them, and resize those locals when the requested shape
   changes. Matching extents reuse the existing storage.
 
+- Nested zero fills such as `array(numeric(k), dim = c(n, m))` and
+  `matrix(integer(k), nrow = n, ncol = m)` avoid constructing and reshaping
+  a source array. Ordinary assignments fill the destination directly; other
+  consumers materialize only the result. Negative lengths and empty sources
+  that would introduce missing values keep their existing errors.
+
 - `cbind()` and `rbind()` accept independent dynamic common dimensions,
   including axes declared with `NA` or different symbolic names. Their actual
   extents are checked before binding; known mismatches remain compile errors,
