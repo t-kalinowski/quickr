@@ -2,7 +2,8 @@
 
 - `cbind()` and `rbind()` accept independent dynamic common dimensions,
   including axes declared with `NA` or different symbolic names. Their actual
-  extents are checked before binding; known mismatches remain compile errors.
+  extents are checked before binding; known mismatches remain compile errors,
+  regardless of argument order.
 
 - Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
   now return correctly shaped empty matrices for zero-sized outputs. Empty

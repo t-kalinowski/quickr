@@ -312,8 +312,10 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
     )
   }
   if (length(non_scalar) > 1L) {
+    reference <- target
     for (idx in non_scalar[-1L]) {
-      if (!check_equal_dims(target, dim_list[[idx]])$ok) {
+      dim <- dim_list[[idx]]
+      if (!check_equal_dims(reference, dim)$ok) {
         stop(
           context,
           " requires inputs with a common ",
@@ -321,6 +323,10 @@ bind_common_dim <- function(dim_list, scalar_flags, context, label) {
           " count",
           call. = FALSE
         )
+      }
+      # Once available, retain a known extent for later contradiction checks.
+      if (is_wholenumber(dim)) {
+        reference <- dim
       }
     }
   }

@@ -239,7 +239,8 @@ refuses that rank-0 form. Declare a length-one vector when that case is
 required.
 
 `cbind()` and `rbind()` support scalar recycling and otherwise require the
-common nonscalar extent to match. Known mismatches are compile errors.
+common nonscalar extent to match. Known mismatches are compile errors, even
+when an earlier input has a dynamic extent.
 Independent dynamic extents, including axes declared with `NA` or different
 symbolic names, are checked at run time before binding. A shared input
 dimension declaration can establish equality at the compiled function's

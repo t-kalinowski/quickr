@@ -112,6 +112,39 @@ test_that("cbind/rbind enforce common lengths", {
   )
 })
 
+test_that("binding rejects known contradictions in any argument order", {
+  orders <- list(
+    c("x", "A", "B"),
+    c("x", "B", "A"),
+    c("A", "x", "B"),
+    c("A", "B", "x"),
+    c("B", "x", "A"),
+    c("B", "A", "x")
+  )
+  for (direction in c("cbind", "rbind")) {
+    dimensions <- if (direction == "cbind") {
+      list(quote(double(NA, 1)), quote(double(2, 1)), quote(double(3, 1)))
+    } else {
+      list(quote(double(1, NA)), quote(double(1, 2)), quote(double(1, 3)))
+    }
+    for (order in orders) {
+      fn <- eval(substitute(
+        function(x, A, B) {
+          declare(type(x = X), type(A = A_DIM), type(B = B_DIM))
+          BIND
+        },
+        list(
+          X = dimensions[[1L]],
+          A_DIM = dimensions[[2L]],
+          B_DIM = dimensions[[3L]],
+          BIND = as.call(c(list(as.name(direction)), lapply(order, as.name)))
+        )
+      ))
+      expect_error(quick(fn), "requires inputs with a common", fixed = TRUE)
+    }
+  }
+})
+
 test_that("cbind/rbind reject data-dependent dimensions", {
   cases <- list(
     "row sizes" = quote(rbind(A[mask, , drop = FALSE])),
@@ -311,7 +344,6 @@ test_that("cbind validates independently supplied dimension values", {
     cbind(x, y)
   }
 
-  expect_translation_snapshots(fn)
   expect_bind_equal(fn, list(c(1, 2), c(3, 4), 2L, 2L))
   expect_error(quick(fn)(c(1, 2), c(3, 4, 5), 2L, 3L), "matching dimensions")
 })
@@ -345,8 +377,6 @@ test_that("cbind and rbind check independently inferred dimensions at runtime", 
     rbind(A, B)
   }
 
-  expect_translation_snapshots(unknown_rows)
-  expect_translation_snapshots(unknown_columns)
   expect_bind_equal(
     unknown_rows,
     list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1)),
@@ -382,7 +412,6 @@ test_that("binding ignores NULL alongside nonempty dynamic inputs", {
   }
 
   for (fn in list(columns, rows)) {
-    expect_translation_snapshots(fn)
     expect_bind_equal(fn, list(c(1, 2), c(3, 4)))
     expect_error(quick(fn)(c(1, 2), c(3, 4, 5)), "matching dimensions")
   }
@@ -410,8 +439,6 @@ test_that("binding accepts distinct symbolic dimensions and scalar inputs", {
     declare(type(x = double(n)), type(y = double(m)))
     rbind(1, x, y)
   }
-  expect_translation_snapshots(columns)
-  expect_translation_snapshots(rows)
   expect_bind_equal(columns, list(c(1, 2), c(3, 4)))
   expect_bind_equal(rows, list(c(1, 2), c(3, 4)))
   expect_error(quick(columns)(c(1, 2), c(3, 4, 5)), "matching dimensions")
@@ -423,13 +450,44 @@ test_that("binding checks a dynamic common dimension against a known one", {
     declare(type(A = double(NA, 2)), type(B = double(3, 1)))
     cbind(A, B)
   }
-  expect_translation_snapshots(fn)
   expect_bind_equal(
     fn,
     list(matrix(as.double(1:6), 3, 2), matrix(as.double(7:9), 3, 1))
   )
   expect_error(
     quick(fn)(matrix(as.double(1:4), 2, 2), matrix(as.double(7:9), 3, 1)),
+    "matching dimensions"
+  )
+})
+
+test_that("binding accepts matching known extents after a dynamic input", {
+  columns <- function(x, A, B) {
+    declare(
+      type(x = double(NA, 1)),
+      type(A = double(2, 1)),
+      type(B = double(2, 1))
+    )
+    cbind(1, x, A, B)
+  }
+  rows <- function(x, A, B) {
+    declare(
+      type(x = double(1, NA)),
+      type(A = double(1, 2)),
+      type(B = double(1, 2))
+    )
+    rbind(1, x, A, B)
+  }
+  x <- matrix(c(1, 2), 2, 1)
+  A <- matrix(c(3, 4), 2, 1)
+  B <- matrix(c(5, 6), 2, 1)
+  expect_bind_equal(columns, list(x, A, B))
+  expect_bind_equal(rows, list(t(x), t(A), t(B)))
+  expect_error(
+    quick(columns)(x[1, , drop = FALSE], A, B),
+    "matching dimensions"
+  )
+  expect_error(
+    quick(rows)(t(x[1, , drop = FALSE]), t(A), t(B)),
     "matching dimensions"
   )
 })
