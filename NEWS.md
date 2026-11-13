@@ -47,6 +47,11 @@
   Unsupported values of `na.rm` still report a compile-time error. Empty
   `sum()` and `prod()` calls return their usual identities.
 
+- `prod()` now returns double for integer and logical inputs, matching R.
+  Values are converted before multiplication, so products such as
+  `prod(c(50000L, 50000L))` no longer overflow an integer. This also applies
+  to scalar, masked, and multi-argument products.
+
 - Shape-preserving arithmetic, full-axis slices, and fixed-shape local copies
   retain input dimension proofs during translation. This removes equality checks
   already implied by the input declarations. Independent dynamic shapes and
