@@ -4,7 +4,6 @@
 # --- Handlers ---
 
 r2f_handlers[["cat"]] <- function(args, scope, ...) {
-  args <- lapply(args, r2f, scope, ...)
   # can do a lot more here still, just a POC for now
   stopifnot(length(args) == 1, typeof(args[[1]]) == "character")
   label <- args[[1]]
@@ -12,8 +11,9 @@ r2f_handlers[["cat"]] <- function(args, scope, ...) {
     stop("cat(<strings>) must end with '\n'")
   }
   label <- substring(label, 1, nchar(label) - 1)
-
-  Fortran(glue('call labelpr("{label}", {nchar(label)})'))
+  Fortran(glue(
+    'call labelpr({fortran_string_literal(label)}, {nchar(label, type = "bytes")})'
+  ))
 }
 
 r2f_handlers[["print"]] <- function(args, scope = NULL, ...) {
@@ -27,9 +27,9 @@ r2f_handlers[["print"]] <- function(args, scope = NULL, ...) {
   if (!inherits(var, Variable)) {
     stop("could not resolve symbol: ", as.character(name))
   }
-  name <- as.character(name)
+  name <- Fortran(var@name, value = var)
   if (var@mode == "logical") {
-    name <- sprintf("(%s/=0)", name)
+    name <- cast_to_mode(name, "integer", "print()")
   }
   label <- ""
   # browser()

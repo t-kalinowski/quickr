@@ -71,6 +71,10 @@
   rejected at `declare()`, complex ordering uses R's error message, and
   non-logical operands to `&` and `|` report the operator name.
 
+- `print()` now compiles when logical values appear alongside integer values,
+  including logical locals and arrays. Literal `cat("text\n")` labels also
+  compile, including labels containing quotes.
+
 * Repeated `quick()` compilations now reuse successful `R CMD config` results
   for the rest of the R session. Restart R after changing the compiler or
   Makevars configuration.

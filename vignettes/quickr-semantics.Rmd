@@ -462,6 +462,16 @@ Keep RNG calls out of parallel regions. Direct `runif()` calls in parallel
 loops are rejected, but calls through nested local closures are not generally
 tracked for this purpose.
 
+### Console output
+
+`print(x)` supports an integer, double, or logical variable as a statement.
+Logical values print as `0` and `1`, including logical locals and arrays.
+The invisible return value of R's `print()` is not supported.
+
+`cat("message\n")` supports a nonempty literal line ending in `\n`, including
+quotes in the text. Use separate calls for separate lines. Blank lines,
+embedded control characters, and other `cat()` forms remain unsupported.
+
 ### Return allocation and observable effects
 
 C allocates returned arrays before the generated Fortran body runs.
