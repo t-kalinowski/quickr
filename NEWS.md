@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Subscript replacement (`x[i] <- value`) now preserves the caller's input
+  array and other arguments that share it. Replacement also compiles when
+  the modified array is not returned.
+
 - Elementwise operations now accept equally shaped empty arrays and scalar
   operations on empty arrays. Vector-matrix operations also accept empty rows
   or columns when the vector spans the matrix's rows. These cases preserve R's

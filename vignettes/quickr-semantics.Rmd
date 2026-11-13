@@ -516,6 +516,10 @@ that behavior:
 
 Validate dynamic indices and mask shapes before entering compiled code.
 
+Replacing elements of an input array, for example `x[i] <- value`, changes
+the function's copy. The caller's array and other arguments that share it
+remain unchanged.
+
 ### Parallel loops require independent iterations
 
 `declare(parallel())` requests OpenMP execution. Each iteration must be
