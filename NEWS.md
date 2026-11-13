@@ -1,5 +1,12 @@
 # quickr (development version)
 
+- `ifelse()` with pure branches and proven matching shapes now avoids temporary
+  masks and extra scans. Direct assignments also avoid a result temporary;
+  selections nested in other expressions capture their result before later
+  operands can change their inputs. Branches with effects or runtime shape
+  checks retain conditional evaluation. Empty selectors now leave valid empty
+  result storage for enclosing expressions.
+
 - Supplied local closure arguments now accept safe dimension queries, numeric reductions,
   rounding, division, and `sqrt()` of a nonnegative literal
   or `abs()` expression. Effectful or runtime-guarded arguments remain unsupported.

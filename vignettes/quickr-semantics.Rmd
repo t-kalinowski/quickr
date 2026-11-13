@@ -538,6 +538,12 @@ the closure body runs. Use distinct names for those dimension bindings.
 
 ### `ifelse()` {#ifelse}
 
+Selected values are captured before later operands can change the selector or
+branch inputs. For example, `ifelse(TRUE, x, 0) + change_x()` uses the value of
+`x` before `change_x()` runs. Pure selections with proven matching shapes avoid
+temporary masks and extra scans; a selection used directly as an assignment or
+return value also avoids a result temporary.
+
 Differences include:
 
 - **Test type.** R coerces numeric `test` values to logical. quickr requires
