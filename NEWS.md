@@ -33,6 +33,9 @@
   dimensions. They check its stored extents before writing, avoiding a temporary
   result and copy. Deferred-shape destinations still resize through assignment.
 
+- Direct `svd(x)$d` calls now request only singular values from LAPACK,
+  avoiding unused singular-vector calculations, matrices, and a transpose.
+
 - Scalar-fill constructors now allocate locals declared with `NA` extents
   before writing them, and resize those locals when the requested shape
   changes. Matching extents reuse the existing storage.
