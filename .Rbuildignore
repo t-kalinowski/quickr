@@ -10,6 +10,7 @@
 ^[\.]?air\.toml$
 ^\.github$
 ^scripts$
+^examples$
 ^AGENTS.md$
 ^\.claude$
 ^CRAN-SUBMISSION$
