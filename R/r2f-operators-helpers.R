@@ -20,7 +20,10 @@ booleanize_logical_as_int <- function(x) {
     return(x)
   }
 
-  out <- Fortran(glue("({x} /= 0)"), Variable("logical", x@value@dims))
+  out <- Fortran(
+    glue("({x} /= 0)"),
+    infer_result_variable(x@value, mode = "logical")
+  )
   out@logical_booleanized <- TRUE
   out
 }
@@ -43,14 +46,17 @@ cast_to_mode <- function(x, mode, context = "operand") {
   if (identical(mode, "double") && identical(from, "integer")) {
     return(Fortran(
       glue("real({x}, kind=c_double)"),
-      Variable("double", x@value@dims)
+      infer_result_variable(x@value, mode = "double")
     ))
   }
   if (identical(from, "logical") && mode %in% c("integer", "double")) {
     if (logical_as_int(x@value) && !isTRUE(x@logical_booleanized)) {
       # bind(c) logicals are already 0/1 integer storage; relabel, or cast
       # the integer text directly for a double target.
-      relabeled <- Fortran(glue("{x}"), Variable("integer", x@value@dims))
+      relabeled <- Fortran(
+        glue("{x}"),
+        infer_result_variable(x@value, mode = "integer")
+      )
       return(cast_to_mode(relabeled, mode, context))
     }
     x <- booleanize_logical_as_int(x)
@@ -61,7 +67,7 @@ cast_to_mode <- function(x, mode, context = "operand") {
     )
     return(Fortran(
       glue("merge({literals}, {x})"),
-      Variable(mode, x@value@dims)
+      infer_result_variable(x@value, mode = mode)
     ))
   }
   stop(
@@ -295,6 +301,30 @@ dimension_guard_expr <- function(dim, operand, axis = NULL, f = NULL) {
 input_dimension <- function(dim, operand, axis, scope) {
   if (!inherits(operand, Fortran) || is.null(operand@value)) {
     return(NULL)
+  }
+  # A derived expression can retain an input axis without retaining its name.
+  # These facts are recorded during recursive lowering, after the operation's
+  # own checks, and never inferred from matching symbolic dimension spellings.
+  # A promoted matrix view can ask about a singleton dimension instead of the
+  # vector's length; only use provenance for the operand axis actually queried.
+  if (
+    inherits(scope, "quickr_scope") &&
+      identical(scope, scope_root(scope)) &&
+      !is.null(operand@value@input_shape) &&
+      (operand@value@rank == 1L || !is.null(axis)) &&
+      (axis %||% 1L) <= length(operand@value@input_shape) &&
+      identical(
+        declared_dim(dim),
+        declared_dim(dim_or_one(operand, axis %||% 1L))
+      )
+  ) {
+    source <- operand@value@input_shape[[axis %||% 1L]]
+    if (!is.null(source)) {
+      var <- get0(source$variable, scope, inherits = FALSE)
+      if (inherits(var, Variable) && var@is_arg && source$axis <= var@rank) {
+        return(declared_dim(var@dims[[source$axis]]))
+      }
+    }
   }
   name <- operand@value@r_name %||% operand@value@name
   if (is.null(name)) {
@@ -728,6 +758,18 @@ check_assignment_compatible <- function(
       }
       next
     }
+    if (!value@scalar_fill) {
+      target_input <- input_dimension(
+        t_dim,
+        Fortran(target@name, target),
+        axis,
+        scope
+      )
+      value_input <- input_dimension(v_dim, value, axis, scope)
+      if (!is.null(target_input) && identical(target_input, value_input)) {
+        next
+      }
+    }
     target_dim <- dimension_guard_expr(t_dim, target@name, axis)
     if (value@scalar_fill) {
       if (is_scalar_na(v_dim) || !dim_guard_spellable(v_dim, scope)) {
@@ -836,6 +878,6 @@ infer_result_variable <- function(..., mode = NULL) {
   if (is.null(var)) {
     NULL
   } else {
-    Variable(mode %||% var@mode, var@dims)
+    Variable(mode %||% var@mode, var@dims, input_shape = var@input_shape)
   }
 }

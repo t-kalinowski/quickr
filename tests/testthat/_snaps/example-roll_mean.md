@@ -59,10 +59,6 @@
             real(c_double) :: btmp1_
       
             btmp1_ = sum(weights)
-            if ((size(weights, 1, kind=c_ptrdiff_t)) /= (size(((weights / btmp1_) * size(weights)), 1, kind=c_ptrdiff_t))) then
-              call quickr_set_error_msg("reassignment must preserve the shape of `weights`")
-              return
-            end if
             weights = ((weights / btmp1_) * size(weights))
           end block
         end if

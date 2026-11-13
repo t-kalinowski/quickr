@@ -306,8 +306,10 @@ Empty `which.min()` and `which.max()` inputs also differ. R returns
 `integer(0)`; quickr returns the scalar index produced by Fortran's
 `minloc()` or `maxloc()`. Do not pass empty inputs to these reductions.
 
-`min()`, `max()`, `sum()`, and `prod()` accept only positional data arguments.
-Named arguments, including `na.rm`, are compile errors.
+`min()`, `max()`, `sum()`, `prod()`, `any()`, and `all()` accept named data
+arguments and an explicit `na.rm = FALSE`. The latter is the default and
+adds no runtime work. Other values of `na.rm` are compile errors; quickr
+does not support removing missing values.
 
 ### Whole-valued real exponents can differ for negative bases {#real-exponents}
 
@@ -368,21 +370,25 @@ quickr still rejects this unequal-length pair because general recycling is
 not supported. A known mismatch is a compile error; otherwise the extents
 are checked at run time.
 
-### Some zero-sized linear-algebra outputs are not supported
+### Zero-sized linear-algebra products
 
-`%*%`, `crossprod()`, and `tcrossprod()` raise an error when
-the result would have a zero extent, where R returns a zero-sized array.
-A zero contracted dimension remains supported when every output extent is
-nonzero, such as a `2x0` matrix multiplied by a `0x3` matrix; that result is
-a `2x3` matrix of zeros, as in R. `outer()` and `%o%` reject zero-sized
-outputs.
+`%*%`, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%` preserve zero-sized
+output dimensions. For example, a `0x2` matrix multiplied by a `2x3` matrix
+returns a `0x3` matrix. A zero contracted dimension also works: a `2x0`
+matrix multiplied by a `0x3` matrix returns a `2x3` matrix of zeros, as in R.
+These cases do not call BLAS, whose leading dimensions must be positive.
+The usual operand shape checks still apply, including when the result is
+empty.
 
 ### `drop()` requires a fixed result rank
 
-The rank of a compiled result cannot depend on a runtime extent. When a
-matrix axis is not known at compile time, `drop()` accepts inputs whose
-runtime extent is not 1 and raises an error when it is 1. Declare singleton
-axes explicitly when `drop()` should remove them.
+The rank of a compiled result cannot depend on a runtime extent. `drop()`
+removes matrix axes declared with extent 1. Axes whose extent is unknown
+at compile time are retained, even when their runtime extent is 1; this
+does not raise an error. For example, `drop(x)` with `x` declared
+`double(NA, NA)` retains a matrix result for a one-row input, whereas R
+returns a vector. Declare singleton axes explicitly when `drop()` should
+remove them.
 
 ### A variable's type cannot change
 

@@ -30,6 +30,44 @@ test_that("dimension contracts distinguish promoted singleton axes", {
     "non-conformable arguments in tcrossprod",
     fixed = TRUE
   )
+
+  # In the opposite argument order the vector is a row, and its length is
+  # the contracted dimension rather than a promoted singleton axis.
+  reversed <- function(x, y) {
+    declare(type(x = double(n)), type(y = double(2, n)))
+    tcrossprod(x, y)
+  }
+  expect_quick_identical(
+    reversed,
+    list(2, matrix(1, 2, 1)),
+    list(c(1, 2, 3), matrix(as.double(1:6), 2, 3))
+  )
+})
+
+test_that("input dimension proofs follow retained array axes", {
+  rows <- function(x, y) {
+    declare(type(x = double(n, m)), type(y = double(m)))
+    total <- 0
+    for (i in seq_len(nrow(x))) {
+      total <- total + sum(x[i, ] + y)
+    }
+    total
+  }
+  row_count <- function(x, y) {
+    declare(type(x = double(n, m)), type(y = double(n)))
+    sum(x[1, ] + y)
+  }
+
+  expect_quick_identical(rows, list(matrix(as.double(1:6), 2, 3), c(1, 2, 3)))
+  # The retained row extent comes from input axis 2, now result axis 1.
+  expect_false(grepl("/=", as.character(r2f(rows)), fixed = TRUE))
+
+  expect_quick_identical(row_count, list(matrix(as.double(1:4), 2, 2), c(1, 2)))
+  expect_error(
+    quick(row_count)(matrix(as.double(1:6), 2, 3), c(1, 2)),
+    "equal lengths",
+    fixed = TRUE
+  )
 })
 
 test_that("shadowed arrays do not inherit root input dimension contracts", {
