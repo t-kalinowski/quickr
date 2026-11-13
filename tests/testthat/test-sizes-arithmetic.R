@@ -40,6 +40,7 @@ test_that("dynamic exponentiation works in declared dims", {
     out
   }
 
+  expect_translation_snapshots(fn)
   expect_quick_identical(fn, list(3L), list(4L))
 })
 

@@ -23,6 +23,7 @@ test_that("C bridge hoisting can be disabled (public API)", {
     out
   }
 
+  expect_translation_snapshots(fn)
   qfn <- quick(fn)
   expect_identical(qfn(c(1, 2), c(10, 11, 12), 2L), c(2, 3))
 })

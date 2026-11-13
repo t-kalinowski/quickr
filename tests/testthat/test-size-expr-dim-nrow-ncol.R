@@ -13,6 +13,7 @@ test_that("declare() size expressions support nrow() and ncol()", {
     out
   }
 
+  expect_translation_snapshots(fn)
   set.seed(1)
   x <- matrix(runif(6), nrow = 2, ncol = 3)
   qfn <- quick(fn)
@@ -34,6 +35,7 @@ test_that("declare() size expressions support dim(x)[axis] indices", {
     out
   }
 
+  expect_translation_snapshots(fn)
   set.seed(2)
   x <- matrix(runif(12), nrow = 3, ncol = 4)
   expect_quick_identical(fn, list(x))
