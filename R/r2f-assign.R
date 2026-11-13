@@ -132,6 +132,7 @@ register_r2f_handler(
       scope[[name]] <- as_local_closure(
         rhs,
         environment(scope_closure(scope)),
+        scope = scope,
         name = name
       )
       return(Fortran(""))
@@ -216,7 +217,11 @@ register_r2f_handler(
         )
       }
       src <- value@value
-      var <- if (value@writes_to_dest) src else Variable(src@mode, src@dims)
+      var <- if (value@writes_to_dest) {
+        src
+      } else {
+        Variable(src@mode, src@dims, input_shape = src@input_shape)
+      }
       if (
         inherits(value, Fortran) &&
           inherits(value@value, Variable) &&
@@ -375,7 +380,7 @@ resolve_superassign_target <- function(name, scope) {
 
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
-  scope_mark_host_write(scope, host_var@name)
+  scope_mark_host_write(scope, scope_variable_binding(name, host_scope))
   host_var
 }
 

@@ -9,6 +9,26 @@
 # when later arguments mutate captures or fail during lowering.
 # --- Helpers ---
 
+# Data argument names do not change a reduction. `na.rm` is the one named
+# option: the default FALSE needs no generated code, while removing missing
+# values is outside quickr's supported semantics.
+normalize_reduction_args <- function(args) {
+  na_rm <- which(names(args) == "na.rm")
+  if (length(na_rm) > 1L) {
+    stop(
+      'formal argument "na.rm" matched by multiple actual arguments',
+      call. = FALSE
+    )
+  }
+  if (length(na_rm)) {
+    if (!identical(args[[na_rm]], FALSE)) {
+      stop("`na.rm` must be the literal FALSE", call. = FALSE)
+    }
+    args <- args[-na_rm]
+  }
+  unname(args)
+}
+
 # Singleton array constructors ("[ ... ]") still need array intrinsics,
 # even when their value metadata passes as a scalar.
 renders_as_array_constructor <- function(f) {
@@ -31,17 +51,18 @@ register_r2f_handler(
     scope,
     ...
   ) {
-    # Named arguments like `na.rm` would otherwise be treated as data
-    # arguments (e.g. `sum(x, na.rm = TRUE)` -> `(sum(x) + .true.)`).
-    arg_names <- names(args) %||% character()
-    if (length(arg_names) && any(nzchar(arg_names))) {
-      stop(
-        "max()/min()/sum()/prod() do not support named arguments (e.g. `na.rm`)",
-        call. = FALSE
-      )
-    }
+    args <- normalize_reduction_args(args)
 
     call_name <- last(list(...)$calls)
+    if (length(args) == 0L && call_name %in% c("sum", "prod")) {
+      return(
+        if (call_name == "sum") {
+          Fortran("0_c_int", Variable("integer"))
+        } else {
+          Fortran("1.0_c_double", Variable("double"))
+        }
+      )
+    }
     intrinsic <- switch(
       call_name,
       max = "maxval",
@@ -246,15 +267,7 @@ register_r2f_handler(
     scope,
     ...
   ) {
-    # For now, we only support the most common `any(x)` / `all(x)` shape.
-    # We intentionally do not support named arguments like `na.rm`.
-    arg_names <- names(args) %||% character()
-    if (length(arg_names) && any(nzchar(arg_names))) {
-      stop(
-        "any()/all() do not support named arguments (e.g. `na.rm`)",
-        call. = FALSE
-      )
-    }
+    args <- normalize_reduction_args(args)
 
     call_name <- last(list(...)$calls)
     intrinsic <- switch(

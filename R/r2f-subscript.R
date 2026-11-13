@@ -239,6 +239,20 @@ r2f_handlers[["["]] <- function(
     idx@value@dims[[1]]
   }))
   outval <- Variable(var@value@mode, dims)
+  if (!is.null(var@value@input_shape)) {
+    kept_axes <- which(
+      !vapply(
+        idxs,
+        function(idx) {
+          drop && passes_as_scalar(idx@value)
+        },
+        logical(1L)
+      )
+    )
+    outval@input_shape <- lapply(kept_axes, function(axis) {
+      if (is_missing(idx_args[[axis]])) var@value@input_shape[[axis]] else NULL
+    })
+  }
 
   # Fortran does not allow subscripting arbitrary parenthesized expressions,
   # so if the base is an array expression (not a named array designator),

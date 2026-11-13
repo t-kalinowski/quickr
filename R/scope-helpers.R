@@ -45,12 +45,36 @@ scope_mark_uses_rng <- function(scope) {
   invisible(TRUE)
 }
 
-# Record actual host writes while translating their owners. Mark lexical
-# callers too, so a nested closure's write remains visible at its call site.
-scope_mark_host_write <- function(scope, name) {
+scope_variable_binding <- function(name, scope) {
+  crossed_formals <- FALSE
+  while (!exists(name, scope, inherits = FALSE)) {
+    crossed_formals <- crossed_formals ||
+      identical(scope_kind(scope), "closure_formals")
+    scope <- parent.env(scope)
+  }
+  # Generated closures are root siblings. An ancestor's formals and locals
+  # have no native host association, even when their actual argument is a root
+  # binding. Check the physical owner before following argument aliases.
+  if (crossed_formals && !identical(scope_kind(scope), "subroutine")) {
+    stop(
+      "local closure arguments cannot capture `",
+      name,
+      "` from an enclosing local closure; pass it as an explicit argument",
+      call. = FALSE
+    )
+  }
+  var <- get(name, scope, inherits = FALSE)
+  var@argument_binding %||% list(scope = scope, name = name)
+}
+
+# Record binding identities, since separate procedures can reuse Fortran names.
+# Callers also merge their compiled callees' write summaries into their scopes.
+scope_mark_host_write <- function(scope, binding) {
   while (inherits(scope, "quickr_scope")) {
-    writes <- scope_get(scope, "host_writes", character())
-    scope_set(scope, "host_writes", union(writes, name))
+    writes <- scope_get(scope, "host_writes", list())
+    if (!any(vapply(writes, identical, logical(1L), binding))) {
+      scope_set(scope, "host_writes", c(writes, list(binding)))
+    }
     scope <- parent.env(scope)
   }
   invisible()
@@ -144,9 +168,19 @@ scope_read_variable <- function(name, scope, var = get0(name, scope)) {
   if (!inherits(var, Variable) || passes_as_scalar(var)) {
     return(var)
   }
+  root <- scope_root(scope)
+  if (!identical(scope, root)) {
+    # Captured and formal storage keep their existing runtime shape checks.
+    var@input_shape <- NULL
+  }
   owner <- scope
   while (inherits(owner, "quickr_scope")) {
     if (exists(name, owner, inherits = FALSE)) {
+      if (identical(scope, root) && identical(owner, root) && var@is_arg) {
+        var@input_shape <- lapply(seq_len(var@rank), function(axis) {
+          list(variable = name, axis = axis)
+        })
+      }
       if (
         identical(scope_kind(owner), "closure_formals") || has_storage_dims(var)
       ) {

@@ -63,6 +63,7 @@ maybe_lower_local_closure_call <- function(
     closure_obj <- as_local_closure(
       callable_unwrapped,
       env = environment(host_closure),
+      scope = scope,
       name = proc_name
     )
     call_expr <- as.call(c(list(callable_unwrapped), as.list(e)[-1L]))
@@ -80,14 +81,18 @@ is_function_call <- function(x) {
 is_sapply_call <- function(x) is.call(x) && identical(x[[1L]], quote(sapply))
 
 
-new_local_closure <- function(fun, name = NULL) {
-  stopifnot(is.function(fun), is.null(name) || is_string(name))
-  LocalClosure(fun = fun, name = name)
+new_local_closure <- function(fun, scope, name = NULL) {
+  stopifnot(
+    is.function(fun),
+    inherits(scope, "quickr_scope"),
+    is.null(name) || is_string(name)
+  )
+  LocalClosure(fun = fun, name = name, definition_scope = scope)
 }
 
-as_local_closure <- function(fun_expr, env, name = NULL) {
+as_local_closure <- function(fun_expr, env, scope, name = NULL) {
   stopifnot(is_function_call(fun_expr))
-  new_local_closure(eval(fun_expr, envir = env), name = name)
+  new_local_closure(eval(fun_expr, envir = env), scope, name = name)
 }
 
 scope_root <- function(scope) {
@@ -137,7 +142,10 @@ compile_internal_subroutine <- function(
 
   used_names <- unique(all.vars(body(fun), functions = FALSE))
 
-  formal_scope <- new_scope(closure = NULL, parent = parent_scope)
+  formal_scope <- new_scope(
+    closure = NULL,
+    parent = closure_obj@definition_scope
+  )
   scope_set(formal_scope, "kind", "closure_formals")
 
   proc_scope <- new_scope(fun, parent = formal_scope)
@@ -168,7 +176,8 @@ compile_internal_subroutine <- function(
       dims = var@dims,
       name = fortran_name,
       r_name = nm,
-      is_arg = TRUE
+      is_arg = TRUE,
+      argument_binding = var@argument_binding
     )
     if (logical_as_int(var)) {
       arg_var@logical_as_int <- TRUE
@@ -503,6 +512,13 @@ compile_internal_subroutine <- function(
     preserve_attributes = FALSE
   )
 
+  # Lexical lookup follows the definition scope. Effects still belong to the
+  # caller, including writes made by root-defined or nested callees.
+  host_writes <- scope_get(proc_scope, "host_writes", list())
+  for (binding in host_writes) {
+    scope_mark_host_write(parent_scope, binding)
+  }
+
   list(
     name = proc_name,
     code = proc_code,
@@ -510,7 +526,7 @@ compile_internal_subroutine <- function(
     res = res_name,
     res_var = res_var,
     uses_errors = scope_uses_errors_flag(proc_scope),
-    host_writes = scope_get(proc_scope, "host_writes", character()),
+    host_writes = host_writes,
     error = if (body_failed) expr_error else NULL
   )
 }
@@ -820,7 +836,15 @@ check_closure_argument_timing <- function(call_info, proc, scope) {
     }
     for (name in all.vars(expr, functions = FALSE)) {
       var <- get0(name, scope)
-      if (inherits(var, Variable) && var@name %in% proc$host_writes) {
+      if (
+        inherits(var, Variable) &&
+          any(vapply(
+            proc$host_writes,
+            identical,
+            logical(1L),
+            scope_variable_binding(name, scope)
+          ))
+      ) {
         stop(
           "local closure argument `",
           nm,
@@ -976,6 +1000,15 @@ match_closure_call_args <- function(
   }
 
   formal_vars <- closure_formal_vars(args_f, formal_names)
+  for (nm in intersect(formal_names[args_present], supplied_names)) {
+    expr <- unwrap_parens(args_expr[[nm]])
+    if (is.symbol(expr)) {
+      formal_vars[[nm]]@argument_binding <- scope_variable_binding(
+        as.character(expr),
+        scope
+      )
+    }
+  }
 
   list(
     call_expr = call_expr,
@@ -1339,7 +1372,7 @@ compile_sapply_assignment <- function(
     proc_name <- fun_name
   } else if (is_function_call(fun_expr)) {
     proc_name <- scope_unique_proc(scope_root(scope), prefix = "closure")
-    closure_obj <- as_local_closure(fun_expr, env, name = proc_name)
+    closure_obj <- as_local_closure(fun_expr, env, scope, name = proc_name)
   } else {
     stop("unsupported FUN in sapply(); use a local closure or function(i) ...")
   }

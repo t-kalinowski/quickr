@@ -34,10 +34,6 @@
       & supported")
           return
         end if
-        if ((size(a, 1, kind=c_ptrdiff_t)) /= (size((a + sum(b)), 1, kind=c_ptrdiff_t))) then
-          call quickr_set_error_msg("reassignment must preserve the shape of `a`")
-          return
-        end if
         a = (a + sum(b))
       
         contains

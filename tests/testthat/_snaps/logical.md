@@ -45,7 +45,7 @@
       & supported")
           return
         end if
-      if (size((x >= left), kind=c_ptrdiff_t) == 0 .or. size((x >= left), kind=c_ptrdiff_t) /= size((x <= right), kind=c_ptrdiff_t)) then
+        if (size((x >= left), kind=c_ptrdiff_t) == 0) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
           return

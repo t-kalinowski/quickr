@@ -306,8 +306,10 @@ Empty `which.min()` and `which.max()` inputs also differ. R returns
 `integer(0)`; quickr returns the scalar index produced by Fortran's
 `minloc()` or `maxloc()`. Do not pass empty inputs to these reductions.
 
-`min()`, `max()`, `sum()`, and `prod()` accept only positional data arguments.
-Named arguments, including `na.rm`, are compile errors.
+`min()`, `max()`, `sum()`, `prod()`, `any()`, and `all()` accept named data
+arguments and an explicit `na.rm = FALSE`. The latter is the default and
+adds no runtime work. Other values of `na.rm` are compile errors; quickr
+does not support removing missing values.
 
 ### Whole-valued real exponents can differ for negative bases {#real-exponents}
 
@@ -364,21 +366,25 @@ zero-length non-scalar operand is rejected, including when the other
 operand is a scalar or another zero-length vector. This is a compile
 error when the zero extent is known and a runtime error when it is not.
 
-### Some zero-sized linear-algebra outputs are not supported
+### Zero-sized linear-algebra products
 
-`%*%`, `crossprod()`, and `tcrossprod()` raise an error when
-the result would have a zero extent, where R returns a zero-sized array.
-A zero contracted dimension remains supported when every output extent is
-nonzero, such as a `2x0` matrix multiplied by a `0x3` matrix; that result is
-a `2x3` matrix of zeros, as in R. `outer()` and `%o%` reject zero-sized
-outputs.
+`%*%`, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%` preserve zero-sized
+output dimensions. For example, a `0x2` matrix multiplied by a `2x3` matrix
+returns a `0x3` matrix. A zero contracted dimension also works: a `2x0`
+matrix multiplied by a `0x3` matrix returns a `2x3` matrix of zeros, as in R.
+These cases do not call BLAS, whose leading dimensions must be positive.
+The usual operand shape checks still apply, including when the result is
+empty.
 
 ### `drop()` requires a fixed result rank
 
-The rank of a compiled result cannot depend on a runtime extent. When a
-matrix axis is not known at compile time, `drop()` accepts inputs whose
-runtime extent is not 1 and raises an error when it is 1. Declare singleton
-axes explicitly when `drop()` should remove them.
+The rank of a compiled result cannot depend on a runtime extent. `drop()`
+removes matrix axes declared with extent 1. Axes whose extent is unknown
+at compile time are retained, even when their runtime extent is 1; this
+does not raise an error. For example, `drop(x)` with `x` declared
+`double(NA, NA)` retains a matrix result for a one-row input, whereas R
+returns a vector. Declare singleton axes explicitly when `drop()` should
+remove them.
 
 ### A variable's type cannot change
 
@@ -587,9 +593,15 @@ Calls with effectful expressions such as `pair(runif(1), 2)`, expressions
 that need runtime guards, or unproven domains such as `ignore(sqrt(x))`
 are compile errors, even if the closure does not use that argument.
 A compound argument also cannot read a captured binding that the callee
-may modify before forcing it. Evaluate such arguments in separate statements
-when eager evaluation is intended. This keeps evaluation order explicit
+may modify before forcing it. A shadowing formal is allowed when its supplied
+value is independent of that binding; passing the modified binding through
+another closure does not bypass this check. Evaluate such arguments in separate
+statements when eager evaluation is intended. This keeps evaluation order explicit
 without implementing R's promise machinery.
+
+Argument expressions in a nested closure cannot capture the enclosing
+closure's formals or locals. Pass those values through the nested closure's
+own arguments. Captures from the outer compiled function remain supported.
 
 ### Deprecation warnings are not reproduced
 

@@ -596,6 +596,152 @@ test_that("closure expressions cannot read captures modified before forcing", {
   expect_quick_identical(unrelated, 2, 4)
 })
 
+test_that("closure argument timing distinguishes shadowed bindings", {
+  bodies <- alist(
+    change(x + 1),
+    {
+      forward <- function(x) change(x + 1)
+      forward(x)
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      value <- outer(2)
+      c(value, x)
+    }))
+    expect_quick_identical(fn, 1, 10)
+  }
+
+  other_binding <- function(x, y) {
+    declare(type(x = double(1)), type(y = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    outer <- function(x) change(x + 1)
+    value <- outer(y)
+    c(value, x, y)
+  }
+  expect_quick_identical(other_binding, list(1, 2), list(10, 4))
+})
+
+test_that("closure argument captures use the definition scope", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    identity_local <- function(value) value
+    read <- function() identity_local(x)
+    outer <- function(x) read()
+    outer(2)
+  }
+  expect_quick_identical(fn, 1, 10)
+})
+
+test_that("root-defined callee writes reach caller argument checks", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    change <- function() {
+      x <<- 8
+      NULL
+    }
+    read <- function(value) {
+      change()
+      value
+    }
+    read(x + 1)
+  }
+  expect_identical(fn(2), 9)
+  expect_error(
+    quick(fn),
+    "which the callee may modify before forcing the argument",
+    fixed = TRUE
+  )
+})
+
+test_that("closure arguments reject enclosing procedure captures", {
+  bodies <- alist(
+    {
+      inner <- function() change(x + 1)
+      inner()
+    },
+    {
+      local <- x
+      inner <- function() change(local + 1)
+      inner()
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      value <- outer(2)
+      c(value, x)
+    }))
+    expect_identical(fn(1), c(3, 8))
+    expect_error(
+      quick(fn),
+      "from an enclosing local closure; pass it as an explicit argument",
+      fixed = TRUE
+    )
+  }
+
+  alias_capture <- function(x) {
+    declare(type(x = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    outer <- function(x) {
+      inner <- function() change(x + 1)
+      inner()
+    }
+    value <- outer(x)
+    c(value, x)
+  }
+  expect_identical(alias_capture(1), c(9, 8))
+  expect_error(
+    quick(alias_capture),
+    "from an enclosing local closure; pass it as an explicit argument",
+    fixed = TRUE
+  )
+})
+
+test_that("closure formal aliases retain captured argument checks", {
+  bodies <- alist(
+    change(x + 1),
+    {
+      forward <- function(x) change(x + 1)
+      forward(x)
+    }
+  )
+  for (body in bodies) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(x) .(body)
+      outer(x)
+    }))
+    expect_identical(fn(2), 9)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+})
+
 test_that("sapply errors for insufficient arguments", {
   expect_error(
     quick(function(x) {
