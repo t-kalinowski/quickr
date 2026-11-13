@@ -1450,9 +1450,10 @@ compile_sapply_assignment <- function(
     is_call(seq_call_unwrapped, quote(seq_along))
 
   iterable_len_expr <- NULL
-  iterable_tmp <- NULL
+  iterable_storage <- NULL
   iterable_tmp_assign <- NULL
   iterable_value <- NULL
+  iterable_binding <- NULL
 
   if (index_iterable) {
     seq_val <- r2f(seq_call, scope, calls = "for", hoist = hoist)
@@ -1472,12 +1473,12 @@ compile_sapply_assignment <- function(
 
     iterable_len_expr <- value_length_expr(iterable_value)
 
-    iterable_tmp <- scope_unique_var(
-      scope,
-      mode = iterable_value@mode,
-      dims = iterable_value@dims
-    )
-    iterable_tmp_assign <- glue("{iterable_tmp@name} = {iterable_val}")
+    if (is.symbol(seq_call_unwrapped)) {
+      iterable_binding <- scope_variable_binding(
+        as.character(seq_call_unwrapped),
+        scope
+      )
+    }
 
     formal_vars <- list(
       Variable(mode = iterable_value@mode, name = formal_names[[1L]])
@@ -1551,6 +1552,25 @@ compile_sapply_assignment <- function(
     scope[[out_name]] <- out_var
   }
 
+  if (!index_iterable) {
+    # Named storage can be read directly when neither the callback nor the
+    # result assignment can change it. Compare binding identities so writes
+    # through forwarded formals and shadowed names retain their meaning.
+    reuse_iterable <- !is.null(iterable_binding) &&
+      !identical(iterable_value@name, out_var@name) &&
+      !any(vapply(proc$host_writes, identical, logical(1L), iterable_binding))
+    if (reuse_iterable) {
+      iterable_storage <- iterable_value
+    } else {
+      iterable_storage <- scope_unique_var(
+        scope,
+        mode = iterable_value@mode,
+        dims = iterable_value@dims
+      )
+      iterable_tmp_assign <- glue("{iterable_storage@name} = {iterable_val}")
+    }
+  }
+
   scope_add_internal_proc(scope_root(scope), proc)
 
   out_target <- out_name
@@ -1575,7 +1595,7 @@ compile_sapply_assignment <- function(
   } else if (passes_as_scalar(iterable_value)) {
     "1_c_int"
   } else {
-    glue("size({iterable_tmp@name})")
+    glue("size({iterable_storage@name})")
   }
   if (is.null(last_i)) {
     stop("sapply() requires a vector input with a known length")
@@ -1594,16 +1614,19 @@ compile_sapply_assignment <- function(
   element_designator <- if (index_iterable) {
     idx@name
   } else if (passes_as_scalar(iterable_value)) {
-    iterable_tmp@name
+    iterable_storage@name
   } else if (iterable_value@rank == 1L) {
-    glue("{iterable_tmp@name}({idx@name})")
+    glue("{iterable_storage@name}({idx@name})")
   } else {
     subs <- linear_subscripts_from_1d(
-      iterable_tmp@name,
+      iterable_storage@name,
       iterable_value@rank,
       Fortran(idx@name, idx)
     )
-    glue("{iterable_tmp@name}({str_flatten_commas(subs)})")
+    glue("{iterable_storage@name}({str_flatten_commas(subs)})")
+  }
+  if (!index_iterable && logical_as_int(iterable_storage)) {
+    element_designator <- glue("({element_designator} /= 0_c_int)")
   }
 
   call_args <- str_flatten_commas(c(
