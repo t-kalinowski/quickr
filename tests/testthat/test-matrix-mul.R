@@ -865,6 +865,53 @@ test_that("symbolic BLAS destinations check literal singleton result axes", {
   }
 })
 
+test_that("triangular solves retain RHS storage extents after rebinding", {
+  for (operation in c("forwardsolve", "backsolve")) {
+    vector_rhs <- eval(substitute(
+      function(a, b, m) {
+        declare(
+          type(a = double(2, 2)),
+          type(b = double(m)),
+          type(m = integer(1))
+        )
+        out <- numeric(2)
+        m <- m + 1L
+        out <- SOLVE(a, b)
+        out
+      },
+      list(SOLVE = as.name(operation))
+    ))
+    matrix_rhs <- eval(substitute(
+      function(a, b, m, columns) {
+        declare(
+          type(a = double(2, 2)),
+          type(b = double(2, m)),
+          type(m = integer(1)),
+          type(columns = integer(1))
+        )
+        out <- matrix(0, 2, columns)
+        m <- m + 1L
+        out <- SOLVE(a, b)
+        out
+      },
+      list(SOLVE = as.name(operation))
+    ))
+
+    a <- matrix(c(2, 1, 1, 4), 2, 2)
+    b <- matrix(c(3, 5, 7, 9), 2, 2)
+    expect_quick_equal(vector_rhs, list(a, b[, 1], 2L))
+    qmatrix <- quick(matrix_rhs)
+    expect_equal(qmatrix(a, b, 2L, 2L), matrix_rhs(a, b, 2L, 2L))
+    for (columns in c(1L, 3L)) {
+      expect_error(
+        qmatrix(a, b, 2L, columns),
+        "reassignment must preserve the shape of `out`",
+        fixed = TRUE
+      )
+    }
+  }
+})
+
 test_that("BLAS reuse allocates locals after untaken earlier BLAS writes", {
   fn <- function(a, b, flag) {
     declare(

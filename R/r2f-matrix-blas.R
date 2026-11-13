@@ -782,6 +782,12 @@ triangular_solve <- function(
   A <- hoist_unless_name(A, hoist)
   B <- hoist_unless_name(B, hoist)
 
+  # Dimension bindings can change after B is allocated. Its output shape and
+  # the BLAS right-hand-side count must follow the stored array extents.
+  if (!is.null(B@value@name)) {
+    B@value <- storage_dimension_view(B@value)
+  }
+
   a_dims <- matrix_dims(A)
   assert_square_matrix(a_dims, A, "triangular solve", hoist, scope)
   n <- a_dims$rows
