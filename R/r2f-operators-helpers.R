@@ -748,12 +748,14 @@ check_assignment_compatible <- function(
   if (target_scalar && value_scalar) {
     return(invisible())
   }
-  deferred_local <- !target@is_external &&
-    (has_self_size_dims(target) ||
-      any(vapply(target@dims, is_scalar_na, logical(1))))
+  deferred_local <- is_deferred_local(target)
   if (target_scalar || value_scalar) {
     # A deferred-shape local can genuinely take a new array shape.
-    if (deferred_local && !value_scalar) {
+    if (
+      deferred_local &&
+        (!value_scalar ||
+          (value@scalar_fill && target@rank == value_var@rank))
+    ) {
       return(invisible())
     }
     # Otherwise one side is length 1 and the other is a real array. R

@@ -393,6 +393,12 @@ has_self_size_dims <- function(var) {
   ))
 }
 
+is_deferred_local <- function(var) {
+  !var@is_external &&
+    (has_self_size_dims(var) ||
+      any(vapply(var@dims, is_scalar_na, logical(1))))
+}
+
 # TODO: allow syntax like:
 #   declare(type(a, b, c = integer(1)))
 # or:

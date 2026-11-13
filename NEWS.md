@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- Scalar-fill constructors now allocate locals declared with `NA` extents
+  before writing them, and resize those locals when the requested shape
+  changes. Matching extents reuse the existing storage.
+
 - `cbind()` and `rbind()` accept independent dynamic common dimensions,
   including axes declared with `NA` or different symbolic names. Their actual
   extents are checked before binding; known mismatches remain compile errors,

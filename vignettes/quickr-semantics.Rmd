@@ -399,6 +399,11 @@ assigning `1L` to a double `x` leaves `x` double. This is a non-error
 difference for whole-variable assignment, since R changes `x` to integer.
 Subassignment retains the higher type in both R and quickr.
 
+Local arrays declared with `NA` extents can resize on whole-array
+assignment while keeping their declared rank and type. Scalar-fill
+constructors such as `numeric(n)` and `matrix(0, n, m)` allocate the
+requested shape, reusing existing storage when its extents already match.
+
 ### Empty `sapply()` results
 
 R returns `list()` for an empty `sapply()` input. quickr's compiled output
