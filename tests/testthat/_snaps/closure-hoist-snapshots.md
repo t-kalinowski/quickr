@@ -44,7 +44,7 @@
         out = 0.0_c_double
         do tmp1_ = 1_c_int, x__len_
           call closure1_(tmp1_, out(tmp1_))
-          if (quickr_err_msg(1) /= c_null_char) return
+      
         end do
       
       
@@ -61,11 +61,6 @@
               real(c_double), allocatable :: btmp1_(:)
       
               allocate(btmp1_(size(x, 1, kind=c_ptrdiff_t)))
-              if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-          & supported")
-                return
-              end if
               btmp1_ = ((x + 1.0_c_double))
               res = btmp1_(i)
             end block
@@ -152,14 +147,11 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(nx, ny, temp, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
+      subroutine fn(nx, ny, temp) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
-      
         ! args
         integer(c_int), intent(in) :: nx
         integer(c_int), intent(in) :: ny
@@ -170,7 +162,6 @@
         temp = 0.0_c_double
       
         call bc()
-        if (quickr_err_msg(1) /= c_null_char) return
       
         contains
           subroutine bc()
@@ -183,14 +174,6 @@
               real(c_double), allocatable :: btmp1_(:, :)
       
               allocate(btmp1_(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t)))
-              if (size(temp, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-                call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-                return
-              end if
-              if (size(temp, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-                call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-                return
-              end if
               btmp1_ = ((temp + 1.0_c_double))
               temp(1_c_int, 1_c_int) = btmp1_(1_c_int, 1_c_int)
             end block
@@ -198,28 +181,10 @@
               real(c_double), allocatable :: btmp1_(:, :)
       
               allocate(btmp1_(size(temp, 1, kind=c_ptrdiff_t), size(temp, 2, kind=c_ptrdiff_t)))
-              if (size(temp, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-                call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-                return
-              end if
-              if (size(temp, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-                call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-                return
-              end if
               btmp1_ = ((temp + 2.0_c_double))
               temp(nx, ny) = btmp1_(nx, ny)
             end block
           end subroutine
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -232,8 +197,7 @@
       extern void fn(
         const int* const nx__,
         const int* const ny__,
-        double* const temp__,
-        char* quickr_err_msg);
+        double* const temp__);
       
       SEXP fn_(SEXP _args) {
         // nx
@@ -273,18 +237,7 @@
           Rf_dimgets(temp, _dim_sexp);
         }
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
-        fn(
-          nx__,
-          ny__,
-          temp__,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+        fn(nx__, ny__, temp__);
         
         UNPROTECT(2);
         return temp;

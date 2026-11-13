@@ -95,17 +95,14 @@
     Code
       cat(fsub)
     Output
-      subroutine fn(x, out, x__dim_1_, x__dim_2_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+      subroutine fn(x, out, x__dim_1_, x__dim_2_) bind(c)
+        use iso_c_binding, only: c_double, c_int
         implicit none
       
         ! manifest start
         ! sizes
         integer(c_int), intent(in), value :: x__dim_1_
         integer(c_int), intent(in), value :: x__dim_2_
-      
-        ! error
-        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
       
         ! args
         real(c_double), intent(in) :: x(x__dim_1_, x__dim_2_)
@@ -117,29 +114,9 @@
           logical, allocatable :: btmp1_(:, :) ! logical
       
           allocate(btmp1_(x__dim_1_, x__dim_2_))
-          if (size(x, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-            return
-          end if
-          if (size(x, 2, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-            call quickr_set_error_msg("elementwise matrix operations require matching dimensions")
-            return
-          end if
           btmp1_ = ((x > 0.0_c_double))
           out = merge(1.0_c_double, 0.0_c_double, btmp1_(1_c_int, 1_c_int))
         end block
-      
-        contains
-          subroutine quickr_set_error_msg(msg)
-            character(len=*), intent(in) :: msg
-            integer :: i
-            integer :: n
-            if (quickr_err_msg(1) == c_null_char) then
-              n = min(len(msg), 256 - 1)
-              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
-              quickr_err_msg(n + 1) = c_null_char
-            end if
-          end subroutine quickr_set_error_msg
       end subroutine
     Code
       cat(cwrapper)
@@ -153,8 +130,7 @@
         const double* const x__,
         double* const out__,
         const R_len_t x__dim_1_,
-        const R_len_t x__dim_2_,
-        char* quickr_err_msg);
+        const R_len_t x__dim_2_);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -177,19 +153,11 @@
         SEXP out = PROTECT(Rf_allocVector(REALSXP, out__len_));
         double* out__ = REAL(out);
         
-        char quickr_err_msg[256];
-        quickr_err_msg[0] = '\0';
-        
-        
         fn(
           x__,
           out__,
           x__dim_1_,
-          x__dim_2_,
-          quickr_err_msg);
-        if (quickr_err_msg[0] != '\0') {
-          Rf_error("%s", quickr_err_msg);
-        }
+          x__dim_2_);
         
         UNPROTECT(1);
         return out;

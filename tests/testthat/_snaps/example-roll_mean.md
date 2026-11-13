@@ -59,16 +59,6 @@
             real(c_double) :: btmp1_
       
             btmp1_ = sum(weights)
-            if (size(weights, 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-              return
-            end if
-            if (size((weights / btmp1_), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-              return
-            end if
             weights = ((weights / btmp1_) * size(weights))
           end block
         end if
@@ -76,8 +66,7 @@
           block
             real(c_double) :: btmp1_
       
-      if (size(x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) == 0 .or. size(x(i:(((i + n) -&
-      & 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) /= size(weights, kind=c_ptrdiff_t)) then
+      if (size(x(i:(((i + n) - 1_c_int)):sign(1, (((i + n) - 1_c_int))-i)), kind=c_ptrdiff_t) /= size(weights, kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
               return

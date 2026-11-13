@@ -117,16 +117,10 @@
         num_steps = size(observations)
         trellis = 0.0_c_double
         backpointer = 0_c_int
-        if (size(initial_probs, kind=c_ptrdiff_t) == 0) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-          return
-        end if
         trellis(:, 1_c_int) = (initial_probs * emission_probs(:, observations(1_c_int)))
         do step = 2_c_int, num_steps, sign(1, num_steps-2_c_int)
           do current_state = 1_c_int, num_states, sign(1, num_states-1_c_int)
-      if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) == 0 .or. size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /=&
-      & size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
+            if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /= size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
               return
@@ -375,16 +369,10 @@
       
         trellis = 0.0_c_double
         backpointer = 0_c_int
-        if (size(initial_probs, kind=c_ptrdiff_t) == 0) then
-      call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-      & supported")
-          return
-        end if
         trellis(:, 1_c_int) = (initial_probs * emission_probs(:, observations(1_c_int)))
         do step = 2_c_int, size(observations), sign(1, size(observations)-2_c_int)
           do current_state = 1_c_int, size(states), sign(1, size(states)-1_c_int)
-      if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) == 0 .or. size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /=&
-      & size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
+            if (size(trellis(:, (step - 1_c_int)), kind=c_ptrdiff_t) /= size(transition_probs(:, current_state), kind=c_ptrdiff_t)) then
       call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
       & supported")
               return

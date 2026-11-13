@@ -23,34 +23,41 @@ test_that("known unequal vector lengths are a compile error", {
   expect_error(quick(zero_len), "equal lengths")
 })
 
-test_that("a known length-0 operand is rejected against an unknown length", {
-  # R answers numeric(0) here; quickr has no length-0 result to return, so
-  # the zero is rejected even when the other operand's length is not a
-  # number the compiler can compare it to.
+test_that("known empty vectors require matching runtime lengths", {
+  # Empty arrays conform with other empty arrays, but do not introduce
+  # general recycling against nonempty vectors.
   fill_left <- function(x) {
     declare(type(x = double(n)))
     numeric(0) + x
   }
-  expect_error(quick(fill_left), "equal lengths")
+  qleft <- quick(fill_left)
+  expect_identical(qleft(double()), double())
+  expect_error(qleft(c(1, 2)), "equal lengths")
 
   fill_right <- function(x) {
     declare(type(x = double(n)))
     x > numeric(0)
   }
-  expect_error(quick(fill_right), "equal lengths")
+  qright <- quick(fill_right)
+  expect_identical(qright(double()), logical())
+  expect_error(qright(c(1, 2)), "equal lengths")
 
   declared <- function(a, b) {
     declare(type(a = double(0)), type(b = double(n)))
     a * b
   }
-  expect_error(quick(declared), "equal lengths")
+  qdeclared <- quick(declared)
+  expect_identical(qdeclared(double(), double()), double())
+  expect_error(qdeclared(double(), c(1, 2)), "equal lengths")
 
   # An NA dim is unknown, not "matches anything"
   unspecified <- function(a, b) {
     declare(type(a = double(NA)), type(b = double(0)))
     a - b
   }
-  expect_error(quick(unspecified), "equal lengths")
+  qunspecified <- quick(unspecified)
+  expect_identical(qunspecified(double(), double()), double())
+  expect_error(qunspecified(c(1, 2), double()), "equal lengths")
 })
 
 test_that("length checks cover comparisons, logical ops, and modulo", {
@@ -88,40 +95,43 @@ test_that("symbolic differing lengths get a runtime guard", {
   # Runtime length one does not change an assumed-shape vector into a scalar.
   expect_error(qfn(c(1, 2, 3), 10), "equal lengths")
   expect_error(qfn(10, c(1, 2, 3)), "equal lengths")
-  expect_error(qfn(double(), double()), "equal lengths")
+  expect_identical(qfn(double(), double()), double())
+  expect_error(qfn(double(), c(1, 2)), "equal lengths")
+  expect_error(qfn(c(1, 2), double()), "equal lengths")
 })
 
-test_that("identical symbolic lengths guard runtime emptiness", {
+test_that("identical symbolic lengths allow empty inputs", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(n)))
     a - b
   }
-  fsub <- as.character(r2f(fn))
-  expect_match(fsub, "quickr_set_error_msg", fixed = TRUE)
   qfn <- quick(fn)
   expect_identical(qfn(c(1, 2, 3), c(10, 20, 30)), c(-9, -18, -27))
-  expect_error(qfn(double(), double()), "equal lengths")
+  expect_identical(qfn(double(), double()), double())
+  expect_error(
+    qfn(double(), c(1, 2)),
+    "length(b) must equal length(a)",
+    fixed = TRUE
+  )
 })
 
-test_that("scalar broadcast preserves nonempty values", {
+test_that("scalar broadcast preserves empty and nonempty values", {
   fn <- function(a, b) {
     declare(type(a = double(n)), type(b = double(1)))
     a + b
   }
-  fsub <- as.character(r2f(fn))
-  expect_match(fsub, "size(a, 1, kind=c_ptrdiff_t) == 0", fixed = TRUE)
-  expect_quick_identical(fn, list(c(1, 2, 3), 10))
+  expect_quick_identical(fn, list(c(1, 2, 3), 10), list(double(), 10))
 })
 
-test_that("scalar broadcast rejects empty array operands", {
+test_that("scalar broadcast accepts known empty array operands", {
   known_left <- function() {
     numeric(0) + 1
   }
   known_right <- function() {
     1 < numeric(0)
   }
-  expect_error(quick(known_left), "equal lengths")
-  expect_error(quick(known_right), "equal lengths")
+  expect_quick_identical(known_left, list())
+  expect_quick_identical(known_right, list())
 
   symbolic <- function(x) {
     declare(type(x = double(NA)))
@@ -129,7 +139,33 @@ test_that("scalar broadcast rejects empty array operands", {
   }
   qsymbolic <- quick(symbolic)
   expect_identical(qsymbolic(c(1, 2)), c(2, 3))
-  expect_error(qsymbolic(double()), "equal lengths")
+  expect_identical(qsymbolic(double()), double())
+})
+
+test_that("empty elementwise results preserve their modes", {
+  fn <- function(x, i, mask) {
+    declare(
+      type(x = double(NA)),
+      type(i = integer(NA)),
+      type(mask = logical(NA))
+    )
+    numeric_result <- x + 1
+    integer_result <- 2L + i
+    comparison <- x < 1
+    logical_result <- TRUE & mask
+    list(numeric_result, integer_result, comparison, logical_result)
+  }
+  expect_quick_identical(
+    fn,
+    list(double(), integer(), logical()),
+    list(c(1, 2), 1:2, c(TRUE, FALSE))
+  )
+
+  reduced <- function(x) {
+    declare(type(x = double(NA)))
+    sum(x + 1)
+  }
+  expect_quick_identical(reduced, double(), c(1, 2))
 })
 
 test_that("elementwise guards evaluate operands before reporting errors", {
@@ -209,6 +245,28 @@ test_that("matrix-matrix elementwise ops guard unknown dims per axis", {
   m2 <- matrix(as.double(6:1), 2, 3)
   expect_identical(qfn(m1, m2), m1 * m2)
   expect_error(qfn(m1, t(m2)), "matching dimensions")
+  for (dims in list(c(0L, 2L), c(2L, 0L), c(0L, 0L))) {
+    empty <- matrix(double(), dims[[1L]], dims[[2L]])
+    expect_identical(qfn(empty, empty), empty * empty)
+  }
+  expect_error(
+    qfn(matrix(double(), 2, 0), matrix(double(), 3, 0)),
+    "matching dimensions"
+  )
+})
+
+test_that("scalars broadcast over empty matrix axes", {
+  fn <- function(x) {
+    declare(type(x = double(NA, NA)))
+    2 + x
+  }
+  expect_quick_identical(
+    fn,
+    matrix(double(), 0, 2),
+    matrix(double(), 2, 0),
+    matrix(double(), 0, 0),
+    matrix(as.double(1:6), 2, 3)
+  )
 })
 
 test_that("higher-rank elementwise arrays guard every axis", {
@@ -224,6 +282,37 @@ test_that("higher-rank elementwise arrays guard every axis", {
     qfn(a, array(as.double(1:12), c(2, 2, 3))),
     "matching dimensions"
   )
+  empty <- array(double(), c(2, 0, 3))
+  expect_identical(qfn(empty, empty), empty + empty)
+  expect_error(
+    qfn(empty, array(double(), c(2, 0, 4))),
+    "matching dimensions"
+  )
+})
+
+test_that("empty arrays still require matching ranks", {
+  incompatible <- function(a, b) {
+    declare(type(a = double(0, 2, 3)), type(b = double(0, 6)))
+    a + b
+  }
+  expect_error(quick(incompatible), "matching dimensions", fixed = TRUE)
+
+  lazy <- function(flag, a, b) {
+    declare(
+      type(flag = logical(1)),
+      type(a = double(NA, NA, NA)),
+      type(b = double(NA, NA))
+    )
+    flag && (sum(a + b) > 0)
+  }
+  qlazy <- quick(lazy)
+  for (n in c(0L, 1L)) {
+    a <- array(0, c(n, 2, 3))
+    b <- matrix(0, n, 6)
+    expect_identical(qlazy(FALSE, a, b), lazy(FALSE, a, b))
+    expect_error(lazy(TRUE, a, b), "non-conformable arrays", fixed = TRUE)
+    expect_error(qlazy(TRUE, a, b), "matching dimensions", fixed = TRUE)
+  }
 })
 
 test_that("vector-matrix ops with unknown dims guard instead of rejecting", {
@@ -238,21 +327,34 @@ test_that("vector-matrix ops with unknown dims guard instead of rejecting", {
   expect_error(qfn(c(10, 20, 30), mat), "matrix first dimension")
 })
 
-test_that("vector-matrix ops reject zero-column results", {
+test_that("vector-matrix ops preserve empty rows and columns", {
   known <- function(vec, mat) {
     declare(type(vec = double(2)), type(mat = double(2, 0)))
     vec + mat
   }
-  expect_error(quick(known), "matrix first dimension")
+  expect_quick_identical(known, list(c(1, 2), matrix(double(), 2, 0)))
 
   symbolic <- function(vec, mat) {
     declare(type(vec = double(n)), type(mat = double(n, k)))
     vec + mat
   }
   qsymbolic <- quick(symbolic)
+  reversed <- function(vec, mat) {
+    declare(type(vec = double(n)), type(mat = double(n, k)))
+    mat + vec
+  }
+  qreversed <- quick(reversed)
+  for (args in list(
+    list(c(1, 2), matrix(double(), 2, 0)),
+    list(double(), matrix(double(), 0, 2)),
+    list(double(), matrix(double(), 0, 0))
+  )) {
+    expect_identical(do.call(qsymbolic, args), do.call(symbolic, args))
+    expect_identical(do.call(qreversed, args), do.call(reversed, args))
+  }
   expect_error(
-    qsymbolic(c(1, 2), matrix(double(), 2, 0)),
-    "matrix first dimension"
+    qsymbolic(c(1, 2), matrix(double(), 0, 2)),
+    "must equal"
   )
 })
 

@@ -404,11 +404,6 @@
             integer(c_int), intent(in) :: j
             real(c_double), intent(out) :: res(:)
       
-            if (size(x(:, j), 1, kind=c_ptrdiff_t) == 0_c_ptrdiff_t) then
-          call quickr_set_error_msg("elementwise vector operations require equal lengths or a scalar operand; R-style recycling is not&
-          & supported")
-              return
-            end if
             x(:, j) = (x(:, j) * 2.0_c_double)
             if (size(x(:, j), 1, kind=c_ptrdiff_t) /= size(res, 1, kind=c_ptrdiff_t)) then
               call quickr_set_error_msg("closure result shape does not match output shape")

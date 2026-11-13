@@ -1,5 +1,11 @@
 # quickr (development version)
 
+- Elementwise operations now accept equally shaped empty arrays and scalar
+  operations on empty arrays. Vector-matrix operations also accept empty rows
+  or columns when the vector spans the matrix's rows. These cases preserve R's
+  result type and dimensions, without generating nonempty checks. Unequal
+  non-scalar shapes are still rejected; general recycling remains unsupported.
+
 - `ifelse()` with pure branches and proven matching shapes now avoids temporary
   masks and extra scans. Direct assignments also avoid a result temporary;
   selections nested in other expressions capture their result before later
