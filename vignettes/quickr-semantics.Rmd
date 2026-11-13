@@ -586,9 +586,38 @@ for vectors; assignment expressions in `&&` and `||` are not supported.
 R evaluates function arguments lazily. Local closures inside compiled
 functions (including functions passed to `sapply()`) accept only argument
 expressions that quickr can prove are pure, and evaluate accepted arguments
-eagerly. Calls with effectful expressions such as `pair(runif(1), 2)` are
-compile errors. Code that relies on an argument never being evaluated will
-behave differently.
+eagerly. Accepted expressions include `x / scale`, `length(x)`, `sum(x)`,
+`prod(x)`, `floor(x)`, `ceiling(x)`, `trunc(x)`, and `as.double(x)`.
+`nrow(x)` and `ncol(x)` are accepted for named matrix or array variables.
+Division follows the usual floating-point behavior, including `Inf` or `NaN`
+for a zero divisor. `sqrt()` requires a nonnegative literal or an `abs()`
+expression, such as `sqrt(abs(x))`.
+These expressions can be composed with the supported pure operators.
+This expanded expression support applies to explicitly supplied arguments;
+defaults retain their existing conservative set of pure operators.
+
+Calls with effectful expressions such as `pair(runif(1), 2)`, expressions
+that need runtime guards, or unproven domains such as `ignore(sqrt(x))`
+are compile errors, even if the closure does not use that argument.
+A compound argument also cannot read a captured binding that the callee
+may modify before forcing it. A shadowing formal is allowed when its supplied
+value is independent of that binding; passing the modified binding through
+another closure does not bypass this check. Evaluate such arguments in separate
+statements when eager evaluation is intended. This keeps evaluation order explicit
+without implementing R's promise machinery.
+
+Argument expressions in a nested closure cannot capture the enclosing
+closure's formals or locals. Pass those values through the nested closure's
+own arguments. Captures from the outer compiled function remain supported.
+
+Defaults use the closure's lexical bindings when those bindings are accessible
+from the generated caller. For example, `function(value = x)` can read `x`
+from the surrounding compiled function, even when the caller has a separately
+stored local named `x`. A caller formal that hides the same generated binding
+requires an explicit argument. Defaults that depend on other formals, such as
+`function(x, value = x)`, or on names assigned in the callee's body also require
+explicit arguments; quickr does not reproduce R's default-promise evaluation
+in those cases.
 
 ### Deprecation warnings are not reproduced
 

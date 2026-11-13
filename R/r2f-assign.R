@@ -168,6 +168,7 @@ register_r2f_handler(
       scope[[name]] <- as_local_closure(
         rhs,
         environment(scope_closure(scope)),
+        scope = scope,
         name = name
       )
       return(Fortran(""))
@@ -435,6 +436,7 @@ resolve_superassign_target <- function(name, scope) {
 
   host_var@modified <- TRUE
   host_scope[[name]] <- host_var
+  scope_mark_host_write(scope, scope_variable_binding(name, host_scope))
   host_var
 }
 

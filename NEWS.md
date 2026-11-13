@@ -1,5 +1,17 @@
 # quickr (development version)
 
+- Supplied local closure arguments now accept safe dimension queries, numeric reductions,
+  rounding, division, and `sqrt()` of a nonnegative literal
+  or `abs()` expression. Effectful or runtime-guarded arguments remain unsupported.
+  Compound arguments that read a captured binding modified by the callee now
+  report an error instead of using a value evaluated before R would force it.
+  Distinct bindings that share a name remain accepted, including nested formals.
+  Argument expressions that capture an enclosing closure's formals or locals
+  report a compile-time error; pass those values explicitly.
+  Defaults retain their lexical bindings and captured-write checks. Defaults
+  that depend on callee formals or assigned locals, or whose bindings are hidden
+  at the call site, require explicit arguments.
+
 - BLAS operations can write directly into an existing destination with symbolic
   dimensions. They check its stored extents before writing, avoiding a temporary
   result and copy. Deferred-shape destinations still resize through assignment.
