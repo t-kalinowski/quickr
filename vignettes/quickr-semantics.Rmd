@@ -66,7 +66,7 @@ highest type among them — except where the table says otherwise:
 | `&`, `|`, `!`, `&&`, `||` | logical (see [logical operators](#logical-operators) below) |
 | `c()` | join of all argument types (`c(TRUE, FALSE)` stays logical, as in R) |
 | multi-argument `min()` / `max()` / `sum()` | join of all argument types; logicals count as integers (in R, `sum(TRUE, TRUE)` is `2L`; see [integer `sum()` overflow](#integer-sum-overflow)) |
-| `prod()` | join of the argument types; unlike R, an integer or logical product is integer (see [`prod()`](#prod)) |
+| `prod()` | double for logical, integer, and double inputs; complex for complex inputs (see [`prod()`](#prod)) |
 | single-argument `min()`, `max()`, and `sum()` | type of `x`; logical counts as integer |
 | `abs()` | type of `x`, except complex input returns double; logical counts as integer |
 | `ifelse(test, yes, no)` | join of `yes` and `no` (but see [ifelse](#ifelse) below) |
@@ -103,6 +103,14 @@ typeof(r)
 exponent has integer type, quickr uses an integer exponent, which supports
 negative bases: `(-2) ^ 3L` is `-8`. A whole-valued *double* exponent remains a
 real exponent; see [real exponents](#real-exponents) below.
+
+### Products {#prod}
+
+`prod()` returns double for logical, integer, and double inputs, as in R.
+Integer and logical values are converted before multiplication, including
+each argument of a multi-argument call. For example,
+`prod(c(50000L, 50000L))` returns `2500000000` as a double.
+Complex products retain their complex type.
 
 ### Reassignment cannot narrow a type
 
@@ -251,13 +259,6 @@ boundary, avoiding another check inside the function.
 This section describes supported restrictions and known differences. It is
 not an exhaustive list of implementation defects. Please report unexpected
 results from supported numerical code.
-
-### Integer and logical `prod()` results retain their type {#prod}
-
-R returns a double from `prod()` when every argument is integer or
-logical. quickr currently returns an integer in those cases, so both the
-result type and integer-overflow behavior can differ. Use double inputs,
-for example `prod(as.double(x))`, when R's double result is required.
 
 ### Integer `sum()` can overflow {#integer-sum-overflow}
 

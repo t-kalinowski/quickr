@@ -118,11 +118,16 @@ register_r2f_handler(
           }
         }
       }
-      # R's numeric reductions treat logicals as integers (sum(TRUE) is 1L),
-      # and Fortran's sum/product/minval/maxval reject logical arrays.
+      # Numeric intrinsics reject logical arrays. sum/min/max use integer
+      # for logicals; prod uses double for both logical and integer inputs.
+      # Cast before PRODUCT(), so its accumulation uses double arithmetic.
+      mode <- arith_join_mode(x)
+      if (call_name == "prod" && identical(mode, "integer")) {
+        mode <- "double"
+      }
       x <- cast_to_mode(
         x,
-        arith_join_mode(x),
+        mode,
         sprintf("%s()", call_name)
       )
       out <- if (x@value@is_scalar) {
