@@ -33,6 +33,9 @@
   dimensions. They check its stored extents before writing, avoiding a temporary
   result and copy. Deferred-shape destinations still resize through assignment.
 
+- Direct `svd(x)$d` calls now request only singular values from LAPACK,
+  avoiding unused singular-vector calculations, matrices, and a transpose.
+
 - Scalar-fill constructors now allocate locals declared with `NA` extents
   before writing them, and resize those locals when the requested shape
   changes. Matching extents reuse the existing storage.
@@ -70,6 +73,10 @@
 - Locals shared by conditional matrix operations and ordinary assignments
   retain their allocation. Skipping a `solve()` branch no longer leaves a
   later constructor assignment reading or writing unallocated storage.
+
+- Generated packages register private C entrypoints, so a symbol exported by
+  another loaded library cannot replace a quickr wrapper during registration.
+  Registered names and standalone `quick()` compilation are unchanged.
 
 - quickr now requires development S7 and uses its `:=` operator internally. Property definitions and package initialization use the current S7 APIs.
 

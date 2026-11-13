@@ -1,13 +1,13 @@
 skip_on_cran()
 
 test_that("quick() supports mixed-case compiled names", {
-  qSim <- quick(
-    name = "qSim",
-    function(x) {
-      declare(type(x = double(n)))
-      x + 1
-    }
-  )
+  fn <- function(x) {
+    declare(type(x = double(n)))
+    x + 1
+  }
+  attr(fn, "name") <- "qSim"
+  expect_translation_snapshots(fn)
+  qSim <- quick(fn, name = "qSim")
 
   expect_identical(qSim(c(1, 2, 3)), c(2, 3, 4))
 })

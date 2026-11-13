@@ -3,7 +3,8 @@ make_c_bridge <- function(
   strict = TRUE,
   headers = TRUE,
   force_rmath_header = FALSE,
-  force_rng_header = FALSE
+  force_rng_header = FALSE,
+  static = FALSE
 ) {
   stopifnot(inherits(fsub, FortranSubroutine))
 
@@ -165,7 +166,9 @@ make_c_bridge <- function(
   needs_rmath <- any(grepl("R_pow(", c_body, fixed = TRUE))
   c_body <- as_glue(str_flatten_lines(c_body))
 
-  c_func_def <- glue("SEXP {fsub@name}_(SEXP _args) {c_block(c_body)}")
+  c_func_def <- glue(
+    "{if (static) 'static ' else ''}SEXP {fsub@name}_(SEXP _args) {c_block(c_body)}"
+  )
 
   fsub_extern_decl <- fsub_extern_decl(fsub)
 
