@@ -67,6 +67,26 @@ scope_variable_binding <- function(name, scope) {
   var@argument_binding %||% list(scope = scope, name = name)
 }
 
+# Resolve emitted names through the current procedure and its native host.
+# Lexical ancestors' locals are not visible to root-sibling procedures.
+scope_fortran_binding <- function(name, scope) {
+  stopifnot(is_string(name))
+  while (inherits(scope, "quickr_scope")) {
+    vars <- scope_vars(scope)
+    names_f <- map_chr(vars, \(var) var@name %||% "")
+    idx <- match(tolower(name), tolower(names_f))
+    if (!is.na(idx)) {
+      return(scope_variable_binding(names(vars)[[idx]], scope))
+    }
+    scope <- if (identical(scope_kind(scope), "closure_formals")) {
+      scope_root(scope)
+    } else {
+      parent.env(scope)
+    }
+  }
+  NULL
+}
+
 # Record binding identities, since separate procedures can reuse Fortran names.
 # Callers also merge their compiled callees' write summaries into their scopes.
 scope_mark_host_write <- function(scope, binding) {

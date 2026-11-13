@@ -527,6 +527,7 @@ compile_internal_subroutine <- function(
     res_var = res_var,
     uses_errors = scope_uses_errors_flag(proc_scope),
     host_writes = host_writes,
+    local_bindings = unlist(lapply(locals, \(var) var@r_name)),
     error = if (body_failed) expr_error else NULL
   )
 }
@@ -825,7 +826,20 @@ closure_argument_is_pure <- function(e, scope) {
   allowed && all(map_lgl(args, closure_argument_is_pure, scope = scope))
 }
 
-check_closure_argument_timing <- function(call_info, proc, scope) {
+check_closure_argument_timing <- function(call_info, proc) {
+  for (nm in call_info$default_names) {
+    reads <- all.vars(call_info$args_expr[[nm]], functions = FALSE)
+    for (name in intersect(reads, proc$local_bindings)) {
+      stop(
+        "local closure default argument `",
+        nm,
+        "` reads `",
+        name,
+        "`, which is assigned in the callee; supply it explicitly",
+        call. = FALSE
+      )
+    }
+  }
   if (!length(proc$host_writes)) {
     return(invisible())
   }
@@ -834,15 +848,16 @@ check_closure_argument_timing <- function(call_info, proc, scope) {
     if (!is.call(expr)) {
       next
     }
+    argument_scope <- call_info$args_scopes[[nm]]
     for (name in all.vars(expr, functions = FALSE)) {
-      var <- get0(name, scope)
+      var <- get0(name, argument_scope)
       if (
         inherits(var, Variable) &&
           any(vapply(
             proc$host_writes,
             identical,
             logical(1L),
-            scope_variable_binding(name, scope)
+            scope_variable_binding(name, argument_scope)
           ))
       ) {
         stop(
@@ -943,6 +958,12 @@ match_closure_call_args <- function(
   }
 
   args_expr <- args_aligned
+  args_scopes <- setNames(
+    lapply(formal_names, function(nm) {
+      if (nm %in% supplied_names) scope else closure_obj@definition_scope
+    }),
+    formal_names
+  )
 
   # Local closures lower to Fortran procedures, so they cannot reproduce R's
   # lazy promise forcing for effectful or trapping actual expressions. Keep
@@ -956,7 +977,7 @@ match_closure_call_args <- function(
     } else {
       r2f_expression_is_pure
     }
-    classify(args_expr[[nm]], scope)
+    classify(args_expr[[nm]], args_scopes[[nm]])
   })
   promise_error <- paste0(
     closure_name,
@@ -966,13 +987,45 @@ match_closure_call_args <- function(
     stop(promise_error, call. = FALSE)
   }
 
+  default_names <- setdiff(present_names, supplied_names)
+  for (nm in default_names) {
+    reads <- all.vars(args_expr[[nm]], functions = FALSE)
+    if (any(reads %in% formal_names)) {
+      stop(
+        "local closure default argument `",
+        nm,
+        "` depends on callee formals; supply it explicitly",
+        call. = FALSE
+      )
+    }
+    for (name in reads) {
+      var <- get0(name, args_scopes[[nm]])
+      if (
+        inherits(var, Variable) &&
+          !identical(
+            scope_variable_binding(name, args_scopes[[nm]]),
+            scope_fortran_binding(var@name, scope)
+          )
+      ) {
+        stop(
+          "local closure default argument `",
+          nm,
+          "` cannot access `",
+          name,
+          "` from the calling procedure; supply it explicitly",
+          call. = FALSE
+        )
+      }
+    }
+  }
+
   args_f <- lapply(formal_names, function(nm) {
     if (!isTRUE(args_present[[nm]])) {
       return(NULL)
     }
     lower_r2f_operand_in_order(
       args_expr[[nm]],
-      scope,
+      args_scopes[[nm]],
       ...,
       hoist = hoist,
       reject_runtime_guard = TRUE,
@@ -1000,12 +1053,12 @@ match_closure_call_args <- function(
   }
 
   formal_vars <- closure_formal_vars(args_f, formal_names)
-  for (nm in intersect(formal_names[args_present], supplied_names)) {
+  for (nm in present_names) {
     expr <- unwrap_parens(args_expr[[nm]])
     if (is.symbol(expr)) {
       formal_vars[[nm]]@argument_binding <- scope_variable_binding(
         as.character(expr),
-        scope
+        args_scopes[[nm]]
       )
     }
   }
@@ -1013,6 +1066,8 @@ match_closure_call_args <- function(
   list(
     call_expr = call_expr,
     args_expr = args_expr,
+    args_scopes = args_scopes,
+    default_names = default_names,
     args_f = args_f,
     formal_names = formal_names,
     formal_vars = formal_vars,
@@ -1115,7 +1170,7 @@ compile_closure_call <- function(
     optional_args = optional_args,
     defer_errors = defer_errors
   )
-  check_closure_argument_timing(call_info, proc, scope)
+  check_closure_argument_timing(call_info, proc)
 
   if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
@@ -1232,7 +1287,7 @@ compile_closure_call_assignment <- function(
     allow_void_return = defer_errors,
     defer_errors = defer_errors
   )
-  check_closure_argument_timing(call_info, proc, scope)
+  check_closure_argument_timing(call_info, proc)
   if (is.null(proc$res)) {
     inputs <- closure_call_inputs(args_f, args_present, formal_vars)
     hoist$emit(str_flatten_lines(

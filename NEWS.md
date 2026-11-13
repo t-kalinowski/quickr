@@ -8,6 +8,9 @@
   Distinct bindings that share a name remain accepted, including nested formals.
   Argument expressions that capture an enclosing closure's formals or locals
   report a compile-time error; pass those values explicitly.
+  Defaults retain their lexical bindings and captured-write checks. Defaults
+  that depend on callee formals or assigned locals, or whose bindings are hidden
+  at the call site, require explicit arguments.
 
 - Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
   now return correctly shaped empty matrices for zero-sized outputs. Empty

@@ -555,6 +555,118 @@ test_that("safe actual expressions do not extend callee default evaluation", {
   }
 })
 
+test_that("default arguments retain captured binding identities", {
+  for (default in alist(x, (x))) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function(value) {
+        x <<- 8
+        value
+      }
+      outer <- function(y = .(default)) change(y / 2)
+      outer()
+    }))
+    expect_identical(fn(2), 4)
+    expect_error(
+      quick(fn),
+      "which the callee may modify before forcing the argument",
+      fixed = TRUE
+    )
+  }
+
+  shadowed_compound_default <- function(x) {
+    declare(type(x = double(1)))
+    change <- function(value) {
+      x <<- 8
+      value
+    }
+    read <- function(value = x + 1) change(value)
+    outer <- function(z) {
+      x <- z + 99
+      read()
+    }
+    outer(2)
+  }
+  expect_identical(shadowed_compound_default(1), 9)
+  expect_error(
+    quick(shadowed_compound_default),
+    "which the callee may modify before forcing the argument",
+    fixed = TRUE
+  )
+})
+
+test_that("safe defaults use their lexical bindings at the call site", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x + 1) value
+    outer <- function(z) {
+      x <- z + 99
+      read()
+    }
+    outer(2)
+  }
+  expect_quick_identical(fn, 1, 10)
+
+  result_name <- function(res) {
+    declare(type(res = double(1)))
+    read <- function(value = res) value
+    read()
+  }
+  expect_quick_identical(result_name, 1, 10)
+
+  direct_read <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) {
+      x <<- 8
+      value
+    }
+    read()
+  }
+  expect_quick_identical(direct_read, 1, 10)
+})
+
+test_that("defaults reject unavailable caller bindings and callee dependencies", {
+  shadowed <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) value
+    outer <- function(x) read()
+    outer(2)
+  }
+  expect_identical(shadowed(10), 10)
+  expect_error(
+    quick(shadowed),
+    "cannot access `x` from the calling procedure; supply it explicitly",
+    fixed = TRUE
+  )
+
+  formal <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(x, value = x) value
+    read(10)
+  }
+  expect_identical(formal(2), 10)
+  expect_error(
+    quick(formal),
+    "depends on callee formals; supply it explicitly",
+    fixed = TRUE
+  )
+
+  local <- function(x) {
+    declare(type(x = double(1)))
+    read <- function(value = x) {
+      x <- 8
+      value
+    }
+    read()
+  }
+  expect_identical(local(2), 8)
+  expect_error(
+    quick(local),
+    "which is assigned in the callee; supply it explicitly",
+    fixed = TRUE
+  )
+})
+
 test_that("closure expressions cannot read captures modified before forcing", {
   bodies <- alist(
     {

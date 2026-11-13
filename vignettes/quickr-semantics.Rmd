@@ -586,8 +586,8 @@ Division follows the usual floating-point behavior, including `Inf` or `NaN`
 for a zero divisor. `sqrt()` requires a nonnegative literal or an `abs()`
 expression, such as `sqrt(abs(x))`.
 These expressions can be composed with the supported pure operators.
-This support applies to explicitly supplied arguments; it does not extend
-evaluation of default expressions in the callee's scope.
+This expanded expression support applies to explicitly supplied arguments;
+defaults retain their existing conservative set of pure operators.
 
 Calls with effectful expressions such as `pair(runif(1), 2)`, expressions
 that need runtime guards, or unproven domains such as `ignore(sqrt(x))`
@@ -602,6 +602,15 @@ without implementing R's promise machinery.
 Argument expressions in a nested closure cannot capture the enclosing
 closure's formals or locals. Pass those values through the nested closure's
 own arguments. Captures from the outer compiled function remain supported.
+
+Defaults use the closure's lexical bindings when those bindings are accessible
+from the generated caller. For example, `function(value = x)` can read `x`
+from the surrounding compiled function, even when the caller has a separately
+stored local named `x`. A caller formal that hides the same generated binding
+requires an explicit argument. Defaults that depend on other formals, such as
+`function(x, value = x)`, or on names assigned in the callee's body also require
+explicit arguments; quickr does not reproduce R's default-promise evaluation
+in those cases.
 
 ### Deprecation warnings are not reproduced
 
