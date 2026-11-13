@@ -97,7 +97,9 @@ dump_collected <- function() {
 
   compiled_quick_funcs <- imap(quick_funcs, function(func, name) {
     fsub <- new_fortran_subroutine(name, func)
-    cbridge <- make_c_bridge(fsub, headers = FALSE)
+    # Registration must use this DLL's wrapper, even if another loaded library
+    # exports the same symbol (for example, OpenBLAS exports second_).
+    cbridge <- make_c_bridge(fsub, headers = FALSE, static = TRUE)
     list(
       name = name,
       f90 = fsub,
@@ -110,7 +112,8 @@ dump_collected <- function() {
       compiled_quick_funcs[[1L]]$f90,
       headers = TRUE,
       force_rng_header = TRUE,
-      force_rmath_header = TRUE
+      force_rmath_header = TRUE,
+      static = TRUE
     )
   }
 
