@@ -1,5 +1,9 @@
 # quickr (development version)
 
+- `quick()` stores the original R function in its `quickr_original` attribute.
+  This preserves the function's body, defaults, attributes, and enclosing
+  environment for inspection or saving and recompiling in another R session.
+
 - Subscript replacement (`x[i] <- value`) now preserves the caller's input
   array and other arguments that share it. Replacement also compiles when
   the modified array is not returned.

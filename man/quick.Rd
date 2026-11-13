@@ -15,7 +15,8 @@ regular usage but required in an R package. As a convenience, arguments
 \code{name} in the first position.}
 }
 \value{
-A quicker R function.
+A quicker R function, with the original R function stored in the
+\code{quickr_original} attribute.
 }
 \description{
 Compile an R function.
@@ -132,6 +133,27 @@ In interactive use, you can explicitly control this with:
 
 To disable the macOS auto-preference, set
 \code{options(quickr.fortran_compiler = "gfortran")}.
+}
+
+\subsection{Recovering the original function}{
+
+\code{attr(compiled, "quickr_original", exact = TRUE)} retrieves the R function
+passed to \code{quick()}, including its body, arguments, attributes, and enclosing
+environment. The environment is retained by reference, as with ordinary R
+functions; its contents are not frozen at compilation time.
+
+To move a compiled function to another R session, save the original function
+and compile it again there:
+
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{saveRDS(attr(compiled, "quickr_original", exact = TRUE), "original.rds")
+# In another R session with quickr and a Fortran compiler available:
+compiled <- quick(readRDS("original.rds"))
+}\if{html}{\out{</div>}}
+
+This has the same serialization requirements as saving any R function:
+packages and other resources used by its environment must be available in the
+receiving session. Saving the compiled wrapper does not preserve its loaded
+native code across sessions.
 }
 }
 \examples{

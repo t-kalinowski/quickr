@@ -124,7 +124,29 @@
 #' To disable the macOS auto-preference, set
 #' `options(quickr.fortran_compiler = "gfortran")`.
 #'
-#' @returns A quicker R function.
+#' ## Recovering the original function
+#'
+#' `attr(compiled, "quickr_original", exact = TRUE)` retrieves the R function
+#' passed to `quick()`, including its body, arguments, attributes, and enclosing
+#' environment. The environment is retained by reference, as with ordinary R
+#' functions; its contents are not frozen at compilation time.
+#'
+#' To move a compiled function to another R session, save the original function
+#' and compile it again there:
+#'
+#' ```r
+#' saveRDS(attr(compiled, "quickr_original", exact = TRUE), "original.rds")
+#' # In another R session with quickr and a Fortran compiler available:
+#' compiled <- quick(readRDS("original.rds"))
+#' ```
+#'
+#' This has the same serialization requirements as saving any R function:
+#' packages and other resources used by its environment must be available in the
+#' receiving session. Saving the compiled wrapper does not preserve its loaded
+#' native code across sessions.
+#'
+#' @returns A quicker R function, with the original R function stored in the
+#'   `quickr_original` attribute.
 #' @export
 #' @examples
 #' \donttest{
@@ -183,9 +205,11 @@ quick <- function(fun, name = NULL) {
   }
 
   # not in a package. Compile and load eagerly.
+  original <- fun
   attr(fun, "name") <- name
   fun <- compile(r2f(fun))
   attr(fun, "name") <- NULL
+  attr(fun, "quickr_original") <- original
 
   fun
 }
@@ -497,11 +521,13 @@ create_quick_closure <- function(
   closure,
   native_symbol = as.name(paste0(name, "_"))
 ) {
+  original <- closure
   body(closure) <- as.call(c(
     quote(.External),
     native_symbol,
     lapply(names(formals(closure)), as.name)
   ))
+  attr(closure, "quickr_original") <- original
   closure
 }
 
