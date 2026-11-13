@@ -827,6 +827,24 @@ test_that("closure arguments reject enclosing procedure captures", {
   )
 })
 
+test_that("read-only compound arguments still require visible bindings", {
+  fn <- function(x) {
+    declare(type(x = double(1)))
+    identity_local <- function(value) value
+    outer <- function(x) {
+      inner <- function() identity_local(x / 2)
+      inner()
+    }
+    outer(2)
+  }
+  expect_identical(fn(10), 1)
+  expect_error(
+    quick(fn),
+    "from an enclosing local closure; pass it as an explicit argument",
+    fixed = TRUE
+  )
+})
+
 test_that("closure formal aliases retain captured argument checks", {
   bodies <- alist(
     change(x + 1),

@@ -518,6 +518,10 @@ compile_internal_subroutine <- function(
   for (binding in host_writes) {
     scope_mark_host_write(parent_scope, binding)
   }
+  uses_errors <- scope_uses_errors_flag(proc_scope)
+  if (uses_errors) {
+    mark_scope_uses_errors(parent_scope)
+  }
 
   list(
     name = proc_name,
@@ -525,7 +529,7 @@ compile_internal_subroutine <- function(
     captures = character(),
     res = res_name,
     res_var = res_var,
-    uses_errors = scope_uses_errors_flag(proc_scope),
+    uses_errors = uses_errors,
     host_writes = host_writes,
     local_bindings = unlist(lapply(locals, \(var) var@r_name)),
     error = if (body_failed) expr_error else NULL
@@ -840,9 +844,6 @@ check_closure_argument_timing <- function(call_info, proc) {
       )
     }
   }
-  if (!length(proc$host_writes)) {
-    return(invisible())
-  }
   for (nm in call_info$formal_names[call_info$args_present]) {
     expr <- call_info$args_expr[[nm]]
     if (!is.call(expr)) {
@@ -851,24 +852,26 @@ check_closure_argument_timing <- function(call_info, proc) {
     argument_scope <- call_info$args_scopes[[nm]]
     for (name in all.vars(expr, functions = FALSE)) {
       var <- get0(name, argument_scope)
-      if (
-        inherits(var, Variable) &&
+      if (inherits(var, Variable)) {
+        binding <- scope_variable_binding(name, argument_scope)
+        if (
           any(vapply(
             proc$host_writes,
             identical,
             logical(1L),
-            scope_variable_binding(name, argument_scope)
+            binding
           ))
-      ) {
-        stop(
-          "local closure argument `",
-          nm,
-          "` reads `",
-          name,
-          "`, which the callee may modify before forcing the argument; ",
-          "evaluate the argument in a separate statement",
-          call. = FALSE
-        )
+        ) {
+          stop(
+            "local closure argument `",
+            nm,
+            "` reads `",
+            name,
+            "`, which the callee may modify before forcing the argument; ",
+            "evaluate the argument in a separate statement",
+            call. = FALSE
+          )
+        }
       }
     }
   }
