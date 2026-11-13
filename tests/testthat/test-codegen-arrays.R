@@ -177,7 +177,7 @@ test_that("codegen: array reshaping converts and reshapes nonscalar data", {
   expect_quick_identical(fn, list(array(1:24, c(2, 3, 4))))
 })
 
-test_that("codegen: nested array fills use pointer-sized products and guard empty data", {
+test_that("codegen: nested array fills broadcast and guard empty data", {
   fn <- function(k, n, m) {
     declare(
       type(k = integer(1)),
@@ -195,7 +195,7 @@ test_that("codegen: nested array fills use pointer-sized products and guard empt
   )
 })
 
-test_that("codegen: nested matrix fills materialize data and guard empty sources", {
+test_that("codegen: nested matrix fills broadcast and guard empty sources", {
   fn <- function(k, n, m) {
     declare(
       type(k = integer(1)),

@@ -1536,7 +1536,7 @@
         return out_;
       }
 
-# codegen: nested array fills use pointer-sized products and guard empty data
+# codegen: nested array fills broadcast and guard empty data
 
     Code
       fn
@@ -1554,7 +1554,7 @@
       cat(fsub)
     Output
       subroutine fn(k, n, m, out_, quickr_err_msg) bind(c)
-        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char
         implicit none
       
         ! manifest start
@@ -1566,9 +1566,6 @@
         integer(c_int), intent(in) :: n
         integer(c_int), intent(in) :: m
         real(c_double), intent(out) :: out_(n, m)
-      
-        ! locals
-        integer(c_ptrdiff_t) :: tmp1_
         ! manifest end
       
       
@@ -1580,7 +1577,7 @@
           call quickr_set_error_msg("array() with empty data would produce NA values, which are not supported")
           return
         end if
-        out_ = reshape([(0.0_c_double, tmp1_=1_c_ptrdiff_t, (int(n, kind=c_ptrdiff_t) * int(m, kind=c_ptrdiff_t)))], int([n, m]))
+        out_ = 0.0_c_double
       
         contains
           subroutine quickr_set_error_msg(msg)
@@ -1677,7 +1674,7 @@
         return out_;
       }
 
-# codegen: nested matrix fills materialize data and guard empty sources
+# codegen: nested matrix fills broadcast and guard empty sources
 
     Code
       fn
@@ -1710,21 +1707,15 @@
         ! manifest end
       
       
-        block
-          integer(c_int), allocatable :: btmp1_(:)
-      
-          allocate(btmp1_(k))
-          if (k < 0) then
-            call quickr_set_error_msg("invalid 'length' argument")
-            return
-          end if
-          if ((k) == 0 .and. (n) > 0 .and. (m) > 0) then
-            call quickr_set_error_msg("matrix() with empty data would produce NA values, which are not supported")
-            return
-          end if
-          btmp1_ = 0_c_int
-          out_ = reshape(btmp1_, [int(n), int(m)], pad = btmp1_)
-        end block
+        if (k < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        if ((k) == 0 .and. (n) > 0 .and. (m) > 0) then
+          call quickr_set_error_msg("matrix() with empty data would produce NA values, which are not supported")
+          return
+        end if
+        out_ = 0_c_int
       
         contains
           subroutine quickr_set_error_msg(msg)

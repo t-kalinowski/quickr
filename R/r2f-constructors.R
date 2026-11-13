@@ -7,7 +7,7 @@
 # TRUE for calls to the zero-fill constructors: logical(k), integer(k),
 # double(k), numeric(k). These lower to a single scalar literal carrying
 # array dims, so splicing contexts must spread them explicitly.
-# Used by: c(), array()
+# Used by: c(), array(), matrix()
 is_fill_constructor_call <- function(e, scope) {
   e <- unwrap_parens(e)
   if (!is.call(e)) {
@@ -277,10 +277,10 @@ r2f_handlers[["rep.int"]] <- function(args, scope, ..., hoist = NULL) {
 
 
 # Compile a zero-fill constructor call: a single scalar literal carrying
-# array dims. Whole-array assignment broadcasts that correctly, and
-# c()/array()/matrix() spread or pad it explicitly, so those contexts keep
-# the scalar form. Any other consumer (elementwise ops, reductions, ...)
-# needs a real array expression -- an expression like `numeric(2) + 1`
+# array dims. Whole-array assignment broadcasts that correctly, c() spreads
+# the values, and array()/matrix() propagate the fill to their target shape.
+# Those contexts keep the scalar form. Other consumers (elementwise ops,
+# reductions, ...) need a real array expression -- `numeric(2) + 1`
 # would otherwise contribute one element where its dims claim two -- so
 # materialize the fill into a hoisted temporary there.
 fill_constructor_value <- function(literal, mode, args, scope, ..., hoist) {
@@ -401,18 +401,6 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
   dims <- r2dims(list(margs$nrow, margs$ncol), scope)
   out_val <- Variable(mode = src@value@mode, dims = dims)
 
-  # A scalar broadcasts natively on direct whole-array assignment, so keep
-  # it as-is there; in any other context (sum(...), %*%, ...) the expression
-  # must be a real rank-2 array, so materialize it into a hoisted temporary.
-  if (passes_as_scalar(src@value)) {
-    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
-      src@value <- out_val
-      src@scalar_fill <- TRUE
-      return(src)
-    }
-    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
-  }
-
   rows <- dims[[1L]]
   cols <- dims[[2L]]
 
@@ -437,6 +425,22 @@ r2f_handlers[["matrix"]] <- function(args, scope = NULL, ..., hoist = NULL) {
         scope
       )
     }
+  }
+
+  # A scalar or zero-fill constructor can fill the destination directly.
+  # The source length still needs its guards above, but no source storage.
+  # Other consumers (sum(...), %*%, ...) need a real rank-2 array.
+  if (passes_as_scalar(src@value) || src@scalar_fill) {
+    # Superassignment relies on an array RHS to resize captured storage.
+    if (src@scalar_fill && parent_call_name(list(...)$calls) == "<<-") {
+      return(materialize_via_hoist(src, src@value@mode, dims, hoist))
+    }
+    if (parent_call_name(list(...)$calls) %in% c("<-", "=", "<<-")) {
+      src@value <- out_val
+      src@scalar_fill <- TRUE
+      return(src)
+    }
+    return(materialize_via_hoist(src, src@value@mode, dims, hoist))
   }
 
   # The source is used twice by RESHAPE, so evaluate it once.
@@ -514,7 +518,15 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
     }
 
     scalar_target <- !nzchar(dims_f) && length(target_dims) == 1L
-    if (scalar_target) {
+    if (out@scalar_fill) {
+      # Keep array assignment's resizing semantics for captured storage.
+      if (parent_call_name(list(...)$calls) == "<<-") {
+        return(materialize_via_hoist(out, out@value@mode, target_dims, hoist))
+      }
+      # Recycling a uniform fill only changes its shape. Keep the scalar
+      # until the consumer either fills its destination or materializes it.
+      data_scalar <- TRUE
+    } else if (scalar_target) {
       # `dim = 1` is scalar-like in quickr (rank-1 length-1 is declared scalar).
       # Avoid `reshape(..., [1])` (rank-1) and instead return the first element.
       target_dims <- list(1L)
@@ -536,6 +548,7 @@ r2f_handlers[["array"]] <- function(args, scope = NULL, ..., hoist = NULL) {
       shape <- glue("int([{dims_f}])")
 
       source <- if (is_fill_constructor) {
+        # Parenthesized fills can arrive already materialized, without scalar_fill.
         i <- scope_unique_var(
           scope,
           "integer",
