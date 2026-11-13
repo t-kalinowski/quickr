@@ -1390,7 +1390,12 @@ lapack_svd <- function(
   context = "svd"
 ) {
   assert_hoist_env(hoist)
-  stopifnot(inherits(d, Variable), inherits(u, Variable), inherits(v, Variable))
+  stopifnot(
+    inherits(d, Variable),
+    (is.null(u) && is.null(v)) ||
+      (inherits(u, Variable) && inherits(v, Variable))
+  )
+  vectors <- !is.null(u)
 
   A <- blas_double_operand(A, context, hoist)
   dims <- svd_dims(A, context = context)
@@ -1402,7 +1407,14 @@ lapack_svd <- function(
   A_work <- hoist$declare_tmp(mode = "double", dims = list(m, n))
   hoist$emit(glue("{A_work@name} = {A_name}"))
 
-  vt <- hoist$declare_tmp(mode = "double", dims = list(mn, n))
+  # DGESDD('N') does not reference U or VT. Keep one tiny array as their
+  # dummy argument, including when other SVD calls use matrix outputs.
+  vt <- hoist$declare_tmp(
+    mode = "double",
+    dims = if (vectors) list(mn, n) else list(1L, 1L)
+  )
+  u_name <- if (vectors) u@name else vt@name
+  jobz <- if (vectors) "S" else "N"
 
   info <- hoist$declare_tmp(mode = "integer", dims = NULL)
   lwork <- hoist$declare_tmp(mode = "integer", dims = NULL)
@@ -1420,7 +1432,7 @@ lapack_svd <- function(
 
   hoist$emit(glue("{lwork@name} = -1_c_int"))
   hoist$emit(glue(
-    "call dgesdd('S', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u@name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work_query@name}, {lwork@name}, {iwork@name}, {info@name})"
+    "call dgesdd('{jobz}', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u_name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work_query@name}, {lwork@name}, {iwork@name}, {info@name})"
   ))
   hoist$emit(glue(
     "{lwork@name} = int({work_query@name}(1), kind=c_int)"
@@ -1429,7 +1441,7 @@ lapack_svd <- function(
   hoist$emit(glue("allocate({work@name}({lwork@name}))"))
 
   hoist$emit(glue(
-    "call dgesdd('S', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u@name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work@name}, {lwork@name}, {iwork@name}, {info@name})"
+    "call dgesdd('{jobz}', {blas_int(m)}, {blas_int(n)}, {A_work@name}, {blas_int(m)}, {d@name}, {u_name}, {blas_int(m)}, {vt@name}, {blas_int(mn)}, {work@name}, {lwork@name}, {iwork@name}, {info@name})"
   ))
   emit_lapack_info_guards(
     info@name,
@@ -1439,7 +1451,9 @@ lapack_svd <- function(
     scope,
     negative_first = TRUE
   )
-  hoist$emit(glue("{v@name} = transpose({vt@name})"))
+  if (vectors) {
+    hoist$emit(glue("{v@name} = transpose({vt@name})"))
+  }
 
   invisible(list(d = d, u = u, v = v))
 }

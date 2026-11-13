@@ -1087,7 +1087,11 @@ svd_component_from_call <- function(svd_call, field, scope, ..., hoist) {
   x_arg <- svd_call_args(args, context = "svd")
   x <- r2f(x_arg, scope, ..., hoist = hoist)
   dims <- svd_dims(x, context = "svd")
-  outputs <- svd_output_vars_tmp(hoist, dims)
+  outputs <- if (field == "d") {
+    list(d = hoist$declare_tmp(mode = "double", dims = list(dims$mn)))
+  } else {
+    svd_output_vars_tmp(hoist, dims)
+  }
 
   lapack_svd(
     A = x,
