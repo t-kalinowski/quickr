@@ -1787,6 +1787,10 @@ compile_subscript_lhs <- function(
     if (!inherits(base_var, Variable)) {
       stop("could not resolve symbol: ", base_name)
     }
+    # Element replacement modifies the binding just like whole-array assignment.
+    # The C bridge uses this flag to preserve the caller's input.
+    base_var@modified <- TRUE
+    scope[[base_name]] <- base_var
 
     idx_args <- as.list(subset_call)[-1L]
     idx_args <- idx_args[-1L]
