@@ -177,6 +177,42 @@ test_that("codegen: array reshaping converts and reshapes nonscalar data", {
   expect_quick_identical(fn, list(array(1:24, c(2, 3, 4))))
 })
 
+test_that("codegen: nested array fills use pointer-sized products and guard empty data", {
+  fn <- function(k, n, m) {
+    declare(
+      type(k = integer(1)),
+      type(n = integer(1)),
+      type(m = integer(1))
+    )
+    array(numeric(k), dim = c(n, m))
+  }
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(2L, 2L, 3L), list(0L, 0L, 3L))
+  expect_error(
+    quick(fn)(0L, 2L, 3L),
+    "array() with empty data would produce NA values",
+    fixed = TRUE
+  )
+})
+
+test_that("codegen: nested matrix fills materialize data and guard empty sources", {
+  fn <- function(k, n, m) {
+    declare(
+      type(k = integer(1)),
+      type(n = integer(1)),
+      type(m = integer(1))
+    )
+    matrix(integer(k), nrow = n, ncol = m)
+  }
+  expect_translation_snapshots(fn)
+  expect_quick_identical(fn, list(2L, 2L, 3L), list(0L, 0L, 3L))
+  expect_error(
+    quick(fn)(0L, 2L, 3L),
+    "matrix() with empty data would produce NA values",
+    fixed = TRUE
+  )
+})
+
 test_that("codegen: reversing an expression captures it before slicing", {
   fn <- function(x) {
     declare(type(x = double(NA)))

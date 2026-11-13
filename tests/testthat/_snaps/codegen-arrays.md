@@ -1536,6 +1536,291 @@
         return out_;
       }
 
+# codegen: nested array fills use pointer-sized products and guard empty data
+
+    Code
+      fn
+    Output
+      function(k, n, m) {
+          declare(
+            type(k = integer(1)),
+            type(n = integer(1)),
+            type(m = integer(1))
+          )
+          array(numeric(k), dim = c(n, m))
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(k, n, m, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_double, c_int, c_null_char, c_ptrdiff_t
+        implicit none
+      
+        ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
+        ! args
+        integer(c_int), intent(in) :: k
+        integer(c_int), intent(in) :: n
+        integer(c_int), intent(in) :: m
+        real(c_double), intent(out) :: out_(n, m)
+      
+        ! locals
+        integer(c_ptrdiff_t) :: tmp1_
+        ! manifest end
+      
+      
+        if (k < 0) then
+          call quickr_set_error_msg("invalid 'length' argument")
+          return
+        end if
+        if ((k) == 0 .and. (n) > 0 .and. (m) > 0) then
+          call quickr_set_error_msg("array() with empty data would produce NA values, which are not supported")
+          return
+        end if
+        out_ = reshape([(0.0_c_double, tmp1_=1_c_ptrdiff_t, (int(n, kind=c_ptrdiff_t) * int(m, kind=c_ptrdiff_t)))], int([n, m]))
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const k__,
+        const int* const n__,
+        const int* const m__,
+        double* const out___,
+        char* quickr_err_msg);
+      
+      SEXP fn_(SEXP _args) {
+        // k
+        _args = CDR(_args);
+        SEXP k = CAR(_args);
+        if (TYPEOF(k) != INTSXP) {
+          Rf_error("typeof(k) must be 'integer', not '%s'", Rf_type2char(TYPEOF(k)));
+        }
+        const int* const k__ = INTEGER(k);
+        const R_xlen_t k__len_ = Rf_xlength(k);
+        
+        // n
+        _args = CDR(_args);
+        SEXP n = CAR(_args);
+        if (TYPEOF(n) != INTSXP) {
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
+        }
+        const int* const n__ = INTEGER(n);
+        const R_xlen_t n__len_ = Rf_xlength(n);
+        
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != INTSXP) {
+          Rf_error("typeof(m) must be 'integer', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        const int* const m__ = INTEGER(m);
+        const R_xlen_t m__len_ = Rf_xlength(m);
+        
+        if (k__len_ != 1)
+          Rf_error("length(k) must be 1, not %0.f",
+                    (double)k__len_);
+        if (n__len_ != 1)
+          Rf_error("length(n) must be 1, not %0.f",
+                    (double)n__len_);
+        if (m__len_ != 1)
+          Rf_error("length(m) must be 1, not %0.f",
+                    (double)m__len_);
+        const int _as_int_n = Rf_asInteger(n);
+        const int _as_int_m = Rf_asInteger(m);
+        const R_xlen_t out___len_ = (_as_int_n) * (_as_int_m);
+        SEXP out_ = PROTECT(Rf_allocVector(REALSXP, out___len_));
+        double* out___ = REAL(out_);
+        {
+          const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
+          int* const _dim = INTEGER(_dim_sexp);
+          _dim[0] = _as_int_n;
+          _dim[1] = _as_int_m;
+          Rf_dimgets(out_, _dim_sexp);
+        }
+        
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          k__,
+          n__,
+          m__,
+          out___,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
+        
+        UNPROTECT(2);
+        return out_;
+      }
+
+# codegen: nested matrix fills materialize data and guard empty sources
+
+    Code
+      fn
+    Output
+      function(k, n, m) {
+          declare(
+            type(k = integer(1)),
+            type(n = integer(1)),
+            type(m = integer(1))
+          )
+          matrix(integer(k), nrow = n, ncol = m)
+        }
+      <environment: 0x0>
+    Code
+      cat(fsub)
+    Output
+      subroutine fn(k, n, m, out_, quickr_err_msg) bind(c)
+        use iso_c_binding, only: c_char, c_int, c_null_char
+        implicit none
+      
+        ! manifest start
+        ! error
+        character(kind=c_char), intent(inout) :: quickr_err_msg(256)
+      
+        ! args
+        integer(c_int), intent(in) :: k
+        integer(c_int), intent(in) :: n
+        integer(c_int), intent(in) :: m
+        integer(c_int), intent(out) :: out_(n, m)
+        ! manifest end
+      
+      
+        block
+          integer(c_int), allocatable :: btmp1_(:)
+      
+          allocate(btmp1_(k))
+          if (k < 0) then
+            call quickr_set_error_msg("invalid 'length' argument")
+            return
+          end if
+          if ((k) == 0 .and. (n) > 0 .and. (m) > 0) then
+            call quickr_set_error_msg("matrix() with empty data would produce NA values, which are not supported")
+            return
+          end if
+          btmp1_ = 0_c_int
+          out_ = reshape(btmp1_, [int(n), int(m)], pad = btmp1_)
+        end block
+      
+        contains
+          subroutine quickr_set_error_msg(msg)
+            character(len=*), intent(in) :: msg
+            integer :: i
+            integer :: n
+            if (quickr_err_msg(1) == c_null_char) then
+              n = min(len(msg), 256 - 1)
+              quickr_err_msg(1:n) = [(msg(i:i), i = 1, n)]
+              quickr_err_msg(n + 1) = c_null_char
+            end if
+          end subroutine quickr_set_error_msg
+      end subroutine
+    Code
+      cat(cwrapper)
+    Output
+      #define R_NO_REMAP
+      #include <R.h>
+      #include <Rinternals.h>
+      
+      
+      extern void fn(
+        const int* const k__,
+        const int* const n__,
+        const int* const m__,
+        int* const out___,
+        char* quickr_err_msg);
+      
+      SEXP fn_(SEXP _args) {
+        // k
+        _args = CDR(_args);
+        SEXP k = CAR(_args);
+        if (TYPEOF(k) != INTSXP) {
+          Rf_error("typeof(k) must be 'integer', not '%s'", Rf_type2char(TYPEOF(k)));
+        }
+        const int* const k__ = INTEGER(k);
+        const R_xlen_t k__len_ = Rf_xlength(k);
+        
+        // n
+        _args = CDR(_args);
+        SEXP n = CAR(_args);
+        if (TYPEOF(n) != INTSXP) {
+          Rf_error("typeof(n) must be 'integer', not '%s'", Rf_type2char(TYPEOF(n)));
+        }
+        const int* const n__ = INTEGER(n);
+        const R_xlen_t n__len_ = Rf_xlength(n);
+        
+        // m
+        _args = CDR(_args);
+        SEXP m = CAR(_args);
+        if (TYPEOF(m) != INTSXP) {
+          Rf_error("typeof(m) must be 'integer', not '%s'", Rf_type2char(TYPEOF(m)));
+        }
+        const int* const m__ = INTEGER(m);
+        const R_xlen_t m__len_ = Rf_xlength(m);
+        
+        if (k__len_ != 1)
+          Rf_error("length(k) must be 1, not %0.f",
+                    (double)k__len_);
+        if (n__len_ != 1)
+          Rf_error("length(n) must be 1, not %0.f",
+                    (double)n__len_);
+        if (m__len_ != 1)
+          Rf_error("length(m) must be 1, not %0.f",
+                    (double)m__len_);
+        const int _as_int_n = Rf_asInteger(n);
+        const int _as_int_m = Rf_asInteger(m);
+        const R_xlen_t out___len_ = (_as_int_n) * (_as_int_m);
+        SEXP out_ = PROTECT(Rf_allocVector(INTSXP, out___len_));
+        int* out___ = INTEGER(out_);
+        {
+          const SEXP _dim_sexp = PROTECT(Rf_allocVector(INTSXP, 2));
+          int* const _dim = INTEGER(_dim_sexp);
+          _dim[0] = _as_int_n;
+          _dim[1] = _as_int_m;
+          Rf_dimgets(out_, _dim_sexp);
+        }
+        
+        char quickr_err_msg[256];
+        quickr_err_msg[0] = '\0';
+        
+        
+        fn(
+          k__,
+          n__,
+          m__,
+          out___,
+          quickr_err_msg);
+        if (quickr_err_msg[0] != '\0') {
+          Rf_error("%s", quickr_err_msg);
+        }
+        
+        UNPROTECT(2);
+        return out_;
+      }
+
 # codegen: reversing an expression captures it before slicing
 
     Code
