@@ -36,15 +36,19 @@ Keep source changes proportional to the problem. A review finding should lead to
 
 ## Tests and performance
 
-Prefer tests that call `quick()` and execute the generated function, such as `expect_quick_identical()`. Test output values, dimensions, modes, errors, and relevant side effects. R coverage measures the compiler; it does not establish correctness of generated C or Fortran.
+Changes to Fortran or C generation should normally add or update generated-code snapshots. These are review artifacts: a reviewer should be able to see how the emitted code changes without running the compiler locally. Every materially different code-generating path should have a representative committed snapshot, including paths that remove checks, copies, allocations, or error machinery.
 
-Use narrow generated-code assertions when they protect a stated compilation or performance contract that output-value tests cannot observe, such as avoiding a full-array copy or a guard inside a loop. Avoid incidental temporary names, whitespace, and complete snapshots for these checks.
+Use `expect_translation_snapshots()` for small, representative R functions. It records the input function, generated Fortran, and C wrapper together. Snapshot other generated C or Fortran artifacts directly when needed, such as package registration code. Keep cases named and grouped by the behavior or lowering strategy they show. Cover distinct scalar/array, static/dynamic shape, allocation/reuse, error, closure, parallel, and C interface paths without duplicating every input combination.
+
+Pair snapshots with tests that call `quick()` and execute the generated function, such as `expect_quick_identical()`. Test output values, dimensions, modes, errors, and relevant side effects. Snapshots make code generation reviewable; native tests establish behavior. R coverage measures the compiler and does not substitute for either.
+
+Keep narrow generated-code assertions for specific compilation or performance contracts, such as avoiding a full-array copy or a guard inside a loop. They supplement full generated-code snapshots. Normalize only nondeterministic details; retain emitted declarations, temporary lifetimes, checks, and control flow so their changes remain visible in review.
 
 For performance claims, benchmark the same inputs and toolchain before and after, with compilation separated from warmed execution. Report what was measured and what is only inferred from emitted code.
 
 Do not disable tests to get a pass. Keep compiler and platform requirements in shared test support. Preserve CRAN-enabled compile-and-call smoke coverage.
 
-Regenerate snapshots through testthat, inspect their diffs, and rerun without accepting changes. Do not hand-edit generated snapshots or `README.md`.
+Regenerate snapshots through testthat, inspect their diffs, and rerun without accepting changes. Explain the relevant generated-code changes in the PR description and point reviewers to the snapshots. If an emitter change has no snapshot diff, explain why. Do not hand-edit generated snapshots or `README.md`.
 
 ## Validation
 
