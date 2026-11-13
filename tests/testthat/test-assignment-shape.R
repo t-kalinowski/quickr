@@ -138,6 +138,129 @@ test_that("reassignment between scalar and array shapes is refused", {
   )
 })
 
+test_that("a scalar matrix constructor allocates a deferred local", {
+  fn <- function() {
+    declare(type(out = double(NA, NA)))
+    out <- matrix(2, 2, 3)
+    sum(out)
+  }
+  expect_quick_identical(fn, list())
+})
+
+test_that("deferred vector fills allocate and resize, including zero and one", {
+  fn <- function(n) {
+    declare(type(n = integer(1)), type(out = double(NA)))
+    out <- numeric(3)
+    out <- numeric(n)
+    out <- numeric(1)
+    out[1L] <- 7
+    sum(out)
+  }
+  expect_quick_identical(fn, 0L, 1L, 3L, 7L)
+})
+
+test_that("deferred matrix fills resize each axis and reuse matching storage", {
+  fn <- function(n) {
+    declare(type(n = integer(1)), type(out = double(NA, NA)))
+    out <- matrix(2, 2, 3)
+    first <- sum(out)
+    out <- matrix(3, n, 2)
+    second <- sum(out)
+    out <- matrix(4, n, 2)
+    first + second + sum(out)
+  }
+  expect_quick_identical(fn, 0L, 1L, 2L, 5L)
+})
+
+test_that("conditional deferred fills and subsequent array writes stay valid", {
+  fn <- function(x, flag) {
+    declare(
+      type(x = double(n, n)),
+      type(flag = logical(1)),
+      type(out = double(NA, NA))
+    )
+    n <- nrow(x)
+    if (flag) {
+      out <- matrix(1, 2, 2)
+    }
+    out <- matrix(0, n, n)
+    out <- x
+    out <- matrix(2, n, n)
+    sum(out)
+  }
+  expect_quick_identical(
+    fn,
+    list(diag(3), FALSE),
+    list(diag(3), TRUE),
+    list(matrix(numeric(), 0, 0), FALSE)
+  )
+})
+
+test_that("a deferred fill reads the old value before resizing", {
+  fn <- function() {
+    declare(type(out = double(NA, NA)))
+    out <- matrix(1, 2, 2)
+    out <- matrix(sum(out), 3, 3)
+    sum(out)
+  }
+  expect_quick_identical(fn, list())
+})
+
+test_that("deferred logical fills preserve logical storage", {
+  fn <- function(flag) {
+    declare(type(flag = logical(1)), type(out = logical(NA, NA)))
+    out <- matrix(flag, 2, 3)
+    sum(out)
+  }
+  expect_quick_identical(fn, TRUE, FALSE)
+})
+
+test_that("deferred constructor fills reject negative requested extents", {
+  fn <- function(n) {
+    declare(type(n = integer(1)), type(out = double(NA)))
+    out <- numeric(n)
+    sum(out)
+  }
+  qfn <- quick(fn)
+  expect_error(qfn(-1L), "invalid 'length' argument", fixed = TRUE)
+})
+
+test_that("deferred fills reject missing requested extents", {
+  fn <- function() {
+    declare(type(out = double(NA)))
+    out <- numeric(NA_integer_)
+    sum(out)
+  }
+  expect_error(fn())
+  expect_error(
+    quick(fn),
+    "a deferred local fill requires known result extents",
+    fixed = TRUE
+  )
+})
+
+test_that("deferred fills distinguish input extents from unresolved local extents", {
+  from_input <- function(x) {
+    declare(type(x = double(NA)), type(out = double(NA)))
+    out <- numeric(length(x))
+    sum(out)
+  }
+  expect_quick_identical(from_input, c(1, 2, 3), numeric())
+
+  from_local <- function() {
+    declare(type(out = double(NA, NA)))
+    out <- matrix(1, 2, 3)
+    out <- matrix(0, nrow(out), ncol(out))
+    sum(out)
+  }
+  expect_identical(from_local(), 0)
+  expect_error(
+    quick(from_local),
+    "a deferred local fill requires known result extents",
+    fixed = TRUE
+  )
+})
+
 test_that("scalar arithmetic and fixed-shape copies retain input dimensions", {
   fn <- function(x) {
     declare(type(x = double(n)))

@@ -45,6 +45,61 @@ scope_mark_uses_rng <- function(scope) {
   invisible(TRUE)
 }
 
+scope_variable_binding <- function(name, scope) {
+  crossed_formals <- FALSE
+  while (!exists(name, scope, inherits = FALSE)) {
+    crossed_formals <- crossed_formals ||
+      identical(scope_kind(scope), "closure_formals")
+    scope <- parent.env(scope)
+  }
+  # Generated closures are root siblings. An ancestor's formals and locals
+  # have no native host association, even when their actual argument is a root
+  # binding. Check the physical owner before following argument aliases.
+  if (crossed_formals && !identical(scope_kind(scope), "subroutine")) {
+    stop(
+      "local closure arguments cannot capture `",
+      name,
+      "` from an enclosing local closure; pass it as an explicit argument",
+      call. = FALSE
+    )
+  }
+  var <- get(name, scope, inherits = FALSE)
+  var@argument_binding %||% list(scope = scope, name = name)
+}
+
+# Resolve emitted names through the current procedure and its native host.
+# Lexical ancestors' locals are not visible to root-sibling procedures.
+scope_fortran_binding <- function(name, scope) {
+  stopifnot(is_string(name))
+  while (inherits(scope, "quickr_scope")) {
+    vars <- scope_vars(scope)
+    names_f <- map_chr(vars, \(var) var@name %||% "")
+    idx <- match(tolower(name), tolower(names_f))
+    if (!is.na(idx)) {
+      return(scope_variable_binding(names(vars)[[idx]], scope))
+    }
+    scope <- if (identical(scope_kind(scope), "closure_formals")) {
+      scope_root(scope)
+    } else {
+      parent.env(scope)
+    }
+  }
+  NULL
+}
+
+# Record binding identities, since separate procedures can reuse Fortran names.
+# Callers also merge their compiled callees' write summaries into their scopes.
+scope_mark_host_write <- function(scope, binding) {
+  while (inherits(scope, "quickr_scope")) {
+    writes <- scope_get(scope, "host_writes", list())
+    if (!any(vapply(writes, identical, logical(1L), binding))) {
+      scope_set(scope, "host_writes", c(writes, list(binding)))
+    }
+    scope <- parent.env(scope)
+  }
+  invisible()
+}
+
 scope_defers_branch_errors <- function(scope) {
   while (inherits(scope, "quickr_scope")) {
     defer <- scope_get(scope, "defer_branch_errors")
