@@ -179,7 +179,10 @@ test_that("codegen: replacement values are captured before computed indices", {
     x
   }
   expect_translation_snapshots(fn)
-  expect_quick_identical(fn, c(10, 20, 30))
+  x <- c(10, 20, 30)
+  expected <- fn(x)
+  expect_identical(quick(fn)(x), expected)
+  expect_identical(x, c(10, 20, 30))
 })
 
 test_that("codegen: scalar logical replacement writes only selected values", {
@@ -219,5 +222,10 @@ test_that("codegen: matrix replacement hoists vector indices", {
     out
   }
   expect_translation_snapshots(fn)
-  expect_quick_identical(fn, list(matrix(0L, 2, 3), matrix(1:6, 2, 3)))
+  out <- matrix(0L, 2, 3)
+  block <- matrix(1:6, 2, 3)
+  expected <- fn(out, block)
+  expect_identical(quick(fn)(out, block), expected)
+  expect_identical(out, matrix(0L, 2, 3))
+  expect_identical(block, matrix(1:6, 2, 3))
 })

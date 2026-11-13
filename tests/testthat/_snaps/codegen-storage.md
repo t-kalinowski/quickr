@@ -1206,7 +1206,7 @@
       #include <Rinternals.h>
       
       
-      extern void fn(const double* const x__);
+      extern void fn(double* const x__);
       
       SEXP fn_(SEXP _args) {
         // x
@@ -1215,7 +1215,9 @@
         if (TYPEOF(x) != REALSXP) {
           Rf_error("typeof(x) must be 'double', not '%s'", Rf_type2char(TYPEOF(x)));
         }
-        const double* const x__ = REAL(x);
+        x = Rf_duplicate(x);
+        SETCAR(_args, x);
+        double* const x__ = REAL(x);
         const R_xlen_t x__len_ = Rf_xlength(x);
         
         if (x__len_ != 3)
@@ -1465,7 +1467,7 @@
       #include <Rinternals.h>
       
       
-      extern void fn(const int* const out__, const int* const block__);
+      extern void fn(int* const out__, const int* const block__);
       
       SEXP fn_(SEXP _args) {
         // out
@@ -1474,7 +1476,9 @@
         if (TYPEOF(out) != INTSXP) {
           Rf_error("typeof(out) must be 'integer', not '%s'", Rf_type2char(TYPEOF(out)));
         }
-        const int* const out__ = INTEGER(out);
+        out = Rf_duplicate(out);
+        SETCAR(_args, out);
+        int* const out__ = INTEGER(out);
         const int* const out__dim_ = ({
         SEXP dim_ = Rf_getAttrib(out, R_DimSymbol);
         if (Rf_length(dim_) != 2) Rf_error(
