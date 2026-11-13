@@ -5,6 +5,7 @@ test_that("nested zero fills retain types, shapes, and length errors", {
   withr::defer(cleanup_new_quick_dlls(before))
 
   for (mode in c("logical", "integer", "double", "numeric")) {
+    fill <- get(mode, envir = baseenv())
     for (constructor in c("array", "matrix")) {
       value <- if (constructor == "array") {
         quote(array(FILL(k), dim = c(n, m)))
@@ -32,8 +33,9 @@ test_that("nested zero fills retain types, shapes, and length errors", {
         list(2L, 0L, 0L)
       )
       for (args in cases) {
-        # R warns when truncating matrix data or ignoring it for empty output.
-        expected <- suppressWarnings(do.call(fn, args))
+        # Exact-size data keeps the oracle valid with _R_CHECK_MATRIX_DATA_=true.
+        dims <- c(args[[2L]], args[[3L]])
+        expected <- array(fill(prod(dims)), dim = dims)
         expect_identical(do.call(qfn, args), expected)
       }
       expect_error(qfn(-1L, 0L, 3L), "invalid 'length' argument", fixed = TRUE)
