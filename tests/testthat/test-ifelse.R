@@ -136,6 +136,40 @@ test_that("inline ifelse evaluates an effectful selector exactly once", {
   expect_identical(.Random.seed, expected_seed)
 })
 
+test_that("ifelse captures selected values before later operand mutations", {
+  expressions <- alist(
+    ifelse(TRUE, x, 0) + change(),
+    -ifelse(TRUE, x, 0) + change(),
+    sum(ifelse(TRUE, x, 0)) + change()
+  )
+  for (expr in expressions) {
+    fn <- eval(bquote(function(x) {
+      declare(type(x = double(1)))
+      change <- function() {
+        x <<- x + 1
+        0
+      }
+      .(expr)
+    }))
+    expect_quick_identical(fn, 2, -3)
+  }
+
+  fn <- function(test, x) {
+    declare(type(test = logical(n)), type(x = double(n)))
+    change <- function() {
+      test <<- !test
+      x <<- x + 10
+      0
+    }
+    ifelse(test, x, -x) + change()
+  }
+  expect_quick_identical(
+    fn,
+    list(c(TRUE, FALSE, TRUE), c(1, 2, 3)),
+    list(FALSE, 2)
+  )
+})
+
 test_that("ifelse with scalar test and array branch errors cleanly", {
   fn <- function(c, a) {
     declare(type(c = logical(1)), type(a = double(n)))

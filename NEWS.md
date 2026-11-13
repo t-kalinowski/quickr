@@ -1,9 +1,25 @@
 # quickr (development version)
 
-- `ifelse()` with pure branches and proven matching shapes now lowers to an
-  inline selection, avoiding temporary mask/result arrays and extra scans.
-  Branches with effects or runtime shape checks retain conditional evaluation.
-  Empty selectors now leave valid empty result storage for enclosing expressions.
+- `ifelse()` with pure branches and proven matching shapes now avoids temporary
+  masks and extra scans. Direct assignments also avoid a result temporary;
+  selections nested in other expressions capture their result before later
+  operands can change their inputs. Branches with effects or runtime shape
+  checks retain conditional evaluation. Empty selectors now leave valid empty
+  result storage for enclosing expressions.
+
+- Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
+  now return correctly shaped empty matrices for zero-sized outputs. Empty
+  outputs and zero contracted dimensions bypass BLAS; nonempty outputs from
+  zero contracted dimensions are filled with zeros.
+
+- Reductions accept named data arguments and an explicit `na.rm = FALSE`.
+  Unsupported values of `na.rm` still report a compile-time error. Empty
+  `sum()` and `prod()` calls return their usual identities.
+  
+- Shape-preserving arithmetic, full-axis slices, and fixed-shape local copies
+  retain input dimension proofs during translation. This removes equality checks
+  already implied by the input declarations. Independent dynamic shapes and
+  captured storage keep their runtime checks.
 
 - Locals shared by conditional matrix operations and ordinary assignments
   retain their allocation. Skipping a `solve()` branch no longer leaves a

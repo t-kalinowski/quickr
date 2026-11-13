@@ -193,10 +193,20 @@ r2f_handlers[["ifelse"]] <- function(args, scope, ..., hoist = NULL) {
     promoted <- promote_operands(list(tsource, fsource), context = "ifelse()")
     .[tsource, fsource] <- promoted$args
     mask <- booleanize_logical_as_int(mask)
-    return(Fortran(
+    selection <- Fortran(
       glue("merge({tsource}, {fsource}, {mask})"),
       Variable(promoted$mode, mask@value@dims)
-    ))
+    )
+    # Enclosing expressions can hoist a later closure call that changes the
+    # selector or branch bindings. Capture nested selections before lowering
+    # those operands. Direct statement/assignment selections have no later
+    # operands and can still write their destination without a temporary.
+    calls <- list(...)$calls
+    parent <- parent_call_name(calls[calls != "("])
+    if (!parent %in% c("", "<-", "=", "<<-")) {
+      selection <- hoist_unless_name(selection, hoist)
+    }
+    return(selection)
   }
 
   mask_code <- trimws(as.character(mask))
