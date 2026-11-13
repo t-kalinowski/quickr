@@ -71,6 +71,12 @@
 
 - Generated loops omit dimension-equality checks already enforced by input declarations, and calls to closures that cannot signal errors no longer check the shared error flag. Dynamic shape checks and error propagation remain in place where needed.
 
+- `sapply()` reads named iterables directly when the callback and output leave
+  their storage unchanged, avoiding an allocation and full-input copy.
+  Callbacks that write the iterable, including through nested closures or
+  forwarded arguments, retain the copy. Computed iterables are still evaluated
+  once before iteration.
+
 - Local closures retain array extents when a formal or local shadows a
   dimension binding. Captured arrays, ordinary array arguments, matrix
   operations, and shape queries use stored dimensions. Supplied optional

@@ -202,7 +202,7 @@ test_that("sapply propagates errors from root-defined callees", {
   expect_translation_snapshots(fn)
 })
 
-test_that("sapply reads vector values through its iterator temporary", {
+test_that("sapply reads unchanged named vector values directly", {
   fn <- function(x) {
     declare(type(x = double(NA)))
     out <- sapply(x, function(value) value * 2)

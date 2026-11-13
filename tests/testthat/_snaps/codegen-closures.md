@@ -1551,7 +1551,7 @@
         return out_;
       }
 
-# sapply reads vector values through its iterator temporary
+# sapply reads unchanged named vector values directly
 
     Code
       fn
@@ -1578,16 +1578,12 @@
         real(c_double), intent(out) :: out(x__len_)
       
         ! locals
-        real(c_double), allocatable :: tmp1_(:)
-        integer(c_int) :: tmp2_
+        integer(c_int) :: tmp1_
         ! manifest end
       
-        allocate(tmp1_(x__len_))
       
-      
-        tmp1_ = x
-        do tmp2_ = 1_c_int, size(tmp1_)
-          call closure1_(tmp1_(tmp2_), out(tmp2_))
+        do tmp1_ = 1_c_int, size(x)
+          call closure1_(x(tmp1_), out(tmp1_))
       
         end do
       
