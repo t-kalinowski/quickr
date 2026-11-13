@@ -12,6 +12,19 @@
   that depend on callee formals or assigned locals, or whose bindings are hidden
   at the call site, require explicit arguments.
 
+- BLAS operations can write directly into an existing destination with symbolic
+  dimensions. They check its stored extents before writing, avoiding a temporary
+  result and copy. Deferred-shape destinations still resize through assignment.
+
+- Scalar-fill constructors now allocate locals declared with `NA` extents
+  before writing them, and resize those locals when the requested shape
+  changes. Matching extents reuse the existing storage.
+
+- `cbind()` and `rbind()` accept independent dynamic common dimensions,
+  including axes declared with `NA` or different symbolic names. Their actual
+  extents are checked before binding; known mismatches remain compile errors,
+  regardless of argument order.
+
 - Matrix multiplication, `crossprod()`, `tcrossprod()`, `outer()`, and `%o%`
   now return correctly shaped empty matrices for zero-sized outputs. Empty
   outputs and zero contracted dimensions bypass BLAS; nonempty outputs from
@@ -20,7 +33,7 @@
 - Reductions accept named data arguments and an explicit `na.rm = FALSE`.
   Unsupported values of `na.rm` still report a compile-time error. Empty
   `sum()` and `prod()` calls return their usual identities.
-  
+
 - Shape-preserving arithmetic, full-axis slices, and fixed-shape local copies
   retain input dimension proofs during translation. This removes equality checks
   already implied by the input declarations. Independent dynamic shapes and

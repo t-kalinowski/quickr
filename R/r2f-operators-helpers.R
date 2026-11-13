@@ -248,17 +248,6 @@ is_one_by_one <- function(x) {
     dim_is_one(x@value@dims[[2L]])
 }
 
-# Compare declared common dimensions when planning bind outputs. Captured
-# dimensions retain their original declaration for this comparison; the bind
-# handler separately checks the stored extents before combining the inputs.
-# Used by: r2f-matrix.R (bind_common_dim)
-dims_match <- function(left, right) {
-  if (is_wholenumber(left) && is_wholenumber(right)) {
-    return(identical(as.integer(left), as.integer(right)))
-  }
-  identical(declared_dim(left), declared_dim(right))
-}
-
 # Equality-only dimension checks permit matching zero extents. This is the
 # conformability contract for BLAS operands and shape-preserving operations
 # such as ifelse(); arithmetic uses the stricter nonempty checker below.
@@ -759,12 +748,14 @@ check_assignment_compatible <- function(
   if (target_scalar && value_scalar) {
     return(invisible())
   }
-  deferred_local <- !target@is_external &&
-    (has_self_size_dims(target) ||
-      any(vapply(target@dims, is_scalar_na, logical(1))))
+  deferred_local <- is_deferred_local(target)
   if (target_scalar || value_scalar) {
     # A deferred-shape local can genuinely take a new array shape.
-    if (deferred_local && !value_scalar) {
+    if (
+      deferred_local &&
+        (!value_scalar ||
+          (value@scalar_fill && target@rank == value_var@rank))
+    ) {
       return(invisible())
     }
     # Otherwise one side is length 1 and the other is a real array. R

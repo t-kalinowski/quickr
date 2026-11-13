@@ -28,7 +28,7 @@ is_fill_constructor_call <- function(e, scope) {
 
 # (parent_call_name() and materialize_via_hoist(), which the handlers
 # below build on, live with the hoisting infrastructure in
-# r2f-aab-core.R.)
+# hoist.R.)
 
 # Parse array(dim=)'s argument to a dims list: literal vectors, literal
 # `a:b` sequences, and symbols bound to a known literal vector; anything
