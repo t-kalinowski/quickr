@@ -163,3 +163,121 @@ test_that("lazy while-condition errors preserve preceding effects", {
   expect_error(qfn(TRUE), "abs")
   expect_identical(.Random.seed, expected_seed)
 })
+
+test_that("serial index loops leave the final iteration value", {
+  seq_final <- function(n) {
+    declare(type(n = integer(1)))
+    for (i in seq(1L, n)) {
+      NULL
+    }
+    i
+  }
+
+  colon_final <- function(n) {
+    declare(type(n = integer(1)))
+    for (i in n:1L) {
+      NULL
+    }
+    i
+  }
+
+  stepped_final <- function(n) {
+    declare(type(n = integer(1)))
+    for (i in seq(1L, n, by = 2L)) {
+      NULL
+    }
+    i
+  }
+
+  reversed_final <- function(n) {
+    declare(type(n = integer(1)))
+    for (i in rev(seq(1L, n, by = 2L))) {
+      NULL
+    }
+    i
+  }
+
+  expect_translation_snapshots(seq_final)
+  expect_translation_snapshots(stepped_final)
+  expect_translation_snapshots(reversed_final)
+  expect_quick_identical(seq_final, -2L, 0L, 1L, 5L)
+  expect_quick_identical(colon_final, -2L, 0L, 1L, 5L)
+  expect_quick_identical(stepped_final, 1L, 5L, 6L)
+  expect_quick_identical(reversed_final, 1L, 5L, 6L)
+})
+
+test_that("serial index loops preserve next and break values", {
+  final_value <- function(n, stop_at) {
+    declare(type(n = integer(1)), type(stop_at = integer(1)))
+    for (i in seq_len(n)) {
+      if (i == stop_at) {
+        break
+      }
+      next
+    }
+    i
+  }
+
+  expect_translation_snapshots(final_value)
+  expect_quick_identical(final_value, list(5L, 3L), list(5L, 0L))
+})
+
+test_that("serial index loops allow their R variable to be reassigned", {
+  reassigned <- function(n) {
+    declare(type(n = integer(1)))
+    total <- 0L
+    for (i in seq_len(n)) {
+      total <- total + i
+      i <- i + 10L
+    }
+    c(total, i)
+  }
+
+  nested <- function(n) {
+    declare(type(n = integer(1)))
+    total <- 0L
+    for (i in seq_len(n)) {
+      total <- total + i
+      for (i in 3L:4L) {
+        total <- total + i
+      }
+      total <- total + i
+    }
+    c(total, i)
+  }
+
+  expect_translation_snapshots(reassigned)
+  expect_translation_snapshots(nested)
+  expect_quick_identical(reassigned, 1L, 4L)
+  expect_quick_identical(nested, 1L, 4L)
+})
+
+test_that("empty index loops execute no iterations", {
+  along_final <- function(x) {
+    declare(type(x = double(NA)))
+    out <- 0L
+    for (i in seq_along(x)) {
+      out <- i
+    }
+    if (length(x) > 0L) {
+      out <- i
+    }
+    out
+  }
+
+  reversed_final <- function(n) {
+    declare(type(n = integer(1)))
+    out <- 0L
+    for (i in rev(seq_len(n))) {
+      out <- i
+    }
+    if (n > 0L) {
+      out <- i
+    }
+    out
+  }
+
+  expect_translation_snapshots(along_final)
+  expect_quick_identical(along_final, numeric(), 1, c(1, 2, 3))
+  expect_quick_identical(reversed_final, 0L, 1L, 4L)
+})

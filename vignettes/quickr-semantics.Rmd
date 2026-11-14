@@ -531,6 +531,18 @@ Replacing elements of an input array, for example `x[i] <- value`, changes
 the function's copy. The caller's array and other arguments that share it
 remain unchanged.
 
+### Serial loop variables
+
+A serial `for` loop leaves its variable at the value from the last executed
+iteration. Assigning to that variable inside the body does not change the
+sequence being traversed. For example, after `for (i in 1:3) i <- i + 10L`,
+`i` is `13L`.
+
+An empty loop executes no body statements. R sets the loop variable to `NULL`
+in that case; quickr does not yet represent this conditional `NULL` binding.
+Do not read the loop variable after an empty loop. An accumulator initialized
+before the loop can still be read normally.
+
 ### Parallel loops require independent iterations
 
 `declare(parallel())` requests OpenMP execution. Each iteration must be
@@ -540,6 +552,8 @@ parallel reduction. It can race or have different binding behavior from R.
 Automatic detection of these writes and explicit reduction semantics remain
 separate work. Use serial execution for dependent iterations, and do not rely
 on the final values of private loop locals after a parallel region.
+An inner serial loop's variable is private too. A closure that writes this
+variable through a captured binding is rejected during compilation.
 
 ### Local variables and closures
 

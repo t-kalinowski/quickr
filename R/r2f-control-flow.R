@@ -278,12 +278,63 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
   scope[[var]] <- loop_var
 
   iterable <- r2f_for_iterable(iterable, scope, ..., hoist = hoist)
+  # Fortran advances a DO variable once more after the final iteration and
+  # forbids assignments to it inside the body. Keep the R binding separate
+  # so it retains the body's last value, including changes made before
+  # `break` or `next`. Parallel loop locals retain their existing policy.
+  index <- if (is.null(parallel)) {
+    # Inside an enclosing parallel loop, the visible binding no longer has
+    # the automatic privacy of a Fortran DO variable.
+    register_openmp_private(scope, var_name)
+    scope_unique_var(scope, "integer")
+  } else {
+    loop_var
+  }
+  private_binding <- if (is.null(parallel) && scope_in_openmp(scope)) {
+    scope_variable_binding(var, scope)
+  }
+  if (!is.null(private_binding)) {
+    # Collect this body's effects separately: an earlier closure call that
+    # wrote the same binding does not make this loop unsafe.
+    prior_writes <- scope_get(scope, "host_writes", list())
+    scope_set(scope, "host_writes", list())
+    on.exit(
+      {
+        for (binding in prior_writes) {
+          scope_mark_host_write(scope, binding)
+        }
+      },
+      add = TRUE
+    )
+  }
   compiled <- compile_for_body(body, scope, ..., parallel = parallel)
+  if (
+    !is.null(private_binding) &&
+      any(vapply(
+        scope_get(scope, "host_writes", list()),
+        identical,
+        logical(1L),
+        private_binding
+      ))
+  ) {
+    # A generated closure accesses the host binding rather than OpenMP's
+    # private copy. The former DO-variable lowering rejected these writes.
+    stop(
+      "local closures cannot modify a private for-loop variable: ",
+      var,
+      call. = FALSE
+    )
+  }
+  loop_body <- if (is.null(parallel)) {
+    str_flatten_lines(glue("{var_name} = {index@name}"), compiled$body)
+  } else {
+    compiled$body
+  }
 
-  loop_header <- glue("do {var_name} = {iterable}")
+  loop_header <- glue("do {index@name} = {iterable}")
   Fortran(glue(
     "{str_flatten_lines(compiled$directives$prefix, loop_header)}
-    {indent(compiled$body)}
+    {indent(loop_body)}
     end do
     {str_flatten_lines(compiled$directives$suffix, compiled$error_check_after)}
     "

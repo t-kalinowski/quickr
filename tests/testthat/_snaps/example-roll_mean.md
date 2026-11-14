@@ -45,6 +45,7 @@
         ! locals
         integer(c_int) :: n
         integer(c_int) :: i
+        integer(c_int) :: tmp1_
         ! manifest end
       
       
@@ -62,7 +63,8 @@
             weights = ((weights / btmp1_) * size(weights))
           end block
         end if
-        do i = 1, size(out)
+        do tmp1_ = 1, size(out)
+          i = tmp1_
           block
             real(c_double) :: btmp1_
       
