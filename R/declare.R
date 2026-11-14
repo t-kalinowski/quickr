@@ -13,6 +13,15 @@
 #' `seq_along()`, `seq()`), and `sapply()` iterates over vector inputs with a
 #' known length.
 #'
+#' Parallel iterations must be independent. quickr rejects recognizable
+#' scalar accumulators such as `total <- total + x[i]` when `total` was
+#' defined before the parallel loop. It also rejects calls to local closures
+#' that write captured scalars, including `sapply()` callbacks. Use a serial
+#' loop for these updates; parallel reductions are not yet supported.
+#' These checks do not detect every dependency between iterations. Independent
+#' array-element writes and accumulators local to an `sapply()` callback remain
+#' supported.
+#'
 #' Control the number of OpenMP threads using environment variables such as
 #' `OMP_NUM_THREADS` (threads per region), `OMP_THREAD_LIMIT` (global cap),
 #' and `OMP_DYNAMIC` (disable/enable runtime adjustment). Set them before
