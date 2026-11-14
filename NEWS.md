@@ -1,6 +1,6 @@
 # quickr (development version)
 
-- `quick()` stores the original R function in its `quickr_original` attribute.
+- `quick()` stores the original R function in its `original_fun` attribute.
   This preserves the function's body, defaults, attributes, and enclosing
   environment for inspection or saving and recompiling in another R session.
 

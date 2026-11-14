@@ -24,7 +24,7 @@ test_that("quick returns a closure in package context when named", {
   }
   qfn <- pkg_call(fn)
   expect_true(is.function(qfn))
-  expect_identical(attr(qfn, "quickr_original", exact = TRUE), fn)
+  expect_identical(attr(qfn, "original_fun", exact = TRUE), fn)
 })
 
 test_that("quick activates the collector during pkgload load_code", {
@@ -51,7 +51,7 @@ test_that("quick activates the collector during pkgload load_code", {
 
   expect_true(is.function(qfn))
   expect_true(quickr:::collector$is_active())
-  expect_identical(attr(qfn, "quickr_original", exact = TRUE), fn)
+  expect_identical(attr(qfn, "original_fun", exact = TRUE), fn)
 })
 
 test_that("quick retains the input function before rewriting it", {
@@ -69,11 +69,11 @@ test_that("quick retains the input function before rewriting it", {
   attr(fn, "purpose") <- "test metadata"
 
   qfn <- quick(fn, name = "compiled_name")
-  original <- attr(qfn, "quickr_original", exact = TRUE)
+  original <- attr(qfn, "original_fun", exact = TRUE)
   expect_identical(original, fn)
   expect_identical(formals(qfn), formals(fn))
   expect_identical(environment(qfn), environment(fn))
-  expect_null(attr(fn, "quickr_original", exact = TRUE))
+  expect_null(attr(fn, "original_fun", exact = TRUE))
   expect_identical(qfn(), fn())
   expect_identical(qfn(9L), fn(9L))
 
@@ -92,7 +92,7 @@ test_that("the retained function can be saved and compiled again", {
   }
   qfn <- quick("saved_original", fn)
   path <- withr::local_tempfile(fileext = ".rds")
-  saveRDS(attr(qfn, "quickr_original", exact = TRUE), path)
+  saveRDS(attr(qfn, "original_fun", exact = TRUE), path)
   original <- readRDS(path)
 
   expect_identical(body(original), body(fn))

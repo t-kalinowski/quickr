@@ -16,7 +16,7 @@ regular usage but required in an R package. As a convenience, arguments
 }
 \value{
 A quicker R function, with the original R function stored in the
-\code{quickr_original} attribute.
+\code{original_fun} attribute.
 }
 \description{
 Compile an R function.
@@ -137,7 +137,7 @@ To disable the macOS auto-preference, set
 
 \subsection{Recovering the original function}{
 
-\code{attr(compiled, "quickr_original", exact = TRUE)} retrieves the R function
+\code{attr(compiled, "original_fun", exact = TRUE)} retrieves the R function
 passed to \code{quick()}, including its body, arguments, attributes, and enclosing
 environment. The environment is retained by reference, as with ordinary R
 functions; its contents are not frozen at compilation time.
@@ -145,7 +145,7 @@ functions; its contents are not frozen at compilation time.
 To move a compiled function to another R session, save the original function
 and compile it again there:
 
-\if{html}{\out{<div class="sourceCode r">}}\preformatted{saveRDS(attr(compiled, "quickr_original", exact = TRUE), "original.rds")
+\if{html}{\out{<div class="sourceCode r">}}\preformatted{saveRDS(attr(compiled, "original_fun", exact = TRUE), "original.rds")
 # In another R session with quickr and a Fortran compiler available:
 compiled <- quick(readRDS("original.rds"))
 }\if{html}{\out{</div>}}

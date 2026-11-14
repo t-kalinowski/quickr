@@ -126,7 +126,7 @@
 #'
 #' ## Recovering the original function
 #'
-#' `attr(compiled, "quickr_original", exact = TRUE)` retrieves the R function
+#' `attr(compiled, "original_fun", exact = TRUE)` retrieves the R function
 #' passed to `quick()`, including its body, arguments, attributes, and enclosing
 #' environment. The environment is retained by reference, as with ordinary R
 #' functions; its contents are not frozen at compilation time.
@@ -135,7 +135,7 @@
 #' and compile it again there:
 #'
 #' ```r
-#' saveRDS(attr(compiled, "quickr_original", exact = TRUE), "original.rds")
+#' saveRDS(attr(compiled, "original_fun", exact = TRUE), "original.rds")
 #' # In another R session with quickr and a Fortran compiler available:
 #' compiled <- quick(readRDS("original.rds"))
 #' ```
@@ -146,7 +146,7 @@
 #' native code across sessions.
 #'
 #' @returns A quicker R function, with the original R function stored in the
-#'   `quickr_original` attribute.
+#'   `original_fun` attribute.
 #' @export
 #' @examples
 #' \donttest{
@@ -209,7 +209,7 @@ quick <- function(fun, name = NULL) {
   attr(fun, "name") <- name
   fun <- compile(r2f(fun))
   attr(fun, "name") <- NULL
-  attr(fun, "quickr_original") <- original
+  attr(fun, "original_fun") <- original
 
   fun
 }
@@ -527,7 +527,7 @@ create_quick_closure <- function(
     native_symbol,
     lapply(names(formals(closure)), as.name)
   ))
-  attr(closure, "quickr_original") <- original
+  attr(closure, "original_fun") <- original
   closure
 }
 
