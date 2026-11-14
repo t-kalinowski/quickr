@@ -54,10 +54,8 @@ openmp_private_vars <- function(scope) {
   scope_get(scope, "openmp_private_vars", character())
 }
 
-# Parallel iterations must be independent. Whole-binding writes to enclosing
-# state are not analyzed as reductions: shared writes can race, while private
-# copies do not reproduce serial updates. Detecting these cases and providing
-# reduction semantics are deferred; callers must use serial loops for them.
+# Parallel iterations must be independent. Private copies do not reproduce
+# serial accumulation; enclosing scalar accumulators are rejected separately.
 register_openmp_private <- function(scope, name) {
   stopifnot(inherits(scope, "quickr_scope"), is_string(name))
   if (!scope_in_openmp(scope)) {
@@ -69,6 +67,75 @@ register_openmp_private <- function(scope, name) {
     unique(c(openmp_private_vars(scope), name))
   )
   invisible(scope)
+}
+
+# Detect direct read/modify/write updates to scalars that already existed at
+# entry to the region. This deliberately does not infer reductions or prove
+# independence of arrays, fresh loop locals, or multi-statement dependencies.
+check_openmp_accumulators <- function(body, scalars, private = character()) {
+  scalars <- scalars[!scalars %in% private]
+  if (!length(scalars)) {
+    return(invisible())
+  }
+
+  reads <- function(expr, name) {
+    if (is_missing(expr)) {
+      return(FALSE)
+    }
+    if (is.symbol(expr)) {
+      return(identical(as.character(expr), name))
+    }
+    if (!is.call(expr) || is_function_call(expr) || is_call(expr, "declare")) {
+      return(FALSE)
+    }
+    any(vapply(as.list(expr)[-1L], reads, logical(1L), name = name))
+  }
+
+  inspect <- function(expr) {
+    if (!is.call(expr) || is_function_call(expr) || is_call(expr, "declare")) {
+      return(invisible())
+    }
+    callable <- unwrap_parens(expr[[1L]])
+    if (
+      (identical(callable, quote(`<-`)) || identical(callable, quote(`=`))) &&
+        is.symbol(expr[[2L]])
+    ) {
+      name <- as.character(expr[[2L]])
+      if (name %in% names(scalars) && reads(expr[[3L]], name)) {
+        stop(
+          "parallel()/omp() does not support shared scalar accumulator `",
+          name,
+          "`. Use a serial loop for accumulation; parallel reductions are not yet supported.",
+          call. = FALSE
+        )
+      }
+    }
+    for (arg in as.list(expr)[-1L]) {
+      if (!is_missing(arg)) {
+        inspect(arg)
+      }
+    }
+    invisible()
+  }
+  inspect(body)
+}
+
+# Generated procedures access captured storage through host association, even
+# when the caller uses an OpenMP private copy. Any captured scalar write can
+# race; the existing binding-based effect summary also includes nested calls.
+check_openmp_captured_writes <- function(writes) {
+  for (binding in writes) {
+    var <- get0(binding$name, binding$scope, inherits = FALSE)
+    if (inherits(var, Variable) && passes_as_scalar(var)) {
+      stop(
+        "parallel()/omp() cannot write captured scalar `",
+        binding$name,
+        "`. Use a serial loop or a callback-local variable.",
+        call. = FALSE
+      )
+    }
+  }
+  invisible()
 }
 
 enter_openmp_scope <- function(scope) {

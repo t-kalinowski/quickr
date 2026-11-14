@@ -121,13 +121,57 @@ r2f_handlers[["while"]] <- function(args, scope, ..., hoist = NULL) {
 # the compiled body together with the loop's OpenMP directives and
 # post-loop error check, which must be computed while the OpenMP scope is
 # still entered.
-compile_for_body <- function(body, scope, ..., parallel, private = NULL) {
+compile_for_body <- function(
+  body,
+  scope,
+  ...,
+  parallel,
+  private = NULL,
+  loop_var
+) {
   if (!is.null(parallel)) {
+    # Keep the entry bindings: translation may add locals or overwrite a
+    # binding's metadata. Loop variables are private, including serial indices
+    # registered while translating the body.
+    names <- setdiff(all.vars(body), loop_var)
+    vars <- lapply(names, get0, envir = scope)
+    scalars <- vapply(
+      vars,
+      function(var) {
+        if (inherits(var, Variable) && passes_as_scalar(var)) var@name else ""
+      },
+      character(1L)
+    )
+    names(scalars) <- names
+    scalars <- scalars[nzchar(scalars)]
+
     previous_openmp <- enter_openmp_scope(scope)
     on.exit(exit_openmp_scope(scope, previous_openmp), add = TRUE)
+
+    # Earlier serial closure calls must neither trigger this check nor hide
+    # a repeated write when the same closure is called inside the region.
+    prior_writes <- scope_get(scope, "host_writes", list())
+    scope_set(scope, "host_writes", list())
+    on.exit(
+      {
+        for (binding in prior_writes) {
+          scope_mark_host_write(scope, binding)
+        }
+      },
+      add = TRUE
+    )
   }
-  body <- r2f(body, scope, ..., hoist = NULL)
+  compiled_body <- r2f(body, scope, ..., hoist = NULL)
   check_pending_parallel_consumed(scope)
+
+  if (!is.null(parallel)) {
+    check_openmp_accumulators(
+      body,
+      scalars,
+      private = c(private, openmp_private_vars(scope))
+    )
+    check_openmp_captured_writes(scope_get(scope, "host_writes", list()))
+  }
 
   directives <- openmp_directives(
     parallel,
@@ -145,7 +189,7 @@ compile_for_body <- function(body, scope, ..., parallel, private = NULL) {
     ""
   }
   list(
-    body = body,
+    body = compiled_body,
     directives = directives,
     error_check_after = error_check_after
   )
@@ -246,7 +290,8 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
       scope,
       ...,
       parallel = parallel,
-      private = var_name
+      private = var_name,
+      loop_var = var
     )
     loop_stmts <- str_flatten_lines(
       glue("{var_name} = {element_expr}"),
@@ -307,7 +352,13 @@ r2f_handlers[["for"]] <- function(args, scope, ..., hoist = NULL) {
       add = TRUE
     )
   }
-  compiled <- compile_for_body(body, scope, ..., parallel = parallel)
+  compiled <- compile_for_body(
+    body,
+    scope,
+    ...,
+    parallel = parallel,
+    loop_var = var
+  )
   if (
     !is.null(private_binding) &&
       any(vapply(
