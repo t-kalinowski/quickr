@@ -27,6 +27,15 @@ iterate values over symbols or index iterables (\code{1:n}, \code{seq_len()},
 \code{seq_along()}, \code{seq()}), and \code{sapply()} iterates over vector inputs with a
 known length.
 
+Parallel iterations must be independent. quickr rejects recognizable
+scalar accumulators such as \code{total <- total + x[i]} when \code{total} was
+defined before the parallel loop. It also rejects calls to local closures
+that write captured scalars, including \code{sapply()} callbacks. Use a serial
+loop for these updates; parallel reductions are not yet supported.
+These checks do not detect every dependency between iterations. Independent
+array-element writes and accumulators local to an \code{sapply()} callback remain
+supported.
+
 Control the number of OpenMP threads using environment variables such as
 \code{OMP_NUM_THREADS} (threads per region), \code{OMP_THREAD_LIMIT} (global cap),
 and \code{OMP_DYNAMIC} (disable/enable runtime adjustment). Set them before

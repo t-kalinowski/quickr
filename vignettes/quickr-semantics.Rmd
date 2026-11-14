@@ -545,15 +545,56 @@ before the loop can still be read normally.
 
 ### Parallel loops require independent iterations
 
-`declare(parallel())` requests OpenMP execution. Each iteration must be
-independent: it must not update shared state that another iteration reads or
-writes. For example, `x <- x + 1L` on an enclosing binding is not a supported
-parallel reduction. It can race or have different binding behavior from R.
-Automatic detection of these writes and explicit reduction semantics remain
-separate work. Use serial execution for dependent iterations, and do not rely
-on the final values of private loop locals after a parallel region.
-An inner serial loop's variable is private too. A closure that writes this
-variable through a captured binding is rejected during compilation.
+`declare(parallel())` and `declare(omp())` request OpenMP execution. Each
+iteration must be independent: it must not update shared state that another
+iteration reads or writes.
+
+quickr rejects recognizable scalar accumulators. For example, this loop reads
+and writes the same `total` across iterations:
+
+```{r}
+loop_sum <- function(x) {
+  declare(type(x = double(NA)))
+  total <- 0.0
+  declare(parallel())
+  for (i in seq_along(x)) {
+    total <- total + x[i]
+  }
+  total
+}
+quick(loop_sum) # Rejected: shared scalar accumulator
+```
+
+The check covers updates that read their own scalar target, such as
+`total <- max(total, x[i])`, when that scalar was defined before the parallel
+loop. Calls to local closures that write captured scalars are also rejected,
+including `sapply()` callbacks. Remove the parallel declaration to accumulate
+serially; explicit parallel reductions are not yet supported.
+
+Independent array-element writes such as `out[i] <- x[i] * 2` remain supported.
+An `sapply()` callback can also initialize and update its own local accumulator:
+
+```{r}
+row_sums <- function(x) {
+  declare(type(x = double(NA, NA)))
+  declare(parallel())
+  out <- sapply(seq_len(nrow(x)), function(i) {
+    total <- 0.0
+    for (j in seq_len(ncol(x))) {
+      total <- total + x[i, j]
+    }
+    total
+  })
+  out
+}
+```
+
+These checks do not prove that iterations are independent. Dependencies through
+arrays or several assignments can still go undetected. A scalar first assigned
+inside a `for` body is not automatically private. Do not rely on the final
+values of private loop locals after a parallel region. An inner serial loop's
+variable is private too; a closure that writes it through a captured binding
+is also rejected.
 
 ### Local variables and closures
 

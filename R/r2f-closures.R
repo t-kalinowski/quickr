@@ -1510,6 +1510,10 @@ compile_sapply_assignment <- function(
     defer_errors = isTRUE(hoist$defer_builtin_arity_error)
   )
 
+  if (!is.null(parallel) || scope_in_openmp(scope)) {
+    check_openmp_captured_writes(proc$host_writes)
+  }
+
   if (!target_exists) {
     inferred <- proc$res_var
     if (is.null(inferred@mode)) {

@@ -1,5 +1,10 @@
 # quickr (development version)
 
+- `declare(parallel())` and `declare(omp())` reject recognizable updates to
+  shared scalar accumulators, and local closure calls that write captured
+  scalars. Use serial loops for these updates; explicit parallel reductions
+  remain unsupported (#98).
+
 - `quick()` stores the original R function in its `original_fun` attribute.
   This preserves the function's body, defaults, attributes, and enclosing
   environment for inspection or saving and recompiling in another R session.
