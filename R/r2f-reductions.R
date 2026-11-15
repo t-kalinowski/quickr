@@ -4,9 +4,8 @@
 # - logical: any, all
 # - index: which.max, which.min
 
-# Known limitations (deferred): scalar masked extrema do not model an empty
-# selection. Multi-argument reductions may lose value/mask evaluation order
-# when later arguments mutate captures or fail during lowering.
+# Known limitation (deferred): multi-argument reductions may lose value/mask
+# evaluation order when later arguments mutate captures or fail during lowering.
 # --- Helpers ---
 
 # Data argument names do not change a reduction. `na.rm` is the one named
@@ -85,23 +84,39 @@ register_r2f_handler(
       arg_dots$hoist <- arg_hoist
       x <- lower_masked_reduction_arg(arg, scope, mask_hoist, arg_dots)
       hoisted_mask <- mask_hoist$get_hoisted()
+      mask_condition <- if (!is.null(hoisted_mask)) {
+        if (
+          passes_as_scalar(hoisted_mask@value) &&
+            !renders_as_array_constructor(hoisted_mask)
+        ) {
+          as.character(hoisted_mask)
+        } else {
+          glue("any({hoisted_mask})")
+        }
+      }
       nonempty <- TRUE
       empty_condition <- NULL
-      if (call_name %in% c("min", "max") && !x@value@is_scalar) {
-        element_count <- var_element_count(x@value)
+      if (
+        call_name %in%
+          c("min", "max") &&
+          (!x@value@is_scalar || !is.null(hoisted_mask))
+      ) {
         if (!is.null(hoisted_mask)) {
-          nonempty <- glue("any({hoisted_mask})")
+          nonempty <- mask_condition
           empty_condition <- glue(".not. ({nonempty})")
-        } else if (!is.na(element_count)) {
-          nonempty <- element_count > 0
         } else {
-          x <- hoist_unless_name(x, arg_hoist)
-          nonempty <- glue(
-            "size({x}, kind=c_ptrdiff_t) > 0_c_ptrdiff_t"
-          )
-          empty_condition <- glue(
-            "size({x}, kind=c_ptrdiff_t) == 0_c_ptrdiff_t"
-          )
+          element_count <- var_element_count(x@value)
+          if (!is.na(element_count)) {
+            nonempty <- element_count > 0
+          } else {
+            x <- hoist_unless_name(x, arg_hoist)
+            nonempty <- glue(
+              "size({x}, kind=c_ptrdiff_t) > 0_c_ptrdiff_t"
+            )
+            empty_condition <- glue(
+              "size({x}, kind=c_ptrdiff_t) == 0_c_ptrdiff_t"
+            )
+          }
         }
 
         if (!allow_empty) {
@@ -131,7 +146,25 @@ register_r2f_handler(
         sprintf("%s()", call_name)
       )
       out <- if (x@value@is_scalar) {
-        x
+        if (!is.null(hoisted_mask) && call_name %in% c("sum", "prod")) {
+          # A false mask selects no values. Retain the reduction's identity
+          # with a scalar selection, without allocating an array to reduce.
+          identity <- if (call_name == "prod") 1 else 0
+          identity <- atomic2Fortran(as.vector(identity, mode = mode))
+          scalar <- if (renders_as_array_constructor(x)) {
+            glue("{intrinsic}({x})")
+          } else {
+            x
+          }
+          Fortran(
+            glue("merge({scalar}, {identity}, {mask_condition})"),
+            Variable(mode)
+          )
+        } else {
+          # Extrema use the nonempty guard above, or skip this argument in
+          # the multi-argument accumulation below when its mask is false.
+          x
+        }
       } else {
         s <- glue(
           if (is.null(hoisted_mask)) {

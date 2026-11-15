@@ -302,8 +302,10 @@ returns `4` in R and `5` in quickr.
 R returns `Inf` from `min()` and `-Inf` from `max()` when the input is empty.
 quickr rejects ordinary array reductions when every input is empty. Empty
 operands in a multi-argument call are ignored when another operand
-contributes a value. Scalar logical selections are not covered by these
-empty-input checks; avoid reductions over such selections.
+contributes a value. These checks also cover length-one inputs selected by
+length-one logical masks: a false mask contributes no value. For `sum()` and
+`prod()`, the same empty selection returns zero and one, respectively, with
+the reduction's usual result type.
 
 Empty `which.min()` and `which.max()` inputs also differ. R returns
 `integer(0)`; quickr returns the scalar index produced by Fortran's

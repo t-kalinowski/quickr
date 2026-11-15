@@ -69,6 +69,11 @@
   Unsupported values of `na.rm` still report a compile-time error. Empty
   `sum()` and `prod()` calls return their usual identities.
 
+- Numeric reductions honor logical masks on length-one inputs. A false mask
+  gives `sum()` its empty identity of zero and `prod()` its identity of one.
+  `min()` and `max()` ignore the empty selection when another argument
+  contributes a value, and report an error when every selection is empty.
+
 - `prod()` now returns double for integer and logical inputs, matching R.
   Values are converted before multiplication, so products such as
   `prod(c(50000L, 50000L))` no longer overflow an integer. This also applies
