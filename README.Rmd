@@ -161,28 +161,34 @@ plot(timings) + bench::scale_x_bench_time(base = NULL)
 In the case of `convolve()`, `quick()` returns a function approximately
 *200* times quicker, with performance similar to the C function.
 
-`quick()` can accelerate any R function, with some restrictions:
+`quick()` compiles a numerical subset of R, with some restrictions:
 
 -   Function arguments must have their types and shapes declared using
     `declare()`.
--   Only atomic vectors, matrices, and array are currently supported:
+-   Only atomic vectors, matrices, and arrays are currently supported:
     `integer`, `double`, `logical`, and `complex`.
--   The return value must be an atomic array (e.g., not a list)
--   Named variables must have consistent shapes throughout their
-    lifetimes.
+-   Functions can return an atomic vector, matrix, or array, or several
+    such values in an optionally named `list()`.
+-   Variables keep their declared types and ranks. Their dimensions must
+    also remain compatible with their declarations; local arrays declared
+    with `NA` dimensions can resize on same-rank assignment.
 -   `NA` values are not supported.
 -   Only a subset of R's vocabulary is currently supported.
 
 ```{r, echo = FALSE}
 quickr:::r2f_handlers |> names() |>
   (\(x) x[order(grepl("^[a-z]", x), grepl("^[A-Z]", x), x)])() |>
-  noquote()
+  noquote() |>
+  capture.output() |>
+  trimws(which = "right") |>
+  writeLines()
 ```
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
-numerical computing, so features like polymorphic dispatch or support
-for complex or dynamic types are out of scope.
+numerical computing, so features like polymorphic dispatch or arbitrary
+dynamic types are out of scope. The [semantics vignette](vignettes/quickr-semantics.Rmd)
+describes the supported types, shapes, and differences from R.
 
 ## `declare(type())` syntax:
 
@@ -222,10 +228,10 @@ declare(type(x = double(n)),
 Tip: declare shapes as specifically as you can. quickr uses these size
 constraints both for compile-time checking and for choosing more
 efficient implementations. For example, if you know a matrix is square,
-declare it as `type(A = double(n, n))` (not `double(n, k)`). That can
-allow quickr to use a faster code path for operations like
-`solve(A, b)`. If the compiler can't prove a matrix is square, it may
-need to fall back to a more general rectangular solver.
+declare it as `type(A = double(n, n))`. This establishes squareness at
+the function boundary, so `solve(A, b)` does not need to check it again
+inside the function. `solve()` requires a square coefficient matrix;
+use `qr.solve()` for rectangular least-squares problems.
 
 ## More examples:
 
@@ -543,12 +549,12 @@ with 12 cores, the speedup is closer to \~6x).
 colSums_quick_parallel <- quick(function(x) {
   declare(type(x = double(NA, NA)))
   declare(parallel())
-  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+  sapply(seq_len(ncol(x)), \(j) sum(x[, j]))
 })
 
 colSums_quick <- quick(function(x) {
   declare(type(x = double(NA, NA)))
-  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+  sapply(seq_len(ncol(x)), \(j) sum(x[, j]))
 })
 
 r <- bench::press(
