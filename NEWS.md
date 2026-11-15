@@ -38,6 +38,9 @@
   that depend on callee formals or assigned locals, or whose bindings are hidden
   at the call site, require explicit arguments.
 
+- Local helpers such as `yes <- function() TRUE` now compile without an
+  internal error, both as ordinary calls and in `&&` or `||` expressions.
+
 - BLAS operations can write directly into an existing destination with symbolic
   dimensions. They check its stored extents before writing, avoiding a temporary
   result and copy. Deferred-shape destinations still resize through assignment.

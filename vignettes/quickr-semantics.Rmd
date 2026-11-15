@@ -663,6 +663,10 @@ when the left side does not decide the answer, so a guarded access like
 `n`. Use `&` and `|`
 for vectors; assignment expressions in `&&` and `||` are not supported.
 
+The right operand can call a local helper, including one that takes no
+arguments and returns a logical constant: `yes <- function() TRUE`, followed
+by `flag && yes()`.
+
 ### Local closures accept only pure argument expressions
 
 R evaluates function arguments lazily. Local closures inside compiled

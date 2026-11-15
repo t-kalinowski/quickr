@@ -181,6 +181,7 @@ iso_c_binding_symbols <- function(
 ) {
   stopifnot(is.list(vars), is_string(body_code), is.function(logical_is_c_int))
 
+  # Native logical values need no C bindings; retain a vector for the sort.
   used_iso_bindings <- unique(unlist(
     use.names = FALSE,
     lapply(vars, function(var) {
@@ -205,7 +206,8 @@ iso_c_binding_symbols <- function(
         })
       )
     })
-  ))
+  )) %||%
+    character()
 
   # check for literal kinds used in the body
   if (grepl("\\b[0-9]+_c_int\\b", body_code)) {
