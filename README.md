@@ -128,47 +128,51 @@ plot(timings) + bench::scale_x_bench_time(base = NULL)
 In the case of `convolve()`, `quick()` returns a function approximately
 *200* times quicker, with performance similar to the C function.
 
-`quick()` can accelerate any R function, with some restrictions:
+`quick()` compiles a numerical subset of R, with some restrictions:
 
 - Function arguments must have their types and shapes declared using
   `declare()`.
-- Only atomic vectors, matrices, and array are currently supported:
+- Only atomic vectors, matrices, and arrays are currently supported:
   `integer`, `double`, `logical`, and `complex`.
-- The return value must be an atomic array (e.g., not a list)
-- Named variables must have consistent shapes throughout their
-  lifetimes.
+- Functions can return an atomic vector, matrix, or array, or several
+  such values in an optionally named `list()`.
+- Variables keep their declared types and ranks. Their dimensions must
+  also remain compatible with their declarations; local arrays declared
+  with `NA` dimensions can resize on same-rank assignment.
 - `NA` values are not supported.
 - Only a subset of R’s vocabulary is currently supported.
 
 <!-- -->
 
-    #>   [1] -            :            !            !=           (           
-    #>   [6] [            [<-          [<<-         {            *           
-    #>  [11] /            &            &&           %*%          %/%         
-    #>  [16] %%           %o%          ^            +            <           
-    #>  [21] <-           <<-          <=           =            ==          
-    #>  [26] >            >=           |            ||           $           
-    #>  [31] Arg          Conj         Fortran      Im           Mod         
-    #>  [36] Re           abs          acos         all          any         
-    #>  [41] array        as.double    as.integer   asin         atan        
-    #>  [46] backsolve    break        c            cat          cbind       
-    #>  [51] ceiling      character    chol         chol2inv     cos         
-    #>  [56] crossprod    declare      diag         dim          double      
-    #>  [61] drop         exp          floor        for          forwardsolve
-    #>  [66] if           ifelse       integer      is.null      length      
-    #>  [71] log          log10        logical      matrix       max         
-    #>  [76] min          ncol         next         nrow         numeric     
-    #>  [81] outer        print        prod         qr.solve     raw         
-    #>  [86] rbind        rep.int      repeat       rev          runif       
-    #>  [91] seq          seq_along    seq_len      sin          solve       
-    #>  [96] sqrt         stop         sum          svd          t           
-    #> [101] tan          tanh         tcrossprod   trunc        which.max   
-    #> [106] which.min    while
+    #>   [1] -            :            !            !=           (
+    #>   [6] [            [<-          [<<-         {            *
+    #>  [11] /            &            &&           %*%          %/%
+    #>  [16] %%           %o%          ^            +            <
+    #>  [21] <-           <<-          <=           =            ==
+    #>  [26] >            >=           |            ||           $
+    #>  [31] Arg          Conj         Fortran      Im           Mod
+    #>  [36] Re           abs          acos         all          any
+    #>  [41] array        as.double    as.integer   as.vector    asin
+    #>  [46] atan         backsolve    break        c            cat
+    #>  [51] cbind        ceiling      character    chol         chol2inv
+    #>  [56] cos          crossprod    declare      diag         dim
+    #>  [61] double       drop         exp          floor        for
+    #>  [66] forwardsolve if           ifelse       integer      is.null
+    #>  [71] length       log          log10        logical      matrix
+    #>  [76] max          min          ncol         next         nrow
+    #>  [81] numeric      outer        print        prod         qr.solve
+    #>  [86] raw          rbind        rep.int      repeat       rev
+    #>  [91] runif        seq          seq_along    seq_len      sin
+    #>  [96] solve        sqrt         stop         sum          svd
+    #> [101] t            tan          tanh         tcrossprod   trunc
+    #> [106] which.max    which.min    while
 
 Many of these restrictions are expected to be relaxed as the project
 matures. However, quickr is intended primarily for high-performance
-numerical computing, so features like polymorphic dispatch or support
-for complex or dynamic types are out of scope.
+numerical computing, so features like polymorphic dispatch or arbitrary
+dynamic types are out of scope. The [semantics
+vignette](vignettes/quickr-semantics.Rmd) describes the supported types,
+shapes, and differences from R.
 
 ## `declare(type())` syntax:
 
@@ -208,10 +212,10 @@ declare(type(x = double(n)),
 Tip: declare shapes as specifically as you can. quickr uses these size
 constraints both for compile-time checking and for choosing more
 efficient implementations. For example, if you know a matrix is square,
-declare it as `type(A = double(n, n))` (not `double(n, k)`). That can
-allow quickr to use a faster code path for operations like
-`solve(A, b)`. If the compiler can’t prove a matrix is square, it may
-need to fall back to a more general rectangular solver.
+declare it as `type(A = double(n, n))`. This establishes squareness at
+the function boundary, so `solve(A, b)` does not need to check it again
+inside the function. `solve()` requires a square coefficient matrix; use
+`qr.solve()` for rectangular least-squares problems.
 
 ## More examples:
 
@@ -566,12 +570,12 @@ with 12 cores, the speedup is closer to ~6x).
 colSums_quick_parallel <- quick(function(x) {
   declare(type(x = double(NA, NA)))
   declare(parallel())
-  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+  sapply(seq_len(ncol(x)), \(j) sum(x[, j]))
 })
 
 colSums_quick <- quick(function(x) {
   declare(type(x = double(NA, NA)))
-  sapply(seq_len(nrow(x)), \(r) sum(x[, r]))
+  sapply(seq_len(ncol(x)), \(j) sum(x[, j]))
 })
 
 r <- bench::press(
